@@ -118,6 +118,38 @@ class JournalChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class BusinessJournalPolicy(Base):
+    __tablename__ = 'business_journal_policies'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    start_date: Mapped[str] = mapped_column(Text, nullable=False)
+    mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BusinessJournalPolicyChange(Base):
+    __tablename__ = 'business_journal_policy_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BusinessJournalSource(Base):
+    __tablename__ = 'business_journal_sources'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    journal_id: Mapped[int] = mapped_column(ForeignKey('journals.id'), nullable=False, unique=True)
+    source_key: Mapped[str] = mapped_column(Text, nullable=False)
+    active_key: Mapped[str | None] = mapped_column(Text, unique=True)
+    source_json: Mapped[str] = mapped_column(Text, nullable=False)
+    mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class OpeningBalance(Base):
     __tablename__ = 'opening_balances'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -1,4 +1,4 @@
-"""手工凭证：版本审计、独立审核和追加式冲销。"""
+"""总账凭证：版本审计、独立审核和追加式冲销。"""
 
 import json
 import re
@@ -18,6 +18,7 @@ from app.core.models import (
     Journal,
     JournalLine,
     JournalChange,
+    BusinessJournalSource,
     User,
 )
 from app.core.orm import add_model, model_data, orm_session
@@ -151,6 +152,9 @@ def snapshot(db: Session, record: Journal) -> dict:
     result["total_credit"] = (
         f'{sum(Decimal(line["credit"]) for line in result["lines"]):.2f}'
     )
+    source = db.scalar(select(BusinessJournalSource).where(BusinessJournalSource.journal_id == record.id))
+    result['business_source'] = (dict(key=source.source_key, evidence=json.loads(source.source_json),
+        mapping=json.loads(source.mapping_json), policy_version=source.policy_version) if source else None)
     return result
 
 
@@ -325,9 +329,10 @@ def update_journal(
             if (
                 record.status not in ("draft", "rejected")
                 or record.reversal_of_id is not None
+                or db.scalar(select(BusinessJournalSource.id).where(BusinessJournalSource.journal_id == record.id)) is not None
             ):
                 raise HTTPException(
-                    409, "仅手工草稿或驳回凭证可编辑；冲销草稿需取消后重建"
+                    409, "仅手工草稿或驳回凭证可编辑；业务或冲销草稿需取消后重建"
                 )
             before = snapshot(db, record)
             record.reference, record.journal_date, record.note = (
@@ -381,6 +386,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
         if action == "post":
             check_journal_opening(db, record.journal_date)
         if action in ("submit", "approve", "post"):
+            from app.finance.business_journals import validate_source
+            validate_source(db, record)
             validate_for_post(db, record)
         record.status, record.version = target[action], record.version + 1
         prefix = {
@@ -397,6 +404,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
             datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         )
         db.flush()
+        from app.finance.business_journals import release_source
+        release_source(db, record)
         audit(db, record, before, action, data.reason, user["id"])
         return view(db, record)
 
@@ -456,7 +465,7 @@ def reverse(
         with orm_session(write=True) as db:
             original = get_journal(db, journal_id, data.version)
             if original.status != "posted" or original.reversal_of_id is not None:
-                raise HTTPException(409, "仅已过账的原始手工凭证可建立冲销")
+                raise HTTPException(409, "仅已过账的原始凭证可建立冲销")
             if data.journal_date < original.journal_date:
                 raise HTTPException(409, "冲销日期不能早于原凭证日期")
             existing = db.scalar(

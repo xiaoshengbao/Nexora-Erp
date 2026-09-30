@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 43:
+        if version > 44:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1403,3 +1403,33 @@ def migrate() -> None:
             db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [('admin',code) for code,_ in operations] + [('finance','accounting_period.close'), ('finance','accounting_period.closing_view')])
             db.execute("PRAGMA user_version = 43")
+
+        if version < 44:
+            if not db.in_transaction:
+                db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE business_journal_policies (
+                id INTEGER PRIMARY KEY CHECK(id=1), start_date TEXT NOT NULL,
+                mapping_json TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
+            db.execute("""CREATE TABLE business_journal_policy_changes (
+                id INTEGER PRIMARY KEY, before_json TEXT, after_json TEXT NOT NULL,
+                reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
+            db.execute("""CREATE TABLE business_journal_sources (
+                id INTEGER PRIMARY KEY, journal_id INTEGER NOT NULL UNIQUE REFERENCES journals(id),
+                source_key TEXT NOT NULL, active_key TEXT UNIQUE, source_json TEXT NOT NULL,
+                mapping_json TEXT NOT NULL, policy_version INTEGER NOT NULL CHECK(policy_version>0),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK(active_key IS NULL OR active_key=source_key)
+            )""")
+            db.execute("CREATE INDEX business_journal_sources_key ON business_journal_sources(source_key)")
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.business_journals','业务凭证','finance',54)")
+            operations = [('business_journal.view','查看业务凭证来源'),
+                ('business_journal.configure','配置业务凭证科目'), ('business_journal.generate','生成业务凭证草稿')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.business_journals')",operations)
+            db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
+                [(role,code) for role in ('admin','finance') for code,_ in operations])
+            db.execute("PRAGMA user_version = 44")

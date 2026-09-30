@@ -246,6 +246,17 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         body: { name: fields.name, version: fields.version, reason: fields.reason } }
     }
     case 'journals': return { method: 'GET', path: '/api/v1/finance/journals' }
+    case 'businessJournalSources': return { method: 'GET', path: '/api/v1/finance/business-journals' }
+    case 'businessJournalOptions': return { method: 'GET', path: '/api/v1/finance/business-journals/policy' }
+    case 'businessJournalPolicyChanges': return { method: 'GET', path: '/api/v1/finance/business-journals/policy/changes' }
+    case 'saveBusinessJournalPolicy': {
+      const { version, start_date, mapping, reason } = payload as ErpOperations['saveBusinessJournalPolicy']['input']
+      return { method: 'PUT', path: '/api/v1/finance/business-journals/policy', body: { version, start_date, mapping, reason } }
+    }
+    case 'generateBusinessJournal': {
+      const { source_key, fingerprint, policy_version, reference, journal_date, reason } = payload as ErpOperations['generateBusinessJournal']['input']
+      return { method: 'POST', path: '/api/v1/finance/business-journals/generate', body: { source_key, fingerprint, policy_version, reference, journal_date, reason } }
+    }
     case 'openingBalances': return { method: 'GET', path: '/api/v1/finance/opening-balances' }
     case 'openingBalanceOptions': return { method: 'GET', path: '/api/v1/finance/opening-balances/options' }
     case 'openingBalanceChanges': return { method: 'GET', path: `/api/v1/finance/opening-balances/${positiveId(payload, 'id')}/changes` }

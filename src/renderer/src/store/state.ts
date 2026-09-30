@@ -7,6 +7,10 @@ import type {
   LedgerAccount,
   Journal,
   JournalInput,
+  BusinessJournalCandidate,
+  BusinessJournalOptions,
+  BusinessJournalPolicy,
+  FinanceMetadataChange,
   OpeningBalance,
   OpeningBalanceInput,
   LedgerReportQuery,
@@ -111,6 +115,11 @@ export function createAppState() {
   const openingBalanceOptions = ref<{ accounts: LedgerAccount[]; period: AccountingPeriod | null }>({ accounts: [], period: null })
   const openingBalanceForm = ref<OpeningBalanceInput & { id: number | null; version: number }>({ id: null, version: 1, reference: '', effective_date: '', note: '', reason: '', lines: [] })
   const journals = ref<Journal[]>([])
+  const businessJournalSources = ref<BusinessJournalCandidate[]>([])
+  const businessJournalOptions = ref<BusinessJournalOptions | null>(null)
+  const businessJournalPolicyChanges = ref<FinanceMetadataChange<BusinessJournalPolicy>[]>([])
+  const businessJournalLoading = ref(false)
+  const businessJournalError = ref('')
   const ledgerReportQuery = ref<LedgerReportQuery>({ kind: 'trial_balance', from_date: '', to_date: '', account_id: null })
   const ledgerReportResult = ref<LedgerReportResult | null>(null)
   const ledgerReportAccounts = ref<LedgerAccount[]>([])
@@ -415,6 +424,11 @@ export function createAppState() {
     financeAccounts,
     ledgerAccounts,
     journals,
+    businessJournalSources,
+    businessJournalOptions,
+    businessJournalPolicyChanges,
+    businessJournalLoading,
+    businessJournalError,
     openingBalances,
     openingBalanceOptions,
     openingBalanceForm,
