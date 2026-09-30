@@ -205,16 +205,17 @@ export function createWebGLStage(board, requestFrame = () => {}) {
     }
     for (const connection of connections) {
       if (!connection.visible) continue
+      const opacity = connection.amount * (connection.alpha ?? 1)
       const points = trimPath(connection.points, connection.amount)
       // 三角带代替硬件宽线，保证不同 GPU 的线宽与柔边一致。
       for (const [halfWidth, alpha] of [[8, .075], [4, .18], [1.7, .95]]) {
         const p = lines.use(0, ribbonMesh(points, halfWidth))
-        p.uniform('u_canvas', canvasSize); p.uniform('u_color', [.015, .71, .61, alpha * connection.amount]); p.draw()
+        p.uniform('u_canvas', canvasSize); p.uniform('u_color', [.015, .71, .61, alpha * opacity]); p.draw()
       }
       const node = pointOnPath(connection.points, Math.min(connection.node, connection.amount))
       if (node) {
         const p = lines.use(1, quad)
-        p.uniform('u_canvas', canvasSize); p.uniform('u_center', node); p.uniform('u_radius', [7]); p.uniform('u_opacity', [connection.amount]); p.draw()
+        p.uniform('u_canvas', canvasSize); p.uniform('u_center', node); p.uniform('u_radius', [7]); p.uniform('u_opacity', [opacity]); p.draw()
       }
     }
     return true

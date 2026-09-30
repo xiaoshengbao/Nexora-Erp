@@ -1,4 +1,4 @@
-import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective } from './scene-geometry.mjs'
+import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
@@ -6,29 +6,34 @@ import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 const lerp = (a, b, p) => a + (b - a) * p
 const ease = p => 1 - (1 - clamp(p)) ** 3
-const segment = (p, start, end) => ease((p - start) / (end - start))
 const keys = ['receipt', 'stock', 'finance']
 export const intersectsStage = (rect, stage) => rect.right > stage.left && rect.left < stage.right && rect.bottom > stage.top && rect.top < stage.bottom
+export function cloneReflection(viewport) {
+  const clone = viewport.cloneNode(true)
+  const originals = viewport.querySelectorAll('input,select,textarea'), copies = clone.querySelectorAll('input,select,textarea')
+  originals.forEach((control, index) => { copies[index].value = control.value; copies[index].checked = control.checked })
+  for (const node of [clone, ...clone.querySelectorAll('*')]) {
+    for (const attr of [...node.attributes]) if (attr.name.startsWith('data-') || ['id', 'name', 'tabindex'].includes(attr.name)) node.removeAttribute(attr.name)
+  }
+  return clone
+}
 export function mountScene(doc = document, win = window) {
   const scene = doc.querySelector('.scroll-scene')
   if (!scene) return () => {}
   const board = scene.querySelector('.scene-board'), windows = keys.map(key => scene.querySelector(`[data-window="${key}"]`))
-  const reduced = win.matchMedia('(prefers-reduced-motion: reduce)'), mobile = win.matchMedia('(max-width: 760px)')
+  const reduced = win.matchMedia('(prefers-reduced-motion: reduce)'), mobile = win.matchMedia('(max-width: 760px), (max-width: 1000px) and (max-height: 619px)'), short = win.matchMedia('(max-height: 619px)')
   const buttons = [...scene.querySelectorAll('[data-stage]')], pause = scene.querySelector('[data-pause]')
   const captions = [...scene.querySelectorAll('[data-caption]')]
   let progress = 0, focused = null, manual = false, frame = 0, onScreen = true, tween = null, disposed = false
   let renderedWindows = sceneAt(0).windows, lastStage = -1, sandbox
   let pendingFocus = null
   let graphics
-  let resolvedWindows = []
+  let resolvedWindows = [], logicalAnchors = [], linksAlpha = 1, heldPose = false
   const refreshReflections = () => windows.forEach(el => {
     const reflection = el.querySelector('.window-reflection'), viewport = el.querySelector('.window-viewport')
-    reflection.innerHTML = viewport.outerHTML
-    reflection.querySelectorAll('*').forEach(node => {
-      for (const attr of [...node.attributes]) if (attr.name.startsWith('data-') || ['id', 'name', 'tabindex'].includes(attr.name)) node.removeAttribute(attr.name)
-    })
+    reflection.replaceChildren(cloneReflection(viewport))
   })
-  const staticMode = () => reduced.matches || mobile.matches
+  const staticMode = () => reduced.matches || mobile.matches || short.matches
   const targetProgress = () => {
     const rect = scene.getBoundingClientRect()
     return clamp(-rect.top / Math.max(1, rect.height - win.innerHeight))
@@ -38,36 +43,45 @@ export function mountScene(doc = document, win = window) {
     pause.textContent = manual ? pause.dataset.resume : pause.dataset.pause
     scene.dataset.mode = focused ? 'focus' : manual ? 'manual' : 'scroll'
   }
-  const anchors = () => {
-    const root = board.getBoundingClientRect()
-    const point = key => {
+  const measureAnchors = () => {
+    logicalAnchors = keys.map(key => {
       const element = board.querySelector(`[data-anchor="${key}"]`)
-      if (!element) return null
-      const rect = element.getBoundingClientRect(), pane = element.closest('.sandbox-content').getBoundingClientRect()
-      // 只连接当前页实际可见的来源，不把线连向未展示记录。
-      if (rect.bottom < pane.top || rect.top > pane.bottom) return null
-      const edge = key === 'stock' ? element.closest('tr').getBoundingClientRect() : rect
-      return { x: Math.min(edge.right, pane.right) - root.left, y: rect.top + rect.height / 2 - root.top, left: Math.max(edge.left, pane.left) - root.left }
-    }
-    return { root, points: keys.map(point) }
+      if (!element || !element.offsetHeight) return null
+      const viewport = element.closest('.window-viewport')
+      const local = (node, x, y) => {
+        for (let el = node; el && el !== viewport; el = el.offsetParent) { x += el.offsetLeft; y += el.offsetTop }
+        return [x, y]
+      }
+      const edge = key === 'stock' ? element.closest('tr') : element
+      const dot = key === 'receipt' ? element.querySelector('.anchor-dot') : null
+      return { source: element.textContent.trim(), left: local(edge, -5, edge.offsetHeight / 2), right: dot ? local(dot, dot.offsetWidth / 2, dot.offsetHeight / 2) : local(edge, edge.offsetWidth + 4, edge.offsetHeight / 2) }
+    })
   }
   const drawLines = () => {
-    const { root, points } = anchors(), state = sceneAt(progress)
+    const root = board.getBoundingClientRect(), state = sceneAt(progress), vertical = staticMode()
+    const points = keys.map((key, index) => {
+      const anchor = logicalAnchors[index]
+      if (!anchor) return null
+      if (vertical) {
+        const el = board.querySelector(`[data-anchor="${key}"]`), rect = el.getBoundingClientRect(), edge = key === 'stock' ? el.closest('tr').getBoundingClientRect() : rect
+        return { opacity: 1, source: anchor.source, left: [edge.left - root.left - 5, rect.top + rect.height / 2 - root.top], right: [edge.right - root.left + 4, rect.top + rect.height / 2 - root.top] }
+      }
+      const item = resolvedWindows[index], project = ([x, y]) => projectWindowPoint(item, x * item.scale, y * (item.scaleY ?? item.scale))
+      return { opacity: item.opacity, source: anchor.source, left: project(anchor.left), right: project(anchor.right) }
+    })
     const svg = board.querySelector('.connection-layer')
     svg.setAttribute('viewBox', `0 0 ${Math.max(1, root.width)} ${Math.max(1, root.height)}`)
     svg.style.height = `${root.height}px`
     const connections = []
     for (let i = 0; i < 2; i++) {
       const group = svg.querySelector(`[data-connection="${i}"]`), a = points[i], b = points[i + 1]
-      const financeSource = board.querySelector('[data-anchor="finance"]')?.textContent.trim()
-      const receiptSource = board.querySelector('[data-anchor="receipt"]')?.textContent.trim()
-      const sameSource = i === 0 || financeSource === receiptSource
-      const amount = staticMode() || focused ? 1 : state.lines[i]
-      group.style.opacity = a && b && amount > 0 && sameSource ? String(amount) : '0'
-      if (!a || !b) continue
-      const vertical = staticMode()
-      const x1 = a.x + 4, y1 = a.y, x2 = vertical ? b.x + 4 : b.left - 5, y2 = b.y
-      const bend = vertical ? 30 : Math.max(36, Math.abs(x2 - x1) * .45)
+      const route = connectionEndpoints(a, b, root.width, root.height, vertical)
+      const sameSource = a && b && a.source === b.source
+      const amount = vertical ? 1 : state.lines[i]
+      const alpha = route && sameSource ? linksAlpha : 0
+      group.style.opacity = String(alpha * amount)
+      if (!route || !sameSource || !alpha) { group.querySelectorAll('path').forEach(path => path.removeAttribute('d')); continue }
+      const { start: [x1, y1], end: [x2, y2], bend } = route
       const rail = root.width + 8
       const d = vertical ? `M ${x1} ${y1} C ${rail} ${y1}, ${rail} ${y1}, ${rail} ${y1 + 24} L ${rail} ${y2 - 24} C ${rail} ${y2}, ${rail} ${y2}, ${x2} ${y2}` : `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`
       const curve = vertical
@@ -78,18 +92,39 @@ export function mountScene(doc = document, win = window) {
       const node = group.querySelector('circle'), nodeProgress = staticMode() || focused ? 1 : state.nodes[i]
       const pos = pointOnPath(curve, nodeProgress)
       node.setAttribute('cx', String(pos[0])); node.setAttribute('cy', String(pos[1]))
-      connections.push({ points: curve, amount, node: nodeProgress, visible: amount > 0 && sameSource })
+      connections.push({ points: curve, amount, alpha, node: nodeProgress, visible: amount > 0 })
     }
     graphics?.draw({ width: root.width, height: root.height, layout: resolvedWindows, connections, progress, staticMode: staticMode(), ratio: win.devicePixelRatio })
   }
-  const apply = layout => {
-    renderedWindows = layout
-    const width = board.clientWidth
-    const compact = focused ? 0 : layout[0].compact
-    if (!staticMode()) board.style.height = `${lerp(Math.min(win.innerHeight - 220, 650), Math.max(360, Math.min(540, width * .34 + 30)), compact)}px`
-    else board.style.height = ''
-    resolvedWindows = layout.map(item => windowGeometry(item, width, board.clientHeight))
-    const placeWindow = (el, index) => {
+  const stageHeight = layout => {
+    const sticky = board.parentElement, style = win.getComputedStyle(sticky)
+    const chrome = [...sticky.children].filter(el => el !== board).reduce((sum, el) => {
+      const css = win.getComputedStyle(el)
+      return sum + el.offsetHeight + (parseFloat(css.marginTop) || 0) + (parseFloat(css.marginBottom) || 0)
+    }, (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0))
+    // 按真实说明、状态及按钮高度预留空间，临界高度也不裁掉顶部和底部。
+    return sceneBoardHeight(board.clientWidth, win.innerHeight, chrome, focused ? 0 : layout[0].compact)
+  }
+  const configure = layout => windows.forEach((el, index) => {
+    const item = layout[index]
+    el.style.setProperty('--logical-width', `${item.logicalWidth}px`)
+    el.style.setProperty('--logical-height', `${item.logicalHeight}px`)
+    el.classList.toggle('is-focused', !staticMode() && focused === keys[index])
+    el.classList.toggle('is-compact', !staticMode() && item.compact > .5)
+  })
+  const measure = layout => {
+    configure(layout)
+    const fitted = layout.map((item, index) => {
+      const pane = windows[index].querySelector('[data-content]')
+      const bottom = Math.max(0, ...[...pane.children].map(child => child.offsetHeight ? child.offsetTop - pane.offsetTop + child.offsetHeight : 0))
+      return fitWindowContent(item, bottom + parseFloat(win.getComputedStyle(pane).paddingBottom))
+    })
+    configure(fitted)
+    measureAnchors()
+    return fitted
+  }
+  const place = () => {
+    windows.forEach((el, index) => {
       const item = resolvedWindows[index]
       if (staticMode()) { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden') }
       else {
@@ -98,27 +133,15 @@ export function mountScene(doc = document, win = window) {
         el.style.setProperty('--logical-width', `${item.logicalWidth}px`)
         el.style.setProperty('--logical-height', `${item.logicalHeight}px`)
         el.style.setProperty('--ui-scale', String(item.scale))
+        el.style.setProperty('--ui-scale-y', String(item.scaleY ?? item.scale))
         el.style.transform = `translate3d(${item.left}px,${item.top}px,0) perspective(${perspective}px) rotateY(${item.rotation}deg)`
         el.style.opacity = String(item.opacity)
         el.style.zIndex = focused === keys[index] ? '3' : '2'
-        const hidden = item.opacity < .1 || !intersectsStage(el.getBoundingClientRect(), board.getBoundingClientRect()) || (focused && focused !== keys[index])
+        const hidden = item.opacity < .1 || item.left + item.pixelWidth < 0 || item.left > board.clientWidth || (focused && focused !== keys[index])
         el.inert = Boolean(hidden)
         if (hidden) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden')
       }
-      el.classList.toggle('is-focused', !staticMode() && focused === keys[index])
-      el.classList.toggle('is-compact', !staticMode() && item.compact > .5)
-    }
-    windows.forEach(placeWindow)
-    if (!staticMode()) {
-      // 先落实逻辑宽度和展示样式，再按内容末端计算完整高度，避免隐藏溢出来伪装无滚动条。
-      renderedWindows = layout.map((item, index) => {
-        const pane = windows[index].querySelector('[data-content]')
-        const bottom = Math.max(0, ...[...pane.children].map(child => child.offsetHeight ? child.offsetTop - pane.offsetTop + child.offsetHeight : 0))
-        return fitWindowContent(item, bottom + parseFloat(win.getComputedStyle(pane).paddingBottom))
-      })
-      resolvedWindows = renderedWindows.map(item => windowGeometry(item, width, board.clientHeight))
-      windows.forEach(placeWindow)
-    }
+    })
     const stage = focused ? keys.indexOf(focused) : sceneAt(progress).stage
     if (lastStage !== stage) {
       buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === stage)))
@@ -126,6 +149,14 @@ export function mountScene(doc = document, win = window) {
       lastStage = stage
     }
     drawLines()
+  }
+  const apply = layout => {
+    board.style.height = staticMode() ? '' : `${stageHeight(layout)}px`
+    renderedWindows = staticMode() ? layout : measure(layout)
+    if (staticMode()) { configure(layout); measureAnchors() }
+    resolvedWindows = renderedWindows.map(item => windowGeometry(item, board.clientWidth, board.clientHeight))
+    linksAlpha = 1
+    place()
   }
   const finishFocus = () => {
     if (!pendingFocus) return
@@ -138,15 +169,30 @@ export function mountScene(doc = document, win = window) {
     if (disposed || doc.hidden || !onScreen) return
     if (tween) {
       if (tween.start === null) tween.start = time
-      const q = ease((time - tween.start) / tween.duration)
+      const elapsed = time - tween.start, lead = Math.min(80, tween.duration * .2)
+      if (elapsed < lead) {
+        linksAlpha = tween.fromAlpha * (1 - ease(elapsed / lead))
+        place(); schedule(); return
+      }
+      if (!tween.to) {
+        renderedWindows = measure(tween.target)
+        tween.to = renderedWindows.map(item => windowGeometry(item, board.clientWidth, tween.toHeight))
+        refreshReflections()
+      }
+      const q = ease((elapsed - lead) / (tween.duration - lead))
       progress = lerp(tween.fromProgress, tween.toProgress, q)
-      const target = focused ? focusLayout(focused) : sceneAt(progress).windows
-      apply(target.map((item, index) => Object.fromEntries(Object.keys(item).map(k => [k, lerp(tween.from[index][k], item[k], q)]))))
+      const height = lerp(tween.fromHeight, tween.toHeight, q)
+      board.style.height = `${height}px`
+      resolvedWindows = tween.to.map((item, index) => interpolateWindowPose(tween.from[index], item, q, height))
+      // 重排发生后再显现来源；不把旧锚点插值成悬空端点。
+      linksAlpha = ease((q - .8) / .2)
+      place()
       if (q < 1) schedule()
       else { tween = null; finishFocus(); if (!manual) schedule() }
     } else {
       if (!manual && !staticMode()) progress = targetProgress()
-      apply(focused ? focusLayout(focused) : sceneAt(progress).windows)
+      if (heldPose) place()
+      else apply(focused ? focusLayout(focused) : sceneAt(progress).windows)
       finishFocus()
     }
   }
@@ -157,10 +203,18 @@ export function mountScene(doc = document, win = window) {
     if (!frame && !disposed && !doc.hidden && onScreen) frame = win.requestAnimationFrame(update)
   }
   graphics = createWebGLStage(board, schedule)
+  const startFlight = (p, duration) => {
+    const from = resolvedWindows.map(item => ({ ...item })), fromHeight = board.clientHeight
+    const target = focused ? focusLayout(focused) : sceneAt(p).windows
+    const toHeight = stageHeight(target)
+    tween = { from, target, to: null, fromAlpha: linksAlpha, fromHeight, toHeight, fromProgress: progress, toProgress: p, start: null, duration }
+    heldPose = false
+  }
   const move = (p, key = null, duration = 450) => {
     manual = true; focused = key
     pendingFocus = key
-    tween = staticMode() ? null : { from: renderedWindows.map(w => ({ ...w })), fromProgress: progress, toProgress: p, start: null, duration }
+    if (!staticMode()) startFlight(p, duration)
+    else tween = null
     if (staticMode()) {
       progress = p
       if (key) windows[keys.indexOf(key)].scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth', block: 'start' })
@@ -177,41 +231,56 @@ export function mountScene(doc = document, win = window) {
       if (manual) {
         focused = null; manual = false
         pendingFocus = null
-        tween = staticMode() ? null : { from: renderedWindows.map(w => ({ ...w })), fromProgress: progress, toProgress: targetProgress(), start: null, duration: 300 }
-      } else { manual = true; tween = null }
+        if (!staticMode()) startFlight(targetProgress(), 300)
+        else tween = null
+      } else { manual = true; heldPose = Boolean(tween); tween = null }
       syncControls(); schedule()
     }
   }
   const onFocus = event => { if (keys.includes(event.detail.key)) move(.9, event.detail.key) }
   const onInputFocus = event => {
     if (event.target.closest('.sandbox-content') && event.target.matches('input,select,textarea')) {
-      manual = true; tween = null; pendingFocus = null; syncControls()
+      manual = true; heldPose = Boolean(tween) || heldPose; tween = null; pendingFocus = null; syncControls()
     }
   }
   const onPreference = () => {
-    tween = null; focused = null; manual = false
+    tween = null; focused = null; manual = false; heldPose = false
     pendingFocus = null
     scene.classList.toggle('motion-enabled', !staticMode())
     scene.classList.toggle('mobile-motion', mobile.matches && !reduced.matches)
-    if (staticMode()) progress = 1
+    if (staticMode()) {
+      progress = 1; board.style.height = ''
+      // 偏好改变时即使舞台离屏，也不能把旧透视尺寸和 inert 留在纵向内容中。
+      windows.forEach(el => { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden'); el.classList.remove('is-focused', 'is-compact') })
+      board.querySelectorAll('[data-connection]').forEach(group => { group.style.opacity = '0' })
+      graphics?.draw({ staticMode: true })
+    }
     syncControls(); schedule()
   }
   const onVisibility = () => { if (doc.hidden && frame) { win.cancelAnimationFrame(frame); frame = 0 } else schedule() }
   const onScroll = () => { if (!manual || staticMode()) schedule() }
   scene.addEventListener('click', onClick)
   scene.addEventListener('sandbox:focus', onFocus)
-  const onRender = () => { refreshReflections(); schedule() }
+  const onRender = () => {
+    if (tween) startFlight(tween.toProgress, tween.duration)
+    else if (heldPose) {
+      renderedWindows = measure(renderedWindows)
+      resolvedWindows = resolvedWindows.map((pose, index) => ({ ...pose, logicalWidth: renderedWindows[index].logicalWidth, logicalHeight: renderedWindows[index].logicalHeight, scaleY: pose.pixelHeight / renderedWindows[index].logicalHeight }))
+    }
+    refreshReflections(); schedule()
+  }
   const onDetails = event => {
-    if (!event.target.closest('.window-reflection')) { refreshReflections(); schedule() }
+    if (!event.target.closest('.window-reflection')) onRender()
   }
   scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('toggle', onDetails, true)
   scene.addEventListener('focusin', onInputFocus)
   scene.addEventListener('scroll', schedule, true)
   win.addEventListener('scroll', onScroll, { passive: true })
-  win.addEventListener('resize', schedule)
+  const onResize = () => { heldPose = false; if (tween) startFlight(tween.toProgress, tween.duration); schedule() }
+  win.addEventListener('resize', onResize)
   doc.addEventListener('visibilitychange', onVisibility)
-  reduced.addEventListener('change', onPreference); mobile.addEventListener('change', onPreference)
+  reduced.addEventListener('change', onPreference); mobile.addEventListener('change', onPreference); short.addEventListener('change', onPreference)
   const observer = new win.IntersectionObserver(entries => {
     onScreen = entries[0].isIntersecting
     if (!onScreen && frame) { win.cancelAnimationFrame(frame); frame = 0 }
@@ -233,8 +302,8 @@ export function mountScene(doc = document, win = window) {
     scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', onRender)
     scene.removeEventListener('toggle', onDetails, true)
     scene.removeEventListener('focusin', onInputFocus); scene.removeEventListener('scroll', schedule, true)
-    win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', schedule); doc.removeEventListener('visibilitychange', onVisibility)
-    reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference)
+    win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', onResize); doc.removeEventListener('visibilitychange', onVisibility)
+    reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference); short.removeEventListener('change', onPreference)
   }
 }
 if (typeof document !== 'undefined') mountScene()

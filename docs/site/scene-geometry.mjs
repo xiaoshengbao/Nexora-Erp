@@ -43,3 +43,29 @@ export function projectWindowPoint(item, x, y, depth = 0) {
   const z = -localX * Math.sin(angle) + depth * Math.cos(angle), w = 1 - z / perspective
   return [item.left + item.pixelWidth / 2 + (localX * Math.cos(angle) + depth * Math.sin(angle)) / w, item.top + item.pixelHeight + localY / w]
 }
+
+// 手动切换只插值已测量的实体姿态，避免中途重排再次改变起止尺寸。
+export function interpolateWindowPose(from, to, progress, stageHeight) {
+  const q = clamp(progress), pose = { ...to }
+  for (const key of ['left', 'pixelWidth', 'pixelHeight', 'rotation', 'opacity']) pose[key] = lerp(from[key], to[key], q)
+  pose.top = stageHeight - 35 - pose.pixelHeight
+  pose.scale = pose.pixelWidth / pose.logicalWidth
+  pose.scaleY = pose.pixelHeight / pose.logicalHeight
+  return pose
+}
+
+// 只有同屏且从左至右的来源才绘制横向线，杜绝退场窗口形成反向回环。
+export function connectionEndpoints(a, b, width, height, vertical = false) {
+  if (!a || !b || a.opacity < .55 || b.opacity < .55) return null
+  const start = [a.right[0], a.right[1]], end = vertical ? b.right : b.left
+  if (![...start, ...end].every(Number.isFinite)) return null
+  if ([start, end].some(([x, y]) => x < 0 || x > width || y < 0 || y > height)) return null
+  if (!vertical && end[0] - start[0] < 16) return null
+  const bend = vertical ? 30 : Math.min(160, (end[0] - start[0]) * .45)
+  return { start, end, bend }
+}
+
+export function sceneBoardHeight(width, height, chrome, compact = 0) {
+  const available = Math.max(120, Math.min(height - chrome - 8, 650))
+  return lerp(available, Math.min(available, Math.max(360, Math.min(540, width * .34 + 30))), clamp(compact))
+}

@@ -40,7 +40,7 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.ok(existsSync(resolve(output, 'assets/scene-geometry.mjs')))
     const cn = readFileSync(resolve(output, 'zh-CN/development.html'), 'utf8')
     const en = readFileSync(resolve(output, 'en/development.html'), 'utf8')
-    for (const text of ['dist:win', 'dist:mac', 'NEXORA_PYTHON', 'PAGES_ENABLED', '9f5a8cf']) {
+    for (const text of ['dist:win', 'dist:mac', 'NEXORA_PYTHON', 'PAGES_ENABLED', 'period-closing.md']) {
       assert.ok(cn.includes(text)); assert.ok(en.includes(text))
     }
     assert.equal([...cn.matchAll(/<h2 /g)].length, [...en.matchAll(/<h2 /g)].length)

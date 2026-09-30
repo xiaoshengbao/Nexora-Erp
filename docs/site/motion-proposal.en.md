@@ -25,7 +25,7 @@ In the overview, receipt/stock/finance use minimum logical canvases of 600×570,
 
 Overview retains document selection, creation, the full initial line, total and copy action. Finance shows its source, payable/paid/remaining amounts, line summary and an expand-to-pay action. Detailed filters and payment forms appear in the expanded window. Only dynamic desktop finance focus uses two columns; mobile and reduced motion remain vertical. Blank inventory bars are visual placeholders, not additional movement records.
 
-Paths follow actual transformed source anchors. Inventory paths meet row edges rather than crossing quantity text. During focused editing, links move behind the windows while continuing to follow their anchors, leaving forms unobstructed. Hide links for filtered/invisible source rows, drafts or mismatched documents. Mobile uses SVG links traveling vertically along window edges. Nodes do not loop indefinitely.
+Source anchors are measured in the real HTML logical canvas and projected with the same window geometry. Receipt paths begin at the source dot center; inventory paths attach to row edges rather than quantities. Switching fades old paths out for about 80ms before moving windows, then fades eligible paths in near the final pose. Offscreen endpoints, window opacity below .55, reversed horizontal order or different sources clear the corresponding path. Expanded interaction leaves no line crossing the stage. Hidden filtered sources and drafts also have no path. SVG and WebGL share endpoints and opacity. Mobile SVG paths follow the outer edge of stacked windows; nodes never loop indefinitely.
 
 ## Business interaction
 
@@ -41,6 +41,8 @@ Long records use pagination: 2 rows for receipt/payable lines, 4 for stock movem
 ## Focus, pause and data lifetime
 
 Expand controls, navigation or source links enlarge the selected window to about 85% width over approximately 450ms, moving other windows to the sides. Manual mode prevents scrolling from replacing the current view. Input focus freezes the camera. Overview shows the three windows; Resume scroll aligns to current progress over about 300ms. Step buttons enter manual mode; exploring never requires completing business tasks.
+
+Manual switching measures destination content once and interpolates displayed and target positions, sizes, angles, opacity and stage height. The destination logical layout remains fixed while its canvas scales with the frame edges, returning to uniform scaling at rest. Tables and fitted heights are not recalculated every animation frame. Rapid switches continue from the last displayed pose; editing or pausing holds an interrupted pose. Reflections use DOM clones with current input/select/textarea values and update immediately on edits rather than serializing initial HTML attributes.
 
 Business data lives in page memory. Same-tab language links transfer data once via sessionStorage, deleting it when consumed. Refresh/reset restores the seed. Navigation remains available without storage, but restarts the demo. Restoration validates versions, document states, IDs, catalog values and payment balances.
 
@@ -61,6 +63,10 @@ WebGL initializes on the first dynamic desktop frame. Pixel density is capped at
 
 Mobile uses vertically stacked windows with a subtle visibility reveal and no sticky stage. All business operations remain available; tables become labeled row cards, using pagination and natural page scrolling with no internal horizontal or vertical scrollbars. Reduced motion removes movement/perspective while retaining interaction and static links. Without JavaScript, static examples and documentation remain readable; demo controls do not perform operations.
 
+Viewport heights below 620px also disable the sticky stage. Landscape widths up to 1000px use mobile row cards; wider short viewports retain desktop reading sizes in a vertical stack. Preference changes immediately clear old perspective sizing and keyboard locks even when the stage is offscreen.
+
 ## Verification
+
+This switching repair adds regression coverage for pose continuity, offscreen/reversed links, GPU fading and old-frame clearing, current-value reflections, offscreen preference changes and stage-height budgeting. Browser checks include consecutive focus switches, rapid step changes, overview, source navigation, editing interruption, reverse scrolling and resume; viewports 320×568, 390×844, 844×390, 1280×600/620, 1015×1039, 1366×768 and 2560×1440, both languages, reduced motion and no script. Actual overflow and top/bottom positions are checked and continuous screen capture is retained. Viewport simulation does not replace physical-device acceptance.
 
 Automated coverage includes multiple materials/warehouses, rounding, duplicate confirmation, immutable confirmed documents, partial/excess payments, failure atomicity, language restoration, stage boundaries, reverse scrolling, direct jumps, projected top-edge slopes/aspects/common baseline, focus geometry, pagination/global indices/full totals, page clamping and content-height fitting. Browser acceptance covers both languages, 1505×1045 reference viewport, the actual 1015×1039 user viewport, and 390px mobile, focused forms, tracing, pause/resume, reduced motion and no-script reading. The latest clean-frame/no-internal-scroll checks cover 1490×1035, 1015×1039, 390px, five materials, errors on other pages, four partial payments, expanded details, keyboard operation and language-state retention. Actual content dimensions are checked against available dimensions instead of merely hiding scrollbars. Earlier continuous scroll capture is stored in the task preview directory, not committed with the website.

@@ -128,7 +128,7 @@
 .motion-enabled .scene-sticky{position:sticky;top:0;height:100svh;min-height:620px;display:flex;flex-direction:column;justify-content:center;padding-top:18px;padding-bottom:10px}
 .motion-enabled .scene-board{display:block;gap:0;height:calc(100svh - 220px);max-height:650px;flex-shrink:0}
 .motion-enabled .demo-window{position:absolute;left:0;top:0;will-change:transform;transition:none}
-.motion-enabled .window-viewport{position:absolute;left:0;top:0;width:var(--logical-width);height:var(--logical-height);transform:scale(var(--ui-scale));transform-origin:0 0}
+.motion-enabled .window-viewport{position:absolute;left:0;top:0;width:var(--logical-width);height:var(--logical-height);transform:scale(var(--ui-scale),var(--ui-scale-y,var(--ui-scale)));transform-origin:0 0}
 .motion-enabled .app-layout{height:calc(100% - 41px);min-height:0}
 .motion-enabled .sandbox-content{height:100%}
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .demo-fields{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -136,7 +136,7 @@
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .sandbox-content{padding-top:24px;padding-bottom:18px}
 .motion-enabled .stock-panel,.motion-enabled .finance-panel{opacity:0}
 .motion-enabled .window-reflection{display:block;position:absolute;top:calc(100% + 5px);left:0;width:100%;height:95px;overflow:hidden;opacity:.23;mask-image:linear-gradient(#000,transparent 90px);pointer-events:none;filter:blur(.6px)}
-.motion-enabled .window-reflection .window-viewport{transform:scale(var(--ui-scale)) scaleY(-1) translateY(-100%)}
+.motion-enabled .window-reflection .window-viewport{transform:scale(var(--ui-scale),var(--ui-scale-y,var(--ui-scale))) scaleY(-1) translateY(-100%)}
 /* 总览保留真实来源和金额；详细付款表单在放大镜头中操作。 */
 .is-compact .sandbox-content{padding:28px 25px 22px}
 .is-compact .app-sidebar{flex-basis:145px;padding-left:10px;padding-right:10px}
@@ -215,8 +215,7 @@
 .webgl-materials,.webgl-connections{position:absolute;left:-40px;top:-40px;pointer-events:none;max-width:none}
 .webgl-materials{z-index:0}.webgl-connections{z-index:5}
 .webgl-ready .connection-layer{visibility:hidden}
-.scroll-scene[data-mode=focus] .connection-layer,.scroll-scene[data-mode=focus] .webgl-connections{z-index:1;opacity:.4}
-@media(max-width:760px){
+@media(max-width:760px),(max-width:1000px) and (max-height:619px){
 .overview .hero{padding:42px 20px 28px}.overview .hero h1{font-size:clamp(38px,10vw,62px)}.overview .hero-description{font-size:14px}
 .scene-sticky{padding:14px 18px 24px;overflow:clip}.stage-heading{font-size:11px;margin-bottom:18px;align-items:flex-start}.stage-heading span{max-width:23ch;line-height:1.7}.stage-heading button{white-space:nowrap;padding-top:0}
 .scene-board{display:grid;max-width:600px;gap:54px}.demo-window{width:100%;height:auto;transform:none}.app-layout{min-height:0}
@@ -241,4 +240,5 @@
 .scene-narration{font-size:12px;margin-top:25px;min-height:36px}.scene-controls{gap:8px}.scene-controls button{padding:8px 13px;font-size:11px}.demo-disclaimer,.demo-status{font-size:10px}
 }
 @media(prefers-reduced-motion:reduce){.scene-board{max-width:1100px}.demo-window{transform:none!important;opacity:1!important;translate:none!important}.connection-glow{display:none}.scene-sticky{overflow:visible}}
+@media(min-width:1001px) and (max-height:619px){.scene-board{max-width:1100px}.scene-sticky{overflow:visible}}
 @media print{.scroll-scene{height:auto!important}.scene-sticky{height:auto!important;position:static!important;overflow:visible}.scene-board{display:block!important;height:auto!important}.demo-window{position:static!important;transform:none!important;width:100%!important;opacity:1!important;break-inside:avoid;margin-bottom:20px}.window-viewport{position:relative!important;width:100%!important;height:auto!important;transform:none!important}.app-layout{height:auto!important}.sandbox-content{height:auto!important;overflow:visible}.connection-layer,.stage-heading button,.webgl-materials,.webgl-connections,.window-reflection{display:none!important}}

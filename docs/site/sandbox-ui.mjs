@@ -161,6 +161,7 @@ export function mountSandbox(scene, lang = 'zh-CN') {
       scene.querySelectorAll('[data-line-total]').forEach(el => { el.textContent = attempt(() => lineTotal(r.lines[Number(el.dataset.lineTotal)])) })
       const error = input.parentElement.querySelector('.field-error')
       if (error) error.textContent = ''
+      emit('sandbox:render', {})
     }
     if (input.dataset.filter) {
       filters[input.dataset.filterGroup][input.dataset.filter] = input.value
