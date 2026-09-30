@@ -190,7 +190,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 45 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 46 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 
