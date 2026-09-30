@@ -1,5 +1,5 @@
 // GPU 只负责视觉层；表单、焦点与业务数据始终由原生 HTML 管理。
-import { perspective, windowGeometry } from './scene-geometry.mjs'
+import { perspective, windowGeometry, projectWindowPoint } from './scene-geometry.mjs'
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 export function cubicPoints(a, b, c, d, count = 48) {
   return Array.from({ length: count + 1 }, (_, i) => {
@@ -39,6 +39,15 @@ export function ribbonMesh(points, halfWidth) {
   return new Float32Array(vertices)
 }
 
+// 光池跟随实体投影的窗底，不能用未透视的矩形宽度替代接触面。
+export function floorLightAt(item, width, height) {
+  const g = item.pixelWidth ? item : windowGeometry(item, width, height)
+  const left = projectWindowPoint(g, 0, g.pixelHeight), right = projectWindowPoint(g, g.pixelWidth, g.pixelHeight)
+  if (![...left, ...right, g.opacity].every(Number.isFinite) || g.opacity < .01 || right[0] <= 0 || left[0] >= width) return null
+  const center = (left[0] + right[0]) / 2, bottom = (left[1] + right[1]) / 2, span = right[0] - left[0]
+  return { center, bottom, span, opacity: g.opacity, depth: Math.min(128, Math.max(85, span * .18)) }
+}
+
 const materialVertex = `
 attribute vec3 a_position;
 uniform vec2 u_canvas, u_stage;
@@ -59,21 +68,27 @@ const materialFragment = `
 precision mediump float;
 varying vec2 v_uv;
 uniform vec2 u_size;
-uniform float u_opacity, u_kind;
-float roundedBox(vec2 p, vec2 b, float r){vec2 q=abs(p)-b+r;return min(max(q.x,q.y),0.)+length(max(q,0.))-r;}
+uniform float u_opacity, u_kind, u_progress, u_edge;
 void main(){
-  float d = roundedBox((v_uv-.5)*u_size,u_size*.5-vec2(1.),15.);
-  float edge = 1.-smoothstep(-.8,.8,d);
-  if(u_kind<1.5){
-    float fade=pow(1.-v_uv.y,2.4);
-    float sidebar=1.-smoothstep(.14,.16,v_uv.x);
-    float rows=.5+.5*cos(v_uv.y*46.);
-    vec3 tint=mix(vec3(.69,.78,.82),vec3(.89,.94,.96),sidebar*.5+rows*.16);
-    gl_FragColor=vec4(tint,edge*fade*u_opacity*.17);
+  vec2 q=(v_uv-.5)*2.;
+  float sideFade=1.-smoothstep(.78,1.,abs(q.x));
+  if(u_kind<2.5){
+    float contact=exp(-pow(abs(q.x),8.)*2.4-q.y*q.y*8.);
+    gl_FragColor=vec4(.19,.29,.35,contact*sideFade*u_opacity*.32);
+  }else if(u_kind<3.5){
+    float pool=exp(-pow(abs(q.x),4.)*2.2)*pow(1.-v_uv.y,1.6);
+    float grain=.965+.035*cos(v_uv.y*230.+v_uv.x*3.);
+    gl_FragColor=vec4(.34,.46,.54,pool*grain*sideFade*smoothstep(0.,.04,v_uv.y)*u_opacity*.48);
   }else{
-    vec2 q=abs((v_uv-.5)*2.);
-    float spread=exp(-pow(q.x,6.)*3.-q.y*q.y*5.);
-    gl_FragColor=vec4(.22,.36,.42,spread*u_opacity*.15);
+    float y=v_uv.y, spread=.018+y*.11;
+    float sweep=.012*sin(u_progress*6.28318);
+    float a=exp(-pow((v_uv.x-u_edge-sweep)/spread,2.));
+    float b=exp(-pow((v_uv.x-(1.-u_edge)+sweep)/spread,2.));
+    float grazing=exp(-pow((y-.055)*26.,2.))*exp(-pow(abs(q.x),6.)*3.);
+    float texture=.94+.06*cos(y*170.+v_uv.x*11.)*cos(v_uv.x*95.);
+    float light=((a+b)*exp(-y*3.2)+grazing*.45)*pow(1.-y,1.3)*texture;
+    vec3 tint=mix(vec3(.77,.91,.98),vec3(1.,.985,.94),a/(a+b+.001));
+    gl_FragColor=vec4(tint,light*sideFade*smoothstep(0.,.025,y)*u_opacity*.85);
   }
 }`
 const lineVertex = `
@@ -231,7 +246,7 @@ export function createWebGLStage(board, requestFrame = () => {}) {
   canvases.forEach(c => { c.addEventListener('webglcontextlost', onLost); c.addEventListener('webglcontextrestored', onRestored) })
   function draw(frame) {
     if (disposed || failed) return false
-    const { width, height, layout, connections, staticMode, ratio = 1 } = frame
+    const { width, height, layout, connections, staticMode, ratio = 1, progress = 0 } = frame
     if (staticMode) { setReady(false); return false }
     if (!renderers.length && !initialize()) return false
     if (renderers.some(r => r.gl.isContextLost())) { failed = true; setReady(false); return false }
@@ -242,14 +257,17 @@ export function createWebGLStage(board, requestFrame = () => {}) {
       const p = surface.use(0, quad)
       p.uniform('u_canvas', canvasSize); p.uniform('u_stage', [width, height]); p.uniform('u_rect', rect)
       p.uniform('u_size', rect.slice(2)); p.uniform('u_rotation', [rotation * Math.PI / 180]); p.uniform('u_perspective', [perspective])
-      p.uniform('u_opacity', [opacity]); p.uniform('u_kind', [kind]); p.draw()
+      p.uniform('u_opacity', [opacity]); p.uniform('u_kind', [kind]); p.uniform('u_progress', [clamp(progress)]); p.uniform('u_edge', [50 / rect[2]]); p.draw()
     }
     for (const item of layout) {
       if (item.opacity < .01) continue
-      const g = item.pixelWidth ? item : windowGeometry(item, width, height)
-      const w = g.pixelWidth, h = g.pixelHeight, center = g.left + w / 2, bottom = g.top + h
-      material([center, bottom + 31, w + 80, 48], 0, item.opacity, 2)
-      material([center, bottom + 60, w, 58], item.rotation, item.opacity * .5, 1)
+      const light = floorLightAt(item, width, height)
+      if (!light) continue
+      const { center, bottom, span, depth, opacity } = light
+      // 漫射底色承接低角度掠光，再用短接触阴影把窗口压在地面上；不绘制内容镜像。
+      material([center, bottom + depth, span + 100, depth], 0, opacity, 3)
+      material([center, bottom + depth - 2, span + 100, depth], 0, opacity, 4)
+      material([center, bottom + 14, span + 24, 25], 0, opacity, 2)
     }
     // 三角带代替硬件宽线，保证不同 GPU 的线宽与柔边一致。
     drawConnections(lines, canvasSize, connections)

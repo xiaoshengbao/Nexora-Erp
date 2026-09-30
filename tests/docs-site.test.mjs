@@ -23,10 +23,8 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
           assert.match(html, /class="hero" data-cover/)
           assert.match(html, /href="#business-demo"/)
           assert.match(html, /class="scroll-scene" id="business-demo"/)
-          const pauseButton = html.match(/<button[^>]*data-pause[^>]*>/)?.[0]
-          assert.ok(pauseButton)
-          assert.equal([...pauseButton.matchAll(/\bdata-pause(?=[ =])/g)].length, 1)
-          assert.match(pauseButton, /data-pause="[^\"]+"/)
+          assert.doesNotMatch(html, /data-pause|data-resume|window-reflection/)
+          assert.match(html, /data-stage="3"/)
         }
         for (const match of html.matchAll(/(?:href|src)="([^"#]+)(?:#([^" ]+))?"/g)) {
           const href = match[1]

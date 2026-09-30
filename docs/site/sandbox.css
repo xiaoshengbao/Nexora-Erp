@@ -28,7 +28,6 @@
 .scene-board{display:grid;gap:48px;position:relative;max-width:1440px;margin:0 auto;width:100%;transform-style:flat}
 .demo-window{min-width:0;position:relative;border-radius:14px;transform-origin:50% 100%;overflow:visible;background:#d6e2e9;box-shadow:0 2px 3px #3d566429,0 18px 28px #29434f18}
 .window-viewport{position:relative;padding:1px;border-radius:14px;overflow:hidden;background:#d6e2e9;width:100%}
-.window-reflection{display:none}
 .window-base{height:1px;background:#d6e2e9;border-radius:0 0 12px 12px}
 .window-chrome{height:40px;display:flex;align-items:center;gap:12px;padding:0 16px;background:linear-gradient(#fbfdff,#eaf0f5);border-radius:11px 11px 0 0;border-bottom:1px solid #d6e2e9;font-size:13px;color:#354955}
 .traffic-lights{display:flex;gap:7px;margin-right:8px}
@@ -149,8 +148,9 @@
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .receipt-sheet{padding:18px}
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .sandbox-content{padding-top:24px;padding-bottom:18px}
 .motion-enabled .stock-panel,.motion-enabled .finance-panel{opacity:0}
-.motion-enabled .window-reflection{display:block;position:absolute;top:calc(100% + 5px);left:0;width:100%;height:95px;overflow:hidden;opacity:.23;mask-image:linear-gradient(#000,transparent 90px);pointer-events:none;filter:blur(.6px)}
-.motion-enabled .window-reflection .window-viewport{transform:scale(var(--ui-scale),var(--ui-scale-y,var(--ui-scale))) scaleY(-1) translateY(-100%)}
+/* GPU 不可用时保留安静的地面光池，不复制任何表单内容。 */
+.motion-enabled .demo-window::after{content:"";position:absolute;top:calc(100% - 3px);left:-12%;width:124%;height:110px;pointer-events:none;background:radial-gradient(ellipse at 18% 7%,#fffdf5a0,transparent 22%),radial-gradient(ellipse at 82% 7%,#d7f2ffa0,transparent 22%),radial-gradient(ellipse at 50% 0%,#849da938,transparent 72%);mask-image:linear-gradient(#000,transparent)}
+.webgl-ready .demo-window::after{display:none}
 /* 总览保留真实来源和金额；详细付款表单在放大镜头中操作。 */
 .is-compact .sandbox-content{padding:28px 25px 22px}
 .is-compact .app-sidebar{flex-basis:145px;padding-left:10px;padding-right:10px}
@@ -256,4 +256,4 @@
 @media(prefers-reduced-motion:reduce){.scene-board{max-width:1100px}.demo-window{transform:none!important;opacity:1!important;translate:none!important}.connection-glow{display:none}.scene-sticky{overflow:visible}}
 @media(min-width:1001px) and (max-height:619px){.scene-board{max-width:1100px}.scene-sticky{overflow:visible}}
 @media(max-height:619px){.overview .hero{padding-top:calc(var(--header-height,80px) + 20px);padding-bottom:76px}.overview .hero h1{font-size:clamp(36px,min(6vw,11svh),68px);margin-bottom:20px}.overview .hero .actions{margin-top:18px}.guide-origin{margin-top:20px}.cover-scroll{bottom:18px}.cover-stem{height:35px}}
-@media print{.scroll-scene{height:auto!important}.scene-sticky{height:auto!important;position:static!important;overflow:visible}.scene-board{display:block!important;height:auto!important}.demo-window{position:static!important;transform:none!important;width:100%!important;opacity:1!important;break-inside:avoid;margin-bottom:20px}.window-viewport{position:relative!important;width:100%!important;height:auto!important;transform:none!important}.app-layout{height:auto!important}.sandbox-content{height:auto!important;overflow:visible}.connection-layer,.stage-heading button,.webgl-materials,.webgl-connections,.window-reflection{display:none!important}}
+@media print{.scroll-scene{height:auto!important}.scene-sticky{height:auto!important;position:static!important;overflow:visible}.scene-board{display:block!important;height:auto!important}.demo-window{position:static!important;transform:none!important;width:100%!important;opacity:1!important;break-inside:avoid;margin-bottom:20px}.window-viewport{position:relative!important;width:100%!important;height:auto!important;transform:none!important}.app-layout{height:auto!important}.sandbox-content{height:auto!important;overflow:visible}.connection-layer,.stage-heading button,.webgl-materials,.webgl-connections,.cover-guide,.demo-window::after{display:none!important}}

@@ -477,9 +477,9 @@
         "purpose": "窗归正并进入目标85%占宽，实际宽度仍受高度限制。"
       },
       {
-        "name": "resume",
-        "value": "300ms",
-        "purpose": "恢复实际滚动镜头。"
+        "name": "scroll-authority",
+        "value": "native scroll; immediate takeover; steps:10%,45%,80%,92%",
+        "purpose": "分步改变真实页面位置；滚动立即取消聚焦和编辑保持，无暂停/恢复按钮或恢复延迟。"
       },
       {
         "name": "mobile-reveal",
@@ -508,7 +508,7 @@
     ],
     "geometry": {
       "source": "scene-geometry.mjs",
-      "manualTransition": "450ms含最多80ms旧线淡出；预测量终态，实体姿态插值，快速切换接续当前帧，终态等比；单帧最多推进34ms，后台/离屏恢复接续暂停时间",
+      "manualTransition": "450ms含最多80ms旧线淡出；预测量终态，实体姿态插值，快速聚焦接续当前帧，单帧最多34ms；任何页面滚动立即取消补间并使用真实进度。后台停帧仅节约资源。",
       "connections": "真实HTML逻辑锚点共用窗口投影；同来源、opacity>=.55、屏内端点、顺向间距>=16px；SVG/GPU同端点与透明度",
       "heightBudget": "标题、叙述、控件、状态及说明的实际高度/边距+padding+8px；所有动态镜头受同一上限约束",
       "perspective": 1400,
@@ -559,30 +559,25 @@
       "source": "webgl-stage.mjs",
       "scope": "docs/site",
       "layers": [
-        "GPU下层地面接触阴影/反光；CSS单层1px细边",
-        "HTML业务窗口与只读内容镜像",
-        "GPU上层来源带/节点；切换前80ms淡出，符合可见/顺向/同来源条件后淡入"
+        "GPU下层漫射光池、冷暖掠光与短接触阴影；CSS单层1px细边",
+        "HTML业务窗口，不复制内容倒影",
+        "GPU上层来源带/节点；聚焦切换先淡出，符合可见/顺向/同来源条件后淡入"
       ],
       "input": "canvas pointer-events:none; aria-hidden:true",
       "pixelDensity": "max 2; limited by MAX_RENDERBUFFER_SIZE",
       "initialization": "首次桌面动态绘制；手机/reduced不初始化",
-      "reflection": {
-        "source": "motion.mjs refreshReflections",
-        "refresh": "字段编辑、sandbox:render或原窗口明细toggle；DOM克隆复制当前input/select/textarea值",
-        "stripAttributes": [
-          "data-*",
-          "id",
-          "name",
-          "tabindex"
-        ],
-        "container": "aria-hidden; inert; pointer-events:none",
-        "presentation": "95px高；opacity .23；blur(.6px)；90px渐隐"
-      },
       "fallback": "初始化/编译失败或contextlost回退HTML/CSS/SVG；不重置业务数据",
       "restoration": "重建GPU资源并请求当前帧",
       "idle": "静止、离屏和后台不维持连续循环",
       "palettePreview": "colorMeta tonalRamp为展示生成色阶，不是生产token",
-      "componentPreview": "自包含HTML/CSS外观；不运行WebGL或业务状态机，不代表整站验收。"
+      "componentPreview": "自包含HTML/CSS外观；不运行WebGL或业务状态机，不代表整站验收。",
+      "floorLighting": {
+        "source": "webgl-stage.mjs floorLightAt",
+        "geometry": "共用窗底两端的透视投影，中心/跨度/深度与当前实体姿态同步；退场窗口不绘制",
+        "material": "冷灰漫射光池、冷暖窗脚掠光、轻微地面纹理、短接触阴影",
+        "motion": "光场扫动仅由滚动进度决定，停滚即停",
+        "fallback": "CSS地面光池；不复制业务表单"
+      }
     },
     "advisoryArchive": {
       "source": "沿用此前字体选择与检测归档；按当前用户要求移除镀层并同步实际sandbox.css。",
@@ -677,7 +672,7 @@
       "name": "分步控件",
       "kind": "button",
       "refersTo": "stage-button",
-      "description": "外观预览；实际页面由motion.mjs维护aria-pressed与手动模式。",
+      "description": "外观预览；实际页面由motion.mjs维护aria-pressed与真实滚动阶段。",
       "html": "<div class=\"ds-track\" role=\"group\" aria-label=\"演示步骤\"><button type=\"button\" aria-pressed=\"true\">入库</button><button type=\"button\" aria-pressed=\"false\">库存</button><button type=\"button\" aria-pressed=\"false\">财务</button><button type=\"button\" aria-pressed=\"false\">追溯</button></div>",
       "css": ".ds-track{display:inline-flex;gap:2px;padding:4px;border-radius:26px;border:1px solid #c8d9de;background:#edf3f6;box-shadow:inset 0 1px #fff,0 3px 8px #395d6a08}.ds-track button{font:12px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;line-height:1.4;padding:8px 16px;border:0;border-radius:22px;background:transparent;color:#47616d;cursor:pointer}.ds-track button[aria-pressed=true]{background:#078579;color:#fff;box-shadow:0 3px 8px #087f7520}.ds-track button:hover{background:#d3eee8;color:#076c60}.ds-track button:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
     },
@@ -714,13 +709,13 @@
   ],
   "narrative": {
     "northStar": "清晰的业务舞台",
-    "overview": "浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；单层细边、同一地面上的阴影与镜像共同表达实体感；取消镀层高光与厚底边。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。\n\n本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。",
+    "overview": "浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；单层细边、同一地面上的漫射光池、掠光与接触阴影共同表达实体感；取消镀层高光与厚底边。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。\n\n本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。",
     "keyCharacteristics": [
       "独占100svh首屏的大标题封面；随滚动延伸的青绿细线接入业务舞台。",
-      "独立银白应用窗使用单层细边，GPU 地面阴影、反光与只读内容镜像配合。",
+      "独立银白应用窗使用单层细边，GPU 漫射光池、冷暖掠光与接触阴影建立地面层次，无内容倒影。",
       "三窗共地平线；总览两侧为 30° / −30°，库存中窗为 4°。",
       "应用逻辑画布整体缩放，桌面保留采购、库存、销售、生产、财务、系统文字。",
-      "HTML 管理业务、表单与焦点；GPU 和镜像只承担视觉。",
+      "HTML 管理业务、表单与焦点；GPU 只承担视觉。",
       "文档平实可读，手机与减少动态模式纵向排列并保留业务操作。"
     ],
     "rules": [
@@ -748,12 +743,12 @@
     "dos": [
       "**Do** 将规范限制在 docs/site，保留浅色银白实体窗与既定无衬线字体。",
       "**Do** 让 HTML 与 GPU 使用相同的 1400px 透视、底部中心原点和逻辑画布比例。",
-      "**Do** 保留桌面侧栏文字、真实锚点、字段验证、键盘路径、手动模式与 GPU 失效回退。",
+      "**Do** 保留桌面侧栏文字、真实锚点、字段验证、键盘路径、滚动优先与 GPU 失效回退。",
       "**Do** 区分本地演示、桌面能力和计划，随字体保留 OFL 许可。"
     ],
     "donts": [
       "**Don't** 恢复此前 7° 浅角度、窄长三列的构图，或旧卡片、深色概念图与衬线默认方案。",
-      "**Don't** 用画布或镜像承载业务表单、截获输入，或在恢复 GPU 时重置业务数据。",
+      "**Don't** 用画布承载业务表单、截获输入，或在恢复 GPU 时重置业务数据。",
       "**Don't** 在编辑时移动镜头、以连线遮挡字段，或以滚动触发业务操作。",
       "**Don't** 将销售、生产、系统上下文标签伪装为可操作的演示功能。",
       "**Don't** 将本规范覆盖到 ERP 应用，把预览色阶当成生产 token，或把静态预览写成整站验收证明。"
