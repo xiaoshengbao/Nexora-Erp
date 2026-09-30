@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
+from app.core.period_lock import ensure_movement_unlocked
 from app.core.models import (User, Material, WorkOrder, WorkOrderLine, MaterialIssue,
     MaterialIssueLine, MaterialReturn, ProductionCompletion, ProductionCompletionReversal,
     StockMovement, ProductionCostEntry, ProductionCostSettlement, ProductionSettlementReversal,
@@ -103,6 +104,8 @@ def settle_cost(payload: SettlementInput,
                     ProductionCompletionReversal.production_completion_id == ProductionCompletion.id).exists())
             .order_by(ProductionCompletion.id)).all()
         accepted = sum((Decimal(row.accepted_quantity) for row, _ in completions), Decimal(0))
+        for _, movement_id in completions:
+            ensure_movement_unlocked(session, movement_id)
         if accepted <= 0:
             raise HTTPException(409, '没有合格完工入库，不能将成本分摊到成品')
         if session.scalar(select(ProductionCostSettlement.id).where(
@@ -149,6 +152,8 @@ def reverse_settlement(settlement_id: int, payload: CostReversalInput,
         settlement = settlement_data(session, settlement_id)
         if settlement['status'] != 'active':
             raise HTTPException(409, '此成本结算已冲销')
+        for allocation in settlement['allocations']:
+            ensure_movement_unlocked(session, allocation['movement_id'])
         if session.scalar(select(ProductionSettlementDependency.settlement_id).where(
             ProductionSettlementDependency.kind == 'settlement', ProductionSettlementDependency.source_id == settlement_id,
             ~select(ProductionSettlementReversal.id).where(

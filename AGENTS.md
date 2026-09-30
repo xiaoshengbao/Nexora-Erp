@@ -76,7 +76,7 @@
 | `backend/app/inventory/` | 仓库、调拨、盘点、库存余额与流水。 |
 | `backend/app/sales/` | 客户、销售订单、出库与销售退货。 |
 | `backend/app/production/` | BOM、工单、领退料、报工与工单成本。 |
-| `backend/app/finance/` | 应收应付来源、订单余额、手工收付款、总账基础资料、期初余额、手工凭证与已过账报表。 |
+| `backend/app/finance/` | 应收应付来源、订单余额、手工收付款、总账基础资料、期初余额、手工凭证、已过账报表及期间结账与重开。 |
 | `backend/app/service/` | 服务状态、局域网发现、系统服务、备份恢复。 |
 | `backend/launcher.py` | 打包后的固定命令入口；新增系统服务命令需同步检查。 |
 | `backend/tests/` | 对应业务接口、服务生命周期及跨模块行为的测试。 |

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.finance.opening_rules import check_period_opening
+from app.core.period_lock import ensure_date_unlocked
 
 from app.access.security import require
 from app.core.models import (
@@ -199,6 +200,7 @@ def create_period(
         with orm_session(write=True) as db:
             # 日期范围含首尾；写锁使并发建立的重叠期间只能有一张成功。
             check_period_opening(db, data.start_date)
+            ensure_date_unlocked(db, data.start_date)
             overlap = db.scalar(
                 select(AccountingPeriod.id)
                 .where(

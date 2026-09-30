@@ -36,7 +36,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   journals: '手工录入借贷平衡的人民币凭证，由另一账号审核后过账。冲销先建立新草稿，原记录保留。',
   openingBalances: '首次总账启用的科目余额、独立审核与确认。',
   ledgerReports: '核对已过账凭证的科目明细与试算平衡，按凭证日期汇总人民币金额。未结账数据可随后续过账变化。',
-  accountingPeriods: '建立不重叠的会计期间，日期范围包含首尾。当前仅维护期间资料，结账功能尚未开放。',
+  accountingPeriods: '建立不重叠的会计期间；按序结账、倒序重开，保存结账证据并锁定历史成本来源。',
   financePayments: '登记收款、付款与退款；录错时冲销更正，保留原始记录。',
   financeSources: '查看已确认出入库和退货产生的金额来源，追溯单据、物料与操作人。',
   productionCosts: '材料优先采用领料时的库存平均成本，净领料缺价时显示待核价。全部报工后按合格数量结算完工成本，分摊与来源保留快照；更正前先冲销结算。',

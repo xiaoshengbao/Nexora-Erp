@@ -230,6 +230,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'accountingPeriods': return { method: 'GET', path: '/api/v1/finance/accounting-periods' }
     case 'createAccountingPeriod': return { method: 'POST', path: '/api/v1/finance/accounting-periods', body: payload }
     case 'accountingPeriodChanges': return { method: 'GET', path: `/api/v1/finance/accounting-periods/${positiveId(payload, 'id')}/changes` }
+    case 'periodClosingCheck': return { method: 'GET', path: `/api/v1/finance/accounting-periods/${positiveId(payload, 'id')}/closing-check` }
+    case 'periodClosingHistory': return { method: 'GET', path: `/api/v1/finance/accounting-periods/${positiveId(payload, 'id')}/closings` }
+    case 'changePeriodClosingStatus': {
+      const id = positiveId(payload, 'id')
+      const fields = payload as ErpOperations['changePeriodClosingStatus']['input']
+      if (!['close', 'reopen'].includes(fields.action)) throw new Error('结账操作无效。')
+      return { method: 'POST', path: `/api/v1/finance/accounting-periods/${id}/${fields.action}`,
+        body: { version: fields.version, reason: fields.reason } }
+    }
     case 'updateAccountingPeriod': {
       const id = positiveId(payload, 'id')
       const fields = payload as ErpOperations['updateAccountingPeriod']['input']

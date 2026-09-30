@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
+from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (User, Material, Bom, WorkOrder, WorkOrderLine, MaterialIssue,
     MaterialIssueLine, MaterialReturn, MaterialReturnLine, StockMovement, ProductionCostEntry,
@@ -191,6 +192,8 @@ def record_material_valuation(payload: MaterialValuationInput,
         ensure_unsettled(session, issue.work_order_id)
         movement_id = session.scalar(select(StockMovement.id).where(
             StockMovement.source_type == 'material_issue', StockMovement.source_line_id == line.id))
+        if movement_id is not None:
+            ensure_movement_unlocked(session, movement_id)
         if movement_id is not None and calculate_valuation(session).movement_costs.get(movement_id) is not None:
             raise HTTPException(409, '领料已有库存平均成本，无需另行人工核价；请更正库存成本来源')
         if session.scalar(select(ProductionCostEntry.id).where(ProductionCostEntry.material_issue_line_id == line.id,
@@ -226,6 +229,7 @@ def reverse_cost_entry(entry_id: int, payload: CostReversalInput,
         entry = session.get(ProductionCostEntry, entry_id)
         if entry is None:
             raise HTTPException(404, '生产成本记录不存在')
+        ensure_date_unlocked(session, entry.created_at)
         ensure_unsettled(session, entry.work_order_id)
         if session.scalar(select(ProductionCostReversal.id).where(ProductionCostReversal.entry_id == entry_id)) is not None:
             raise HTTPException(409, '此生产成本记录已冲销')

@@ -81,6 +81,11 @@ export function createDataLoader(
     if (!can('opening_balance.create')) state.openingBalanceOptions.value = { accounts: [], period: null }
     if (!can('journal.create')) state.journalOptions.value = { accounts: [], periods: [] }
     if (!can('accounting_period.view')) accountingPeriods.value = []
+    if (!can('accounting_period.closing_view')) {
+      state.periodClosingCheck.value = null
+      state.periodClosingHistory.value = []
+      state.periodClosingError.value = ''
+    }
     syncWorkspaceRoute()
     await loadPermissions()
     state.menuIcons.value = await window.nexora.callApi('menuIcons', undefined)

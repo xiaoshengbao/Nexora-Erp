@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
+from app.core.period_lock import ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (StockMovement, Material, InventoryCostInput, ReceiptOrderLink,
     PurchaseOrderLine, SalesReturnLine, MaterialReturnLine, User,
@@ -83,7 +84,7 @@ class ValuationResult:
     dependencies: dict[int, set[tuple[str, int]]]
 
 
-def calculate_valuation(session: Session) -> ValuationResult:
+def calculate_valuation(session: Session, *, through_date: str | None = None) -> ValuationResult:
     """按流水 ID 重放；后登记的核价会重算未结期间的历史金额。"""
     rates = {}
     for row in session.scalars(select(InventoryCostInput).order_by(InventoryCostInput.id)):
@@ -105,7 +106,10 @@ def calculate_valuation(session: Session) -> ValuationResult:
     dependencies: dict[int, set[tuple[str, int]]] = {}
     movements = []
     unpriced = []
-    for movement in session.scalars(select(StockMovement).order_by(StockMovement.id)):
+    statement = select(StockMovement).order_by(StockMovement.id)
+    if through_date is not None:
+        statement = statement.where(StockMovement.created_at < through_date + ' 24:00:00')
+    for movement in session.scalars(statement):
         row = model_data(movement)
         material_id = row["material_id"]
         quantity = Decimal(row["quantity"])
@@ -214,6 +218,7 @@ def record_cost(payload: CostInput,
         movement = session.get(StockMovement, payload.movement_id)
         if not movement:
             raise HTTPException(404, "库存流水不存在")
+        ensure_movement_unlocked(session, movement.id)
         if Decimal(movement.quantity) <= 0 or movement.source_type not in MANUAL_SOURCES:
             raise HTTPException(409, "此流水的成本须沿用原单据或移动平均，不可人工核价")
         if payload.movement_id in purchase_prices(session):

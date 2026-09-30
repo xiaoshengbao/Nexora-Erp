@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 42:
+        if version > 43:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1386,3 +1386,20 @@ def migrate() -> None:
             db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [(role,code) for role in ('admin','finance') for code,_ in operations])
             db.execute("PRAGMA user_version = 42")
+
+        if version < 43:
+            if not db.in_transaction:
+                db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE period_closings (
+                id INTEGER PRIMARY KEY, period_id INTEGER NOT NULL REFERENCES accounting_periods(id),
+                period_version INTEGER NOT NULL CHECK(period_version>0),
+                action TEXT NOT NULL CHECK(action IN ('close','reopen')), snapshot_json TEXT NOT NULL,
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(period_id,period_version)
+            )""")
+            operations = [('accounting_period.closing_view','查看结账检查与业务证据'), ('accounting_period.close','结账会计期间'), ('accounting_period.reopen','重开会计期间')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.accounting_periods')", operations)
+            db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
+                [('admin',code) for code,_ in operations] + [('finance','accounting_period.close'), ('finance','accounting_period.closing_view')])
+            db.execute("PRAGMA user_version = 43")

@@ -44,7 +44,13 @@ def orm_session(*, write: bool = False) -> Iterator[Session]:
     # 每个请求使用独立连接；测试与切换实例不会复用另一数据库的会话。
     with engine_for(database_path().resolve()).connect().execution_options(sqlite_write=write) as conn:
         with Session(bind=conn, expire_on_commit=False) as session, session.begin():
+            if write:
+                from app.core.period_lock import write_boundary, validate_appended_dates
+                boundary, heads = write_boundary(session)
             yield session
+            if write:
+                session.flush()
+                validate_appended_dates(session, boundary, heads)
 
 
 def model_data(model) -> dict:

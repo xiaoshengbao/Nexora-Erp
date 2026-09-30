@@ -13,6 +13,8 @@ import type {
   LedgerReportResult,
   LedgerAccountInput,
   AccountingPeriod,
+  PeriodClosingCheck,
+  PeriodClosingRecord,
   AccountingPeriodInput,
   FinancialEntry,
   GoodsReceipt,
@@ -122,6 +124,10 @@ export function createAppState() {
     id: null, version: 1, reference: '', journal_date: '', note: '', reason: '', lines: []
   })
   const accountingPeriods = ref<AccountingPeriod[]>([])
+  const periodClosingCheck = ref<PeriodClosingCheck | null>(null)
+  const periodClosingHistory = ref<PeriodClosingRecord[]>([])
+  const periodClosingLoading = ref(false)
+  const periodClosingError = ref('')
   const ledgerAccountForm = ref<LedgerAccountInput & { id: number | null; version: number; is_active: boolean }>({
     id: null, version: 1, code: '', name: '', category: 'asset', normal_balance: 'debit', is_active: true, reason: ''
   })
@@ -423,6 +429,10 @@ export function createAppState() {
     journalOptions,
     journalForm,
     accountingPeriods,
+    periodClosingCheck,
+    periodClosingHistory,
+    periodClosingLoading,
+    periodClosingError,
     ledgerAccountForm,
     accountingPeriodForm,
     paymentRecords,

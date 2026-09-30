@@ -296,7 +296,7 @@ def test_audit_failure_rolls_back_and_concurrent_creation_confirmation(journals)
     assert len(client.get(f'{BASE}/{record["id"]}/changes').json()) == 4
 
 
-def test_permissions_and_v41_migration(journals):
+def test_permissions_and_v41_migration(journals, remove_closing_schema):
     client, _ = journals
     client.post(
         "/api/v1/users",
@@ -320,6 +320,7 @@ def test_permissions_and_v41_migration(journals):
         )
     assert client.post(BASE, json=payload("DENIED"), headers=headers).status_code == 403
     with connection() as db:
+        remove_closing_schema(db)
         for table in (
             "opening_balance_changes",
             "opening_balance_lines",
@@ -337,7 +338,7 @@ def test_permissions_and_v41_migration(journals):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 42
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 43
         assert db.execute("SELECT COUNT(*) FROM ledger_accounts").fetchone()[0] == 2
         assert (
             db.execute(

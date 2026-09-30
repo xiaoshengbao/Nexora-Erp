@@ -4,8 +4,20 @@ import pytest
 
 
 @pytest.fixture
-def remove_journal_schema():
+def remove_closing_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS period_closings')
+        for operation in ('closing_view', 'close', 'reopen'):
+            code = 'accounting_period.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+    return remove
+
+
+@pytest.fixture
+def remove_journal_schema(remove_closing_schema):
+    def remove(db):
+        remove_closing_schema(db)
         for table in ('opening_balance_changes','opening_balance_lines','opening_balances'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view','create','submit','review','confirm','cancel','reverse'):

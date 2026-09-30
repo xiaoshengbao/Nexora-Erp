@@ -33,6 +33,23 @@ export interface AccountingPeriod {
   id: number; code: string; name: string; start_date: string; end_date: string
   status: 'open' | 'closed'; version: number; created_by: number; created_at: string
 }
+export interface PeriodClosingCheck {
+  period: AccountingPeriod; can_close: boolean
+  blockers: { code: string; message: string; ids: number[] }[]; warnings: string[]
+  ledger_totals: LedgerReportTotals; inventory_total: string | null
+  movement_count: number; business_unpriced_count: number
+}
+export interface PeriodClosingEvidence {
+  period: AccountingPeriod; currency: 'CNY'; time_basis: 'UTC'; opening_balance_id: number | null
+  ledger: { rows: Record<string, string>[]; totals: LedgerReportTotals }
+  inventory: InventoryValuationReport; business_sources: ReceivablesPayables
+  payments: Pick<PaymentRecord, 'id' | 'kind' | 'order_id' | 'action' | 'amount' | 'reference' | 'note' | 'reverses_id' | 'created_by' | 'created_at'>[]; posted_journal_ids: number[]
+}
+export interface PeriodClosingRecord {
+  id: number; period_id: number; period_version: number; action: 'close' | 'reopen'
+  evidence: PeriodClosingEvidence | { previous_closing_id: number; period: AccountingPeriod }
+  reason: string; created_by: number; created_by_name: string; created_at: string
+}
 export interface FinanceMetadataChange<T> {
   id: number; before: T | null; after: T; reason: string
   changed_by: number; changed_by_name: string; created_at: string
@@ -951,6 +968,9 @@ export interface ErpOperations {
   createAccountingPeriod: { input: AccountingPeriodInput; output: AccountingPeriod }
   updateAccountingPeriod: { input: { id: number; version: number; name: string; reason: string }; output: AccountingPeriod }
   accountingPeriodChanges: { input: { id: number }; output: FinanceMetadataChange<AccountingPeriod>[] }
+  periodClosingCheck: { input: { id: number }; output: PeriodClosingCheck }
+  periodClosingHistory: { input: { id: number }; output: PeriodClosingRecord[] }
+  changePeriodClosingStatus: { input: { id: number; version: number; action: 'close' | 'reopen'; reason: string }; output: { period: AccountingPeriod; closing_id: number } }
   paymentRecords: { input: undefined; output: PaymentRecord[] }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }

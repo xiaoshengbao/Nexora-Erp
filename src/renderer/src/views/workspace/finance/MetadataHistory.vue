@@ -27,6 +27,8 @@ function description(item: Change): string {
   if (!before) return `建立 ${after.code} · ${after.name}（版本 ${after.version}）`
   const parts: string[] = []
   if (before.name !== after.name) parts.push(`名称：${before.name} → ${after.name}`)
+  if ('status' in before && 'status' in after && before.status !== after.status)
+    parts.push(after.status === 'closed' ? '结账期间' : '重开期间')
   if ('is_active' in before && 'is_active' in after && before.is_active !== after.is_active)
     parts.push(after.is_active ? '启用科目' : '停用科目')
   return `${parts.join('；')}（版本 ${before.version} → ${after.version}）`

@@ -339,6 +339,8 @@ def transition(
         validate(db, record)
     if action == "reverse":
         ensure_no_posted_journals(db)
+        from app.core.period_lock import ensure_date_unlocked
+        ensure_date_unlocked(db, record.effective_date)
     record.status = targets[action]
     record.version += 1
     if action in ("cancel", "reverse"):

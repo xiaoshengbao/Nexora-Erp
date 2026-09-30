@@ -136,7 +136,7 @@ def test_period_boundaries_and_immutable_dates(ledger):
         == 422
     )
     assert (
-        ledger.post(path + "/close", json={"reason": "禁止假结账"}).status_code == 404
+        ledger.post(path + "/close", json={"reason": "缺少版本"}).status_code == 422
     )
     assert ledger.get(path + "/changes").json()[1]["before"] == record
     assert ledger.get(f"{BASE}/accounting-periods/999/changes").status_code == 404
@@ -321,7 +321,7 @@ def test_v39_upgrade_preserves_data_and_is_repeatable(ledger, remove_journal_sch
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 42
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 43
         assert db.execute("SELECT name FROM suppliers").fetchone()[0] == "升级前供应商"
         assert (
             db.execute(

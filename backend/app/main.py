@@ -42,6 +42,7 @@ from app.finance.ledger import router as finance_ledger_router
 from app.finance.journals import router as journals_router
 from app.finance.ledger_reports import router as ledger_reports_router
 from app.finance.opening_balances import router as opening_balances_router
+from app.finance.period_closing import router as period_closing_router
 from app.reports.routes import router as reports_router
 from app.service.routes import router as service_router
 
@@ -91,6 +92,6 @@ for router in (
     purchase_returns_router, sales_router, sales_returns_router,
     production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router,
-    finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, reports_router,
+    finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, period_closing_router, reports_router,
 ):
     app.include_router(router)
