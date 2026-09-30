@@ -8,7 +8,8 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCollapse, NCollapseItem, NModal } from 'naive-ui'
+import { NCollapse, NModal } from 'naive-ui'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -372,7 +373,7 @@ const filteredEntries = computed(() =>
           >
         </div>
         <NCollapse class="mt-3">
-          <NCollapseItem title="查看分摊与来源快照" name="sources">
+          <AppCollapseItem title="查看分摊与来源快照" name="sources">
             <div class="flex flex-col gap-2">
               <span v-for="allocation in item.allocations" :key="allocation.movement_id"
                 >完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} ·
@@ -391,7 +392,7 @@ const filteredEntries = computed(() =>
                 {{ charge.reference }} · ¥{{ charge.amount }}</span
               >
             </div>
-          </NCollapseItem>
+          </AppCollapseItem>
         </NCollapse>
       </template>
       <template #cell-actions="{ row: item }">

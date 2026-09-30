@@ -64,6 +64,6 @@ test('页面统一使用公共控件，只保留选择校验代理和表格专�
     const source = readFileSync(file, 'utf8')
     if (!file.endsWith('AppInput.vue')) assert.doesNotMatch(source, /<(?:NInput|n-input)\b/, file)
     if (!file.endsWith('AppButton.vue')) assert.doesNotMatch(source, /<(?:button|NButton|n-button)\b/, file)
-    if (!file.endsWith('WorkspaceSelect.vue') && !file.endsWith('WorkspaceTable.vue')) assert.doesNotMatch(source, /<(?:input|select|textarea)\b/, file)
+    if (!file.endsWith('WorkspaceSelect.vue') && !file.endsWith('WorkspaceTable.vue')) assert.doesNotMatch(source, /<(?:input|select|textarea|details|summary)\b/, file)
   }
 })

@@ -45,6 +45,8 @@
 
 原生控件检查已覆盖引导、登录、工作台与公共组件。仅保留 `WorkspaceSelect` 的不可见必填校验代理及 `WorkspaceTable` 专用横向滚动条；后者复用表格滚动定位和宽度计算，不属于业务表单输入。表格继续使用已有 vxe-table 公共封装，弹窗、开关和通知继续使用 Naive UI。
 
+权限目录、结账来源明细及生产成本来源快照使用 `NCollapse` 搭配 `components/app/AppCollapseItem.vue`。折叠项封装 `NCollapseItem`，标题复用 `AppButton`，支持 Tab 聚焦、Enter/空格展开和 `aria-expanded`、`aria-controls` 读屏关联。使用 `display-directive="show"` 保留收起的内容，避免嵌套目录状态与编辑草稿丢失；分隔线和标题配色通过根主题统一维护。不要重新引入原生 `details`、`summary`。
+
 工作台单值下拉选择统一使用 `components/workspace/WorkspaceSelect.vue`，在 Naive UI `NSelect` 上封装输入高度、明暗主题、可搜索菜单与必填校验。页面传入 `v-model` 和 `{ label, value, disabled? }` 选项，数字编号、布尔值及表示“全部”的 `null` 保持原类型；不要继续使用原生 `<select>` 或绕过公共组件直接引入 `NSelect`。`change` 在模型更新后触发，订单切换等操作可继续读取共享草稿；分页选择使用 `size="small"` 与 `filterable=false`。菜单传送到 `body`，避免被表格和弹窗滚动区截断。
 
 日期输入直接使用 Naive UI `NDatePicker`，不额外封装日期组件。统一设置 `to="body"`、`type="date"`、`format="yyyy-MM-dd"` 和 `value-format="yyyy-MM-dd"`，通过 `formatted-value` 读写已有字符串字段，清空时使用 `utils/date-field.ts` 的 `datePickerString` 转回空字符串。`vDateField` 指令补回原生必填与手输日期的有效性、上下限校验；日历可选范围通过 `dateOutsideRange` 和 `is-date-disabled` 设置，按设备本地日期比较，避免时区使边界偏移。主题在根 `NConfigProvider` 中统一设置。控件替换不改变服务端校验、会计期间规则或 API 数据协议。

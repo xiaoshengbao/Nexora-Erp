@@ -3,6 +3,8 @@
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
+import { NCollapse } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '../../../store/app-store'
 import { buildPermissionTree } from '../../../utils/permission-tree'
@@ -45,47 +47,52 @@ onMounted(() => {
           >
         </div>
         <p v-else-if="permissionModules.length === 0" class="muted">暂无权限项目。</p>
-        <details
-          v-for="module in permissionModules"
-          :key="module.code"
-          class="permission-catalog-group"
-        >
-          <summary>{{ module.label }}</summary>
-          <details
-            v-for="document in module.documents"
-            :key="document.code"
-            class="permission-catalog-document"
+        <NCollapse v-else>
+          <AppCollapseItem
+            v-for="module in permissionModules"
+            :key="module.code"
+            class="permission-catalog-group"
+            :name="module.code"
+            :title="module.label"
           >
-            <summary>{{ document.label }}</summary>
-            <form
-              v-for="permission in document.permissions"
-              :key="permission.code"
-              class="permission-catalog-row"
-              @submit.prevent="savePermissionLabel(permission.code)"
-            >
-              <small>{{ permission.code }}</small>
-              <label>
-                中文名称
-                <AppInput
-                  v-model.trim="permissionLabelDrafts[permission.code]"
-                  required
-                  maxlength="60"
-                />
-              </label>
-              <AppButton
-                type="submit"
-                :disabled="
-                  busy ||
-                  !permissionLabelDrafts[permission.code] ||
-                  permissionLabelDrafts[permission.code] === permission.label
-                "
-                variant="secondary"
-                size="small"
-                >保存名称</AppButton
+            <NCollapse class="permission-catalog-document">
+              <AppCollapseItem
+                v-for="document in module.documents"
+                :key="document.code"
+                :name="document.code"
+                :title="document.label"
               >
-            </form>
-          </details>
-        </details>
+                <form
+                  v-for="permission in document.permissions"
+                  :key="permission.code"
+                  class="permission-catalog-row"
+                  @submit.prevent="savePermissionLabel(permission.code)"
+                >
+                  <small>{{ permission.code }}</small>
+                  <label>
+                    中文名称
+                    <AppInput
+                      v-model.trim="permissionLabelDrafts[permission.code]"
+                      required
+                      maxlength="60"
+                    />
+                  </label>
+                  <AppButton
+                    type="submit"
+                    :disabled="
+                      busy ||
+                      !permissionLabelDrafts[permission.code] ||
+                      permissionLabelDrafts[permission.code] === permission.label
+                    "
+                    variant="secondary"
+                    size="small"
+                    >保存名称</AppButton
+                  >
+                </form>
+              </AppCollapseItem>
+            </NCollapse>
+          </AppCollapseItem>
+        </NCollapse>
       </div>
     </div>
   </section>

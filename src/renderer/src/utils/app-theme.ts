@@ -21,6 +21,16 @@ const inputTheme: NonNullable<GlobalThemeOverrides['Input']> = {
 export const naiveThemeOverrides: GlobalThemeOverrides = {
   common: { primaryColor: '#237d7a', primaryColorHover: '#1d6c69', primaryColorPressed: '#195d5a' },
   Input: inputTheme,
+  // 折叠标题、箭头与分隔线沿用输入控件配色，避免目录在明暗主题里出现两套颜色。
+  Collapse: {
+    titleFontSize: '13px',
+    titleFontWeight: '600',
+    titleTextColor: 'var(--workspace-field-text)',
+    textColor: 'var(--workspace-field-text)',
+    arrowColor: 'var(--workspace-field-muted)',
+    dividerColor: 'var(--workspace-field-border)',
+    titlePadding: '12px 0'
+  },
   // 页面直接使用 NDatePicker，日历面板仍由 Naive UI 提供中文和键盘交互。
   DatePicker: { panelBorderRadius: '10px', peers: { Input: inputTheme } }
 }
