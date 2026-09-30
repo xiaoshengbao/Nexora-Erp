@@ -17,7 +17,7 @@ test('GPU 路径按实际弧长裁切，端点、倒滚和零长度输入保持�
 
 // 生命周期测试模拟 GPU 边界，真实着色器编译与图像对齐另由浏览器验收。
 function fixture({ unavailable = false, compileFailure = false } = {}) {
-  const counters = { contexts: 0, draws: 0, shaders: 0, programs: 0, buffers: 0, frames: 0 }
+  const counters = { contexts: 0, draws: 0, shaders: 0, programs: 0, buffers: 0, frames: 0, materials: [] }
   const classes = new Set(), canvases = []
   const scene = { dataset: {}, classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name) } }
   const makeGL = () => {
@@ -26,10 +26,11 @@ function fixture({ unavailable = false, compileFailure = false } = {}) {
       createProgram: () => { counters.programs++; return {} }, deleteProgram: () => counters.programs--,
       createBuffer: () => { counters.buffers++; return {} }, deleteBuffer: () => counters.buffers--,
       getShaderParameter: () => !compileFailure, getShaderInfoLog: () => 'Unsupported shader', getProgramParameter: () => true,
-      getAttribLocation: () => 0, getUniformLocation: () => ({}), getParameter: () => 4096,
+      getAttribLocation: () => 0, getUniformLocation: (_, name) => name, getParameter: () => 4096,
       isContextLost: () => gl.lost, drawArrays: () => counters.draws++
     }
     for (const method of ['shaderSource', 'compileShader', 'attachShader', 'linkProgram', 'enable', 'blendFuncSeparate', 'useProgram', 'bindBuffer', 'bufferData', 'enableVertexAttribArray', 'vertexAttribPointer', 'uniform1f', 'uniform2f', 'uniform3f', 'uniform4f', 'viewport', 'clearColor', 'clear']) gl[method] = () => {}
+    gl.uniform1f = (uniform, value) => { if (uniform === 'u_kind') counters.materials.push(value) }
     return gl
   }
   const doc = { createElement() {
@@ -88,4 +89,14 @@ test('GPU 上下文丢失即回退，恢复时重建资源并重绘最后业务�
   assert.equal(f.scene.dataset.renderer, 'webgl'); assert.equal(f.counters.frames, 2)
   stage.destroy()
   assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0)
+})
+
+test('GPU 保留地面光影与来源路径，不再叠加静态镀层窗框', () => {
+  const f = fixture(), stage = f.create()
+  assert.equal(stage.draw(frame()), true)
+  assert.ok(f.counters.materials.includes(1), '保留地面反光')
+  assert.ok(f.counters.materials.includes(2), '保留接触阴影')
+  assert.ok(!f.counters.materials.includes(0), '不绘制金属镀层')
+  assert.ok(f.counters.draws > f.counters.materials.length, '来源线仍由 GPU 绘制')
+  stage.destroy()
 })

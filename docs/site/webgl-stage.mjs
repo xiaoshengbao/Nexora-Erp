@@ -59,17 +59,12 @@ const materialFragment = `
 precision mediump float;
 varying vec2 v_uv;
 uniform vec2 u_size;
-uniform float u_opacity, u_kind, u_light;
+uniform float u_opacity, u_kind;
 float roundedBox(vec2 p, vec2 b, float r){vec2 q=abs(p)-b+r;return min(max(q.x,q.y),0.)+length(max(q,0.))-r;}
 void main(){
   float d = roundedBox((v_uv-.5)*u_size,u_size*.5-vec2(1.),15.);
   float edge = 1.-smoothstep(-.8,.8,d);
-  if(u_kind<.5){
-    float rim = 1.-smoothstep(0.,5.,-d);
-    float light = .66+.2*sin((v_uv.x+v_uv.y*.18)*18.+u_light)+.12*cos(v_uv.y*26.);
-    vec3 silver = mix(vec3(.56,.65,.70),vec3(.98,1.,1.),light);
-    gl_FragColor=vec4(silver,edge*u_opacity*(.45+.55*rim));
-  }else if(u_kind<1.5){
+  if(u_kind<1.5){
     float fade=pow(1.-v_uv.y,2.4);
     float sidebar=1.-smoothstep(.14,.16,v_uv.x);
     float rows=.5+.5*cos(v_uv.y*46.);
@@ -161,7 +156,7 @@ function renderer(canvas, material) {
   }
 }
 
-// 上下两层画布让窗口边框/反射在 HTML 后方、来源线在前方；聚焦时线层后移。
+// 下层只绘制地面光影，来源线在前方；窗口使用干净的薄边，不叠加镀层。
 export function createWebGLStage(board, requestFrame = () => {}) {
   const scene = board.closest('.scroll-scene'), doc = board.ownerDocument
   const canvases = ['webgl-materials', 'webgl-connections'].map(className => {
@@ -188,19 +183,18 @@ export function createWebGLStage(board, requestFrame = () => {}) {
   canvases.forEach(c => { c.addEventListener('webglcontextlost', onLost); c.addEventListener('webglcontextrestored', onRestored) })
   function draw(frame) {
     if (disposed || failed) return false
-    const { width, height, layout, connections, progress, staticMode, ratio = 1 } = frame
+    const { width, height, layout, connections, staticMode, ratio = 1 } = frame
     if (staticMode) { setReady(false); return false }
     if (!renderers.length && !initialize()) return false
     if (renderers.some(r => r.gl.isContextLost())) { failed = true; setReady(false); return false }
     setReady(true)
     const canvasSize = [width + 80, height + 140], [surface, lines] = renderers
     renderers.forEach(r => r.clear(...canvasSize, ratio))
-    const material = (rect, rotation, opacity, kind, depth = 0) => {
-      const mesh = depth ? new Float32Array(quad.map((v, i) => i % 3 === 2 ? depth : v)) : quad
-      const p = surface.use(0, mesh)
+    const material = (rect, rotation, opacity, kind) => {
+      const p = surface.use(0, quad)
       p.uniform('u_canvas', canvasSize); p.uniform('u_stage', [width, height]); p.uniform('u_rect', rect)
       p.uniform('u_size', rect.slice(2)); p.uniform('u_rotation', [rotation * Math.PI / 180]); p.uniform('u_perspective', [perspective])
-      p.uniform('u_opacity', [opacity]); p.uniform('u_kind', [kind]); p.uniform('u_light', [progress * 1.5]); p.draw()
+      p.uniform('u_opacity', [opacity]); p.uniform('u_kind', [kind]); p.draw()
     }
     for (const item of layout) {
       if (item.opacity < .01) continue
@@ -208,8 +202,6 @@ export function createWebGLStage(board, requestFrame = () => {}) {
       const w = g.pixelWidth, h = g.pixelHeight, center = g.left + w / 2, bottom = g.top + h
       material([center, bottom + 31, w + 80, 48], 0, item.opacity, 2)
       material([center, bottom + 60, w, 58], item.rotation, item.opacity * .5, 1)
-      // 逐层挤出银框的侧面，近侧保留暗面与高光，不用白色边线替代厚度。
-      for (const depth of [-14, -10, -6, -2]) material([center, bottom + 3, w + 8, h + 6], item.rotation, item.opacity, 0, depth)
     }
     for (const connection of connections) {
       if (!connection.visible) continue

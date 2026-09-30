@@ -33,6 +33,11 @@ export function windowGeometry(item, stageWidth, stageHeight) {
   const left = stageWidth * item.x + (stageWidth * item.width - width) / 2
   return { ...item, left, top: stageHeight - 35 - height, pixelWidth: width, pixelHeight: height, scale: width / item.logicalWidth }
 }
+// 长记录由分页限制；展开明细或字段错误增加高度时，把完整内容纳入投影。
+export function fitWindowContent(item, contentHeight) {
+  const required = Number.isFinite(contentHeight) ? Math.max(0, contentHeight) + 43 : 0
+  return { ...item, logicalHeight: Math.max(item.logicalHeight, Math.ceil(required)) }
+}
 export function projectWindowPoint(item, x, y, depth = 0) {
   const angle = item.rotation * Math.PI / 180, localX = x - item.pixelWidth / 2, localY = y - item.pixelHeight
   const z = -localX * Math.sin(angle) + depth * Math.cos(angle), w = 1 - z / perspective
