@@ -322,9 +322,10 @@ def test_business_permissions_do_not_follow_general_journal_access(business):
         policy_version=1, reference='DENIED', journal_date='2026-01-01', reason='越权')).status_code == 403
 
 
-def test_v43_upgrade_atomic_failure_and_idempotent_retry(business):
+def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transfer_schema):
     import sqlite3
     with connection() as db:
+        remove_transfer_schema(db)
         for table in ('business_journal_sources', 'business_journal_policy_changes', 'business_journal_policies'):
             db.execute(f'DROP TABLE {table}')
         for code in ('business_journal.view', 'business_journal.configure', 'business_journal.generate'):
@@ -344,5 +345,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 44
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 45
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

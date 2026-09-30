@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 44:
+        if version > 45:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1433,3 +1433,35 @@ def migrate() -> None:
             db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [(role,code) for role in ('admin','finance') for code,_ in operations])
             db.execute("PRAGMA user_version = 44")
+
+        if version < 45:
+            if not db.in_transaction:
+                db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE profit_transfer_policies (
+                id INTEGER PRIMARY KEY CHECK(id=1), start_date TEXT NOT NULL,
+                target_account_id INTEGER NOT NULL REFERENCES ledger_accounts(id),
+                cost_account_ids_json TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
+            db.execute("""CREATE TABLE profit_transfer_policy_changes (
+                id INTEGER PRIMARY KEY, before_json TEXT, after_json TEXT NOT NULL,
+                reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
+            db.execute("""CREATE TABLE profit_transfers (
+                id INTEGER PRIMARY KEY, journal_id INTEGER NOT NULL UNIQUE REFERENCES journals(id),
+                period_id INTEGER NOT NULL REFERENCES accounting_periods(id),
+                active_period_id INTEGER UNIQUE REFERENCES accounting_periods(id),
+                evidence_json TEXT NOT NULL, policy_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK(active_period_id IS NULL OR active_period_id=period_id)
+            )""")
+            db.execute("CREATE INDEX profit_transfers_period ON profit_transfers(period_id)")
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.profit_transfers','损益结转','finance',55)")
+            operations = [('profit_transfer.view','查看损益结转与来源'),
+                ('profit_transfer.configure','配置损益结转科目'), ('profit_transfer.generate','生成损益结转草稿')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.profit_transfers')", operations)
+            db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
+                [(role, code) for role in ('admin','finance') for code, _ in operations])
+            db.execute("PRAGMA user_version = 45")

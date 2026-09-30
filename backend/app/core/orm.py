@@ -53,6 +53,8 @@ def orm_session(*, write: bool = False) -> Iterator[Session]:
                 validate_appended_dates(session, boundary, heads)
                 from app.finance.business_journals import validate_posted_sources
                 validate_posted_sources(session)
+                from app.finance.profit_transfers import validate_posted_sources as validate_transfers
+                validate_transfers(session)
 
 
 def model_data(model) -> dict:

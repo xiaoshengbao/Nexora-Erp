@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NDatePicker } from 'naive-ui'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
+import { NModal, NDatePicker, NCollapse } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -89,7 +90,7 @@ async function generate(): Promise<void> {
       <template #cell-actions="{ row }"><div class="ledger-actions"><AppButton variant="text" :disabled="loading" @click="open(row)">核对来源</AppButton><AppButton v-if="row.journal_id" variant="text" @click="emit('openJournal', row.journal_id)">查看凭证</AppButton><AppButton v-else-if="can('business_journal.generate')" variant="text" :disabled="!row.can_generate || busy || connectionLost || loading" @click="open(row)">生成草稿</AppButton></div></template>
       <template #empty>{{ loading ? '正在读取业务来源…' : query || filter ? '没有匹配的业务来源。可切换到全部来源查看。' : '暂无已确认的业务来源。' }}</template>
     </WorkspaceTable>
-    <details v-if="changes.length"><summary>科目配置历史（{{ changes.length }} 次）</summary><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></details>
+    <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
     <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} #${selected.source_id} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
       <div v-if="selected" class="stack">
         <BusinessSourceEvidence :source="selected" :mapping="options?.policy.mapping" :accounts="options?.accounts" />

@@ -47,6 +47,11 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     missing = pending_sources(db, period.end_date)
     if missing:
         block('pending_business_sources', '业务凭证纳管范围内尚有未过账来源：' + '、'.join(missing))
+    from app.finance.profit_transfers import closing_evidence
+    transfer = closing_evidence(db, period)
+    if transfer['required'] and transfer['residuals']:
+        block('profit_transfer_pending', '损益科目尚有期末余额，须先核对并过账损益结转',
+            [item['account_id'] for item in transfer['residuals']])
     try:
         check_journal_opening(db, period.end_date)
     except HTTPException as exc:
@@ -69,9 +74,10 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     business = report_data(entries)
     if business['unpriced_count']:
         warnings.append('应收应付有历史无价来源；库存核价不能替代往来单价或业务对账')
-    warnings.append('结账固定现有总账和业务证据，不自动生成业务凭证、损益结转或法定财务报表')
+    warnings.append('结账固定现有总账和业务证据；业务及损益结转草稿须单独生成、审核和过账，不自动生成法定财务报表')
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,
+        profit_transfer=transfer,
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,
         payments=[model_data(item) for item in db.scalars(select(PaymentRecord).where(
             PaymentRecord.created_at < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
