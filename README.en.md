@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this profit-transfer delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this company-statement delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -33,12 +33,13 @@ Snapshot: **2026-10-01, this profit-transfer delivery**. Work in progress is not
 | Inventory and finished-goods costs | Foundation implemented | Moving-average valuation and batch allocations; variances, work in progress and cross-period costs remain. |
 | Ledger master data | Merged | Accounts, periods and auditing; period closing is provided separately. |
 | Formal opening balances | Implemented | First setup before any posted journal, independent review/confirmation, versions and audit, reversal before posting; excluded from current activity. |
-| Manual journals | Merged | Balanced entries, independent review, posting, linked reversals and auditing; business-source journals are provided separately; formal statements remain. |
-| Posted ledger reports | Merged | Account ledgers, trial balance, journal drill-down and CSV; formal opening balances and snapshot sources are available; balance sheet and income statement remain. |
+| Manual journals | Merged | Balanced entries, independent review, posting, linked reversals and auditing; business-source journals and company statements are provided separately. |
+| Posted ledger reports | Merged | Account ledgers, trial balance, journal drill-down and CSV; formal opening balances and snapshot sources are available; company balance sheet and income statement are provided separately. |
 | Period closing | Implemented | Check and close ended periods in order, lock historical valuations/allocations, reopen in reverse order, retain every archive and audit. |
 | Business-source journals | Implemented | Configurable accounts, source recomputation, purchase variances and sales-cost entries, atomic deduplication, source snapshots and posted-source protection; independent review remains required. |
 | Profit transfer | Implemented | Company account scope, period-end drafts, independent review, source protection, reverse-order corrections and zero-balance closing checks. |
-| Full financial accounting | Planned | Subsidiary opening reconciliation, auxiliary accounting and formal financial statements. |
+| Company financial statements | Implemented | Project/account mappings, balance sheet and income statement, source drill-down, CSV, configuration audit and fixed archives for closed periods. |
+| Full financial accounting | Planned | Subsidiary opening reconciliation, auxiliary accounting, cash flow, statutory templates, taxes and bank reconciliation. |
 | Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 

@@ -33,6 +33,7 @@ const workspaceRouteComponents = {
   journals: () => import('../views/workspace/finance/JournalsView.vue'),
   openingBalances: () => import('../views/workspace/finance/OpeningBalancesView.vue'),
   ledgerReports: () => import('../views/workspace/finance/LedgerReportsView.vue'),
+  financialStatements: () => import('../views/workspace/finance/FinancialStatementsView.vue'),
   accountingPeriods: () => import('../views/workspace/finance/AccountingPeriodsView.vue'),
   financePayments: () => import('../views/workspace/finance/PaymentRecordsView.vue'),
   financeSources: () => import('../views/workspace/finance/FinancialSourcesView.vue'),

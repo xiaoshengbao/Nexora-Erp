@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_transfer_schema():
+def remove_statement_schema():
     def remove(db):
+        for table in ('financial_statements', 'financial_statement_policy_changes', 'financial_statement_policies'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for operation in ('view', 'configure', 'archive'):
+            code = 'financial_statement.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='finance.statements'")
+    return remove
+
+
+@pytest.fixture
+def remove_transfer_schema(remove_statement_schema):
+    def remove(db):
+        remove_statement_schema(db)
         for table in ('profit_transfers', 'profit_transfer_policy_changes', 'profit_transfer_policies'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view', 'configure', 'generate'):
