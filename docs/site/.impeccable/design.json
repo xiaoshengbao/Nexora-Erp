@@ -498,11 +498,14 @@
       },
       {
         "name": "stage-static-mobile",
-        "value": "760px"
+        "value": "width<=760px or width<=1000px with height<620px; all height<620px use vertical stage"
       }
     ],
     "geometry": {
       "source": "scene-geometry.mjs",
+      "manualTransition": "450ms含最多80ms旧线淡出；预测量终态，实体姿态插值，快速切换接续当前帧，终态等比；单帧最多推进34ms，后台/离屏恢复接续暂停时间",
+      "connections": "真实HTML逻辑锚点共用窗口投影；同来源、opacity>=.55、屏内端点、顺向间距>=16px；SVG/GPU同端点与透明度",
+      "heightBudget": "标题、叙述、控件、状态及说明的实际高度/边距+padding+8px；所有动态镜头受同一上限约束",
       "perspective": 1400,
       "origin": "各窗底部中心；下沿为stageHeight - 35",
       "initialReceipt": {
@@ -553,14 +556,14 @@
       "layers": [
         "GPU下层地面接触阴影/反光；CSS单层1px细边",
         "HTML业务窗口与只读内容镜像",
-        "GPU上层来源带/节点；聚焦退至HTML后"
+        "GPU上层来源带/节点；切换前80ms淡出，符合可见/顺向/同来源条件后淡入"
       ],
       "input": "canvas pointer-events:none; aria-hidden:true",
       "pixelDensity": "max 2; limited by MAX_RENDERBUFFER_SIZE",
       "initialization": "首次桌面动态绘制；手机/reduced不初始化",
       "reflection": {
         "source": "motion.mjs refreshReflections",
-        "refresh": "sandbox:render或原窗口明细toggle",
+        "refresh": "字段编辑、sandbox:render或原窗口明细toggle；DOM克隆复制当前input/select/textarea值",
         "stripAttributes": [
           "data-*",
           "id",
