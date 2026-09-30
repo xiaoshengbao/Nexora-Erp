@@ -14,6 +14,7 @@ from app.finance.journals import router as journals_router
 from app.finance.ledger_reports import router as ledger_reports_router
 from app.finance.opening_balances import router as opening_balances_router
 from app.finance.period_closing import router as period_closing_router
+from app.finance.business_journals import router as business_journals_router
 from app.inventory.stock import router as stock_router
 from app.inventory.stocktake import router as stocktake_router
 from app.inventory.warehouse import router as warehouse_router
@@ -39,7 +40,7 @@ def test_every_feature_router_is_registered() -> None:
         stock_router, stocktake_router, purchase_orders_router, receipts_router,
         purchase_returns_router, sales_orders_router, sales_returns_router,
         boms_router, work_orders_router, issues_router, material_returns_router,
-        completions_router, costs_router, finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, period_closing_router,
+        completions_router, costs_router, finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, period_closing_router, business_journals_router,
     )
     for router in routers:
         routes = [route for route in router.routes if isinstance(route, APIRoute)]

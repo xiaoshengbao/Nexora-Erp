@@ -1,4 +1,4 @@
-"""ORM 会话与 SQLite 事务边界，逐步替换业务层直接 SQL。"""
+"""ORM 会话与 SQLite 事务边界，统一业务数据访问。"""
 
 import os
 from contextlib import contextmanager
@@ -51,6 +51,8 @@ def orm_session(*, write: bool = False) -> Iterator[Session]:
             if write:
                 session.flush()
                 validate_appended_dates(session, boundary, heads)
+                from app.finance.business_journals import validate_posted_sources
+                validate_posted_sources(session)
 
 
 def model_data(model) -> dict:

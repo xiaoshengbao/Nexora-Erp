@@ -16,6 +16,8 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { displayError } from '../../../utils/formatters'
 import JournalHistory from './JournalHistory.vue'
+import BusinessJournalPanel from './BusinessJournalPanel.vue'
+import BusinessSourceEvidence from './BusinessSourceEvidence.vue'
 import { journalActionLabels, journalStatusLabels, journalTotals } from './journal-display'
 import './ledger-metadata.css'
 import './journals.css'
@@ -34,6 +36,7 @@ const { can, editJournal, saveJournal, changeJournalStatus, reverseJournal, load
   store
 const query = ref('')
 const status = ref('')
+const showBusiness = ref(false)
 const showForm = ref(false)
 const opening = ref(false)
 const detailId = ref<number | null>(null)
@@ -133,7 +136,9 @@ async function confirm(): Promise<void> {
 
 <template>
   <section class="stack ledger-metadata-page">
-    <WorkspaceTable
+    <div v-if="showBusiness && can('business_journal.view')" class="ledger-actions"><AppButton variant="secondary" @click="showBusiness = false">返回总账凭证</AppButton></div>
+    <BusinessJournalPanel v-if="showBusiness && can('business_journal.view')" @open-journal="id => { showBusiness = false; detailId = id }" />
+    <WorkspaceTable v-else
       class="journal-list-table"
       title="总账凭证"
       :show-title="false"
@@ -142,7 +147,7 @@ async function confirm(): Promise<void> {
       :min-table-width="1000"
     >
       <template #actions
-        ><AppButton
+        ><AppButton v-if="can('business_journal.view')" variant="secondary" @click="showBusiness = true">业务来源与科目配置</AppButton><AppButton
           v-if="can('journal.create')"
           :disabled="busy || connectionLost || opening"
           @click="edit()"
@@ -177,7 +182,7 @@ async function confirm(): Promise<void> {
           variant="text"
           type="button"
           >原凭证记-{{ row.reversal_of_id }}</AppButton
-        ><span v-else>手工录入</span
+        ><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} #{{ row.business_source.evidence.source_id }}</span><span v-else>手工录入</span
         ><AppButton
           v-if="row.reversal_journal_id"
           @click="detailId = row.reversal_journal_id"
@@ -192,7 +197,7 @@ async function confirm(): Promise<void> {
           <AppButton
             v-if="
               can('journal.create') &&
-              !row.reversal_of_id &&
+              !row.reversal_of_id && !row.business_source &&
               ['draft', 'rejected'].includes(row.status)
             "
             :disabled="busy || connectionLost || opening"
@@ -471,6 +476,7 @@ async function confirm(): Promise<void> {
             >{{ row.account_code }} · {{ row.account_name }}</template
           ></WorkspaceTable
         >
+        <details v-if="detail.business_source"><summary>生成时的业务来源与科目配置（版本 {{ detail.business_source.policy_version }}）</summary><BusinessSourceEvidence :source="detail.business_source.evidence" :mapping="detail.business_source.mapping" /></details>
         <JournalHistory
           :key="`${detail.id}:${detail.version}`"
           :load="() => loadJournalChanges(detail!.id)"
