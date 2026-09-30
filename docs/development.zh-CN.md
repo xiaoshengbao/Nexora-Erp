@@ -160,7 +160,7 @@ npm run build
 PowerShell 不替原生命令展开通配符，显式枚举测试。`npm run build` 已含类型检查，`npm run preview` 预览已有构建。网站专用检查：
 
 ```bash
-node --test tests/docs-site.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
+node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
 npm run docs:build
 ```
 
@@ -206,6 +206,8 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 ## 官网与 HTML 文档
 
+首页标题与行动独占 `100svh` 封面，页眉叠放在顶部。`cover-motion.mjs` 让按钮下方的青绿引导线随滚动伸向入库窗口的实测顶边，随后由入库、库存和应付来源线接续；倒滚收回，快速离场或手动聚焦清除旧线。桌面使用 WebGL，手机使用同一路径的 SVG；减少动态、低高度及无脚本保留静态引导与文档入口。标题同时按宽高适配，中英文采用同一结构。
+
 官网采用静态 HTML/CSS/JavaScript 构建，`scripts/build-docs-site.mjs` 使用 Marked 将版本控制中的 Markdown 转成页面，无业务 API、数据库或浏览器端 Markdown 编译。中文入口 `/zh-CN/`，英文 `/en/`，对应 `development.html` 为开发文档，根入口为中文。
 
 | 文件 | 维护方式 |
@@ -220,15 +222,15 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 首页使用独立的网页交互沙盒：先显示完整入库窗口，再随滚动从右侧引入库存和应付窗口，用 WebGL 连接实际来源锚点。支持多单据、多物料、仓库与供应商选择、确认入库、库存筛选和来源追溯、部分或全部模拟付款。数量使用三位定点小数，金额以整数分计算；草稿不生成业务流水，确认不能重复，已确认单据只能复制为草稿，付款不得超过未付余额。
 
-`sandbox.mjs` 管理业务状态，`sandbox-ui.mjs` 生成并装配 HTML 控件，`scene-geometry.mjs` 统一逻辑画布和窗底投影，`motion.mjs` 只控制镜头与连接线，`sandbox.css` 提供舞台样式。业务数据不由滚动改变，也不连接 ERP 服务。同一标签页点击语言链接时通过一次性 `sessionStorage` 交接数据，刷新恢复初始示例；存储不可用时仍允许导航。暂停、分步与放大操作进入手动模式，恢复时平滑对齐滚动位置。手机纵向排列，减少动态效果时取消运动；无 JavaScript 时保留静态业务示例和文档入口。
+`sandbox.mjs` 管理业务状态，`sandbox-ui.mjs` 生成并装配 HTML 控件，`scene-geometry.mjs` 统一逻辑画布和窗底投影，`motion.mjs` 只控制镜头与连接线，`sandbox.css` 提供舞台样式。业务数据不由滚动改变，也不连接 ERP 服务。同一标签页点击语言链接时通过一次性 `sessionStorage` 交接数据，刷新恢复初始示例；存储不可用时仍允许导航。分步与总览按钮滚动到页面的实际阶段；放大操作可在停滚时保持聚焦，但任何页面滚动都会立即退出聚焦并按滚动条位置重绘，没有暂停或恢复按钮。输入框获得焦点不会锁住页面滚动。手机纵向排列，减少动态效果时取消运动；无 JavaScript 时保留静态业务示例和文档入口。
 
-`webgl-stage.mjs` 使用原生 WebGL 绘制接触阴影、地面反光与来源连接线；窗框使用单层冷灰细边，已移除静态镀层和角部高光，HTML 控件共享 1400px 镜头投影。桌面窗口整体缩放并保留文字侧栏，两侧使用相反的 30° 角度，库存窗为 4°；实际 HTML 内容镜像在窗底渐隐。GPU 图层不截获输入，静止时不连续绘制；上下文丢失或 WebGL 不可用时自动显示 CSS/SVG 兼容层，不重置业务数据。手机和减少动态效果模式保留静态关系，不创建 GPU 上下文。
+`webgl-stage.mjs` 使用原生 WebGL 绘制接触阴影、漫射光池、低角度掠光与来源连接线；窗框使用单层冷灰细边，已移除静态镀层和角部高光，HTML 控件共享 1400px 镜头投影。桌面窗口整体缩放并保留文字侧栏，两侧使用相反的 30° 角度，库存窗为 4°；不再复制 HTML 内容倒影；地面光场根据投影窗底的两端、跨度与滚动进度计算，冷暖光斑、细微材质与短接触阴影共同建立层次。GPU 图层不截获输入，静止时不连续绘制；上下文丢失或 WebGL 不可用时自动显示 CSS/SVG 兼容层，不重置业务数据。手机和减少动态效果模式保留静态关系，不创建 GPU 上下文。
 
-三窗手动切换先淡出旧线，再沿已测量的实体起止姿态过渡，避免每帧重排造成尺寸跳变；连续切换从当前帧接续。连线由逻辑锚点与窗口共用投影，只绘制同屏、顺向、同来源的关系，退场或交叉时清除，回到总览后淡入。倒影即时复制当前字段值与金额。视口高度低于 620px 时改为纵向布局；宽度不超过 1000px 的低高度横屏使用手机行卡片，避免底部操作被固定舞台裁掉。
+三窗手动切换先淡出旧线，再沿已测量的实体起止姿态过渡，避免每帧重排造成尺寸跳变；连续切换从当前帧接续。连线由逻辑锚点与窗口共用投影，只绘制同屏、顺向、同来源的关系，退场或交叉时清除，回到总览后淡入。页面滚动打断聚焦补间时直接使用实际进度，并重新测量来源锚点，避免旧线残留。视口高度低于 620px 时改为纵向布局；宽度不超过 1000px 的低高度横屏使用手机行卡片，避免底部操作被固定舞台裁掉。
 
 长记录分页展示：入库和应付明细每页 2 行，库存流水每页 4 行，余额和付款记录每页 3 行。页码属于展示状态，合计、确认和余额始终使用完整业务数据。添加物料打开最后一页；确认时若其他页有错误，自动返回对应页并定位字段。删除或筛选后的越界页会收敛到有效页。桌面先按实际内容（包括展开明细和错误提示）计算逻辑高度，再统一缩放窗口与连线；窗口内不建立滚动容器。总览保留物料、数量和单价，金额列及逐行删除入口在放大窗口中操作。
 
-运行 `node --test tests/docs-site.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
+运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
 
 目前按要求**暂不启用线上网站**。准备发布时由管理员在 Settings → Pages → Source 选 GitHub Actions，再启用仓库变量 `PAGES_ENABLED=true` 并手动运行官网工作流。普通推送权限不足以配置 Pages。工作流只上传 `dist/site/`；PR 只验证不发布。预期地址 `https://zhangzzj2003.github.io/Nexora-Erp/`，部署成功前不可称为可用官网。
 

@@ -2,46 +2,32 @@ import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, pr
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
+import { mountCover } from './cover-motion.mjs'
 
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 const lerp = (a, b, p) => a + (b - a) * p
 const ease = p => 1 - (1 - clamp(p)) ** 3
 const keys = ['receipt', 'stock', 'finance']
 export const intersectsStage = (rect, stage) => rect.right > stage.left && rect.left < stage.right && rect.bottom > stage.top && rect.top < stage.bottom
-export function cloneReflection(viewport) {
-  const clone = viewport.cloneNode(true)
-  const originals = viewport.querySelectorAll('input,select,textarea'), copies = clone.querySelectorAll('input,select,textarea')
-  originals.forEach((control, index) => { copies[index].value = control.value; copies[index].checked = control.checked })
-  for (const node of [clone, ...clone.querySelectorAll('*')]) {
-    for (const attr of [...node.attributes]) if (attr.name.startsWith('data-') || ['id', 'name', 'tabindex'].includes(attr.name)) node.removeAttribute(attr.name)
-  }
-  return clone
-}
 export function mountScene(doc = document, win = window) {
   const scene = doc.querySelector('.scroll-scene')
   if (!scene) return () => {}
   const board = scene.querySelector('.scene-board'), windows = keys.map(key => scene.querySelector(`[data-window="${key}"]`))
   const reduced = win.matchMedia('(prefers-reduced-motion: reduce)'), mobile = win.matchMedia('(max-width: 760px), (max-width: 1000px) and (max-height: 619px)'), short = win.matchMedia('(max-height: 619px)')
-  const buttons = [...scene.querySelectorAll('[data-stage]')], pause = scene.querySelector('[data-pause]')
+  const buttons = [...scene.querySelectorAll('[data-stage]')]
   const captions = [...scene.querySelectorAll('[data-caption]')]
   let progress = 0, focused = null, manual = false, frame = 0, onScreen = true, tween = null, disposed = false
   let renderedWindows = sceneAt(0).windows, lastStage = -1, sandbox
   let pendingFocus = null
   let graphics
   let resolvedWindows = [], logicalAnchors = [], linksAlpha = 1, heldPose = false
-  const refreshReflections = () => windows.forEach(el => {
-    const reflection = el.querySelector('.window-reflection'), viewport = el.querySelector('.window-viewport')
-    reflection.replaceChildren(cloneReflection(viewport))
-  })
   const staticMode = () => reduced.matches || mobile.matches || short.matches
   const targetProgress = () => {
     const rect = scene.getBoundingClientRect()
     return clamp(-rect.top / Math.max(1, rect.height - win.innerHeight))
   }
   const syncControls = () => {
-    pause.setAttribute('aria-pressed', String(manual))
-    pause.textContent = manual ? pause.dataset.resume : pause.dataset.pause
-    scene.dataset.mode = focused ? 'focus' : manual ? 'manual' : 'scroll'
+    scene.dataset.mode = focused ? 'focus' : 'scroll'
   }
   const measureAnchors = () => {
     logicalAnchors = keys.map(key => {
@@ -149,6 +135,11 @@ export function mountScene(doc = document, win = window) {
       lastStage = stage
     }
     drawLines()
+    if (!staticMode()) {
+      const root = board.getBoundingClientRect(), pose = resolvedWindows[0]
+      const entry = projectWindowPoint(pose, pose.pixelWidth / 2, 0)
+      scene.dispatchEvent(new win.CustomEvent('scene:geometry', { detail: { entry: [root.left + entry[0] + win.scrollX, root.top + entry[1] + win.scrollY], progress, manual } }))
+    }
   }
   const apply = layout => {
     board.style.height = staticMode() ? '' : `${stageHeight(layout)}px`
@@ -177,7 +168,6 @@ export function mountScene(doc = document, win = window) {
       if (!tween.to) {
         renderedWindows = measure(tween.target)
         tween.to = renderedWindows.map(item => windowGeometry(item, board.clientWidth, tween.toHeight))
-        refreshReflections()
       }
       const q = ease((elapsed - lead) / (tween.duration - lead))
       progress = lerp(tween.fromProgress, tween.toProgress, q)
@@ -223,21 +213,12 @@ export function mountScene(doc = document, win = window) {
   }
   const onClick = event => {
     const focus = event.target.closest('[data-focus]')
-    if (focus) { move(.9, focus.dataset.focus); return }
+    if (focus) { move(targetProgress(), focus.dataset.focus); return }
     const stage = event.target.closest('[data-stage]')
-    if (stage) { move([.1, .45, .8, .92][Number(stage.dataset.stage)]); return }
-    if (event.target.closest('[data-overview]')) { move(.92); return }
-    if (event.target.closest('[data-pause]')) {
-      if (manual) {
-        focused = null; manual = false
-        pendingFocus = null
-        if (!staticMode()) startFlight(targetProgress(), 300)
-        else tween = null
-      } else { manual = true; heldPose = Boolean(tween); tween = null }
-      syncControls(); schedule()
-    }
+    if (stage) { scrollToStage([.1, .45, .8, .92][Number(stage.dataset.stage)]); return }
+    if (event.target.closest('[data-overview]')) scrollToStage(.92)
   }
-  const onFocus = event => { if (keys.includes(event.detail.key)) move(.9, event.detail.key) }
+  const onFocus = event => { if (keys.includes(event.detail.key)) move(targetProgress(), event.detail.key) }
   const onInputFocus = event => {
     if (event.target.closest('.sandbox-content') && event.target.matches('input,select,textarea')) {
       manual = true; heldPose = Boolean(tween) || heldPose; tween = null; pendingFocus = null; syncControls()
@@ -261,7 +242,18 @@ export function mountScene(doc = document, win = window) {
     if (doc.hidden) { if (tween) tween.clock.lastTime = null; if (frame) { win.cancelAnimationFrame(frame); frame = 0 } }
     else schedule()
   }
-  const onScroll = () => { if (!manual || staticMode()) schedule() }
+  const followScroll = () => {
+    // 页面滚动永远接管镜头；编辑或聚焦不能锁住滚动进度，也不插入恢复延迟。
+    manual = false; focused = null; tween = null; heldPose = false; pendingFocus = null
+    syncControls(); schedule()
+  }
+  const scrollToStage = p => {
+    followScroll()
+    if (staticMode()) { windows[p < .32 ? 0 : p < .63 ? 1 : 2].scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth', block: 'start' }); return }
+    const rect = scene.getBoundingClientRect()
+    win.scrollTo({ top: win.scrollY + rect.top + clamp(p) * Math.max(1, rect.height - win.innerHeight), behavior: 'smooth' })
+  }
+  const onScroll = followScroll
   scene.addEventListener('click', onClick)
   scene.addEventListener('sandbox:focus', onFocus)
   const onRender = () => {
@@ -270,10 +262,10 @@ export function mountScene(doc = document, win = window) {
       renderedWindows = measure(renderedWindows)
       resolvedWindows = resolvedWindows.map((pose, index) => ({ ...pose, logicalWidth: renderedWindows[index].logicalWidth, logicalHeight: renderedWindows[index].logicalHeight, scaleY: pose.pixelHeight / renderedWindows[index].logicalHeight }))
     }
-    refreshReflections(); schedule()
+    schedule()
   }
   const onDetails = event => {
-    if (!event.target.closest('.window-reflection')) onRender()
+    onRender()
   }
   scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('toggle', onDetails, true)
@@ -296,7 +288,6 @@ export function mountScene(doc = document, win = window) {
   }), { threshold: .1 })
   windows.forEach(el => reveals.observe(el))
   scene.classList.add('scene-ready')
-  refreshReflections()
   onPreference()
   sandbox = mountSandbox(scene, doc.documentElement.lang)
   return () => {
@@ -310,4 +301,4 @@ export function mountScene(doc = document, win = window) {
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference); short.removeEventListener('change', onPreference)
   }
 }
-if (typeof document !== 'undefined') mountScene()
+if (typeof document !== 'undefined') { mountCover(); mountScene() }
