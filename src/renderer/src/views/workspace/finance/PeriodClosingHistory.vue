@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
+import { NCollapse } from 'naive-ui'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { PeriodClosingRecord } from '../../../../../shared/erp-api'
@@ -41,7 +45,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
     <WorkspaceTable title="结账与重开记录" :columns="columns" :data="records" :min-table-width="900">
       <template #cell-action="{ row }">{{ row.action === 'close' ? '结账' : '重开' }}</template>
       <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
-      <template #cell-actions="{ row }"><button v-if="row.action === 'close'" class="text-button" @click="selected = row">查看余额快照</button><span v-else class="muted">保留原结账</span></template>
+      <template #cell-actions="{ row }"><AppButton v-if="row.action === 'close'" @click="selected = row" variant="text" type="button">查看余额快照</AppButton><span v-else class="muted">保留原结账</span></template>
       <template #empty>暂无结账记录。结账后保存余额、来源与操作者，不覆盖原记录。</template>
     </WorkspaceTable>
     <template v-if="evidence">
@@ -51,7 +55,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
       <WorkspaceTable title="库存余额快照" :columns="inventoryColumns" :data="evidence.inventory.materials" :min-table-width="760" />
       <WorkspaceTable title="库存金额来源" :columns="movementColumns" :data="evidence.inventory.movements" :min-table-width="960"><template #cell-source_type="{ row }">{{ movementNames[row.source_type] ?? '库存流水' }}</template></WorkspaceTable>
       <p>业务应收来源净额 {{ evidence.business_sources.receivable_amount }} 元；应付来源净额 {{ evidence.business_sources.payable_amount }} 元；无价来源 {{ evidence.business_sources.unpriced_count }} 笔。收付款记录 {{ evidence.payments.length }} 笔，已过账凭证 {{ evidence.posted_journal_ids.length }} 张。</p>
-      <details><summary>往来、收付款与凭证来源明细</summary><div class="stack">
+      <NCollapse><AppCollapseItem name="sources" title="往来、收付款与凭证来源明细"><div class="stack">
         <WorkspaceTable title="往来来源快照" :columns="businessColumns" :data="evidence.business_sources.entries" :min-table-width="940">
           <template #cell-kind="{ row }">{{ row.kind === 'receivable' ? '应收' : '应付' }}</template>
           <template #cell-source="{ row }">{{ financialSource(row) }}</template>
@@ -62,7 +66,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
           <template #cell-action="{ row }">{{ row.action === 'settlement' ? '收付款' : row.action === 'refund' ? '退款' : '冲销' }}</template>
         </WorkspaceTable>
         <p>已过账凭证编号：{{ evidence.posted_journal_ids.length ? evidence.posted_journal_ids.join('、') : '无' }}</p>
-      </div></details>
+      </div></AppCollapseItem></NCollapse>
     </template>
   </div>
 </template>

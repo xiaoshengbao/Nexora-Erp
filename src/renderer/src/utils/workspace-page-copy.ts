@@ -33,7 +33,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   inventoryValuation: '按公司范围的物料移动加权平均计算；缺少价格来源时金额显示待核价。',
   finance: '按订单核对业务净额、收付款净额与未结金额。',
   ledgerAccounts: '维护公司使用的总账科目与启停状态。编码、类别和余额方向固定，名称与启停修改保留记录。',
-  journals: '手工录入借贷平衡的人民币凭证，由另一账号审核后过账。冲销先建立新草稿，原记录保留。',
+  journals: '手工录入或按业务来源生成人民币凭证草稿，由另一账号审核后过账。冲销保留原记录与来源快照。',
   openingBalances: '首次总账启用的科目余额、独立审核与确认。',
   ledgerReports: '核对已过账凭证的科目明细与试算平衡，按凭证日期汇总人民币金额。未结账数据可随后续过账变化。',
   accountingPeriods: '建立不重叠的会计期间；按序结账、倒序重开，保存结账证据并锁定历史成本来源。',

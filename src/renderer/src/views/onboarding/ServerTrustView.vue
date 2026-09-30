@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 身份确认使用统一勾选控件，勾选值仍决定连接入口是否可用。
+import { NCheckbox } from 'naive-ui'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
 
 // 此页面只处理当前引导阶段的展示和输入，连接操作由共享状态管理。
@@ -16,25 +20,20 @@ const { busy, candidate, trustChecked, host, go, approveTrust } = useAppStore()
       指纹。不要只凭本页面显示的名称判断身份。
     </p>
     <div class="fingerprint">{{ candidate.fingerprint }}</div>
-    <p class="muted">
-      {{ candidate.name }} · {{ candidate.host }}:{{ candidate.port }}
-    </p>
-    <label class="check trust-check"
-      ><input
-        v-model="trustChecked"
-        type="checkbox"
-      />我已通过服务端电脑或可信渠道核对完整指纹</label
-    >
+    <p class="muted">{{ candidate.name }} · {{ candidate.host }}:{{ candidate.port }}</p>
+    <NCheckbox v-model:checked="trustChecked" class="trust-check">
+      我已通过服务端电脑或可信渠道核对完整指纹
+    </NCheckbox>
     <div class="onboard-actions">
-      <button class="secondary" type="button" @click="go('manual')">取消</button
-      ><button
-        class="primary"
+      <AppButton type="button" @click="go('manual')" variant="secondary">取消</AppButton
+      ><AppButton
         type="button"
         :disabled="!trustChecked || busy"
         @click="approveTrust"
+        variant="primary"
       >
         确认身份并连接
-      </button>
+      </AppButton>
     </div>
   </section>
 </template>

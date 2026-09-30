@@ -173,6 +173,9 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
         source_dependencies[(row['source_type'], row['source_line_id'])] = movement_dependencies
         movements.append({**dict(row), "unit_cost": unit_price(unit_cost) if unit_cost is not None else None,
                           "amount": money(amount) if amount is not None else None,
+                          # 总账按前后余额的分位差入账，出清时同时结清累计舍入尾差。
+                          "accounting_amount": (money(Decimal(money(after_value)) - Decimal(money(before_value)))
+                                                if before_value is not None and after_value is not None and amount is not None else None),
                           "cost_source": cost_source,
                           "cost_input_id": rates[row["id"]][1] if row["id"] in rates and allocation is None else None,
                           "settlement_id": allocation['settlement_id'] if allocation is not None else None})

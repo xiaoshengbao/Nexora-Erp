@@ -104,7 +104,7 @@ Remix Icon 按需导入，例如 `import IconRefreshLine from '~icons/ri/refresh
 | 报表 | 采购执行、收退货、余额和收发存 CSV。 | 业务汇总不是正式财务报表，首页演示图表不是实际经营指标。 |
 | 已过账总账报表 | 试算平衡、科目明细、凭证/冲销下钻和当前快照 CSV，本期仅统计已过账凭证，正式期初单独计入余额。 | 未录入正式期初时只有历史累计，不等于业务方期初验收；不包含资产负债表或利润表。 |
 
-见 [完工成本规则](production-cost-settlement.md)、[总账基础规则](ledger-foundation.md) 和 [手工凭证规则](manual-journals.md)。手工凭证支持借贷平衡、独立审核、过账和关联冲销，过账快照固定并保留审计。业务自动凭证、损益结转、正式财务报表、质量售后、CRM、设备、人力、多组织、MySQL 与离线同步仍属后续工作，进入条件见 [模块评估](erp-expansion-assessment.md)。
+见 [完工成本规则](production-cost-settlement.md)、[总账基础规则](ledger-foundation.md) 和 [手工凭证规则](manual-journals.md)。手工凭证支持借贷平衡、独立审核、过账和关联冲销，过账快照固定并保留审计。业务来源凭证草稿已提供，见 [业务来源凭证规则](business-journals.md)；损益结转、正式财务报表、质量售后、CRM、设备、人力、多组织、MySQL 与离线同步仍属后续工作，进入条件见 [模块评估](erp-expansion-assessment.md)。
 
 正式期初提供首次无过账启用、独立审核确认、版本审计和启用前撤销，不增加本期发生额，也不自动生成业务分户期初，见 [期初余额规则](opening-balances.md)。
 

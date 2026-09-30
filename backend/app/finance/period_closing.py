@@ -43,6 +43,10 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         Journal.status.not_in(('posted', 'cancelled'))).order_by(Journal.id)))
     if pending:
         block('pending_journals', '须先过账或取消截至期末的全部未处理凭证', pending)
+    from app.finance.business_journals import pending_sources
+    missing = pending_sources(db, period.end_date)
+    if missing:
+        block('pending_business_sources', '业务凭证纳管范围内尚有未过账来源：' + '、'.join(missing))
     try:
         check_journal_opening(db, period.end_date)
     except HTTPException as exc:

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
@@ -38,14 +42,20 @@ async function submitCustomer(): Promise<void> {
       :min-table-width="480"
     >
       <template #actions>
-        <button v-if="can('customer.manage')" class="primary" type="button" :disabled="busy || connectionLost" @click="customerOpen = true">
+        <AppButton
+          v-if="can('customer.manage')"
+          type="button"
+          :disabled="busy || connectionLost"
+          @click="customerOpen = true"
+          variant="primary"
+        >
           新增客户
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索客户
-          <input v-model="customerQuery" placeholder="输入编号或名称" />
+          <AppInput v-model="customerQuery" placeholder="输入编号或名称" />
         </label>
       </template>
       <template #beforeTable>
@@ -60,14 +70,16 @@ async function submitCustomer(): Promise<void> {
           <form class="inline-form" @submit.prevent="submitCustomer">
             <label>
               客户名称
-              <input
+              <AppInput
                 v-model.trim="customerForm.name"
                 required
                 maxlength="120"
                 placeholder="输入客户名称"
               />
             </label>
-            <button class="primary" type="submit" :disabled="busy || connectionLost">添加客户</button>
+            <AppButton type="submit" :disabled="busy || connectionLost" variant="primary"
+              >添加客户</AppButton
+            >
           </form>
         </NModal>
       </template>

@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { NModal } from 'naive-ui'
 import PermissionTreePicker from '../../../components/workspace/PermissionTreePicker.vue'
@@ -56,54 +62,93 @@ async function submitRole(): Promise<void> {
 
 <template>
   <section class="stack">
-    <WorkspaceTable :show-title="false" :data="visibleRoles"
+    <WorkspaceTable
+      :show-title="false"
+      :data="visibleRoles"
       title="职务与权限"
-
       :columns="roleColumns"
       empty-text="没有符合条件的职务"
     >
       <template #actions>
-        <button class="primary" type="button" :disabled="busy" @click="createOpen = true">新增职务</button>
+        <AppButton type="button" :disabled="busy" @click="createOpen = true" variant="primary"
+          >新增职务</AppButton
+        >
       </template>
       <template #filters>
-        <label class="role-table-search">搜索职务
-          <input v-model.trim="search" type="search" placeholder="输入职务名称" />
+        <label class="role-table-search"
+          >搜索职务
+          <AppInput v-model.trim="search" type="search" placeholder="输入职务名称" />
         </label>
-        <label class="role-table-filter">类型
-          <select v-model="kind">
-            <option value="all">全部</option>
-            <option value="custom">自定义</option>
-            <option value="builtin">内置</option>
-          </select>
+        <label class="role-table-filter"
+          >类型
+          <WorkspaceSelect
+            v-model="kind"
+            :options="[
+              { label: '全部', value: 'all' },
+              { label: '自定义', value: 'custom' },
+              { label: '内置', value: 'builtin' }
+            ]"
+          />
         </label>
         <span class="muted role-table-count">共 {{ visibleRoles.length }} 项</span>
       </template>
-      <template #cell-label="{ row: role }"><strong>{{ role.label }}</strong></template>
-      <template #cell-kind="{ row: role }">{{ role.is_builtin ? '内置 · 只读' : '自定义' }}</template>
+      <template #cell-label="{ row: role }"
+        ><strong>{{ role.label }}</strong></template
+      >
+      <template #cell-kind="{ row: role }">{{
+        role.is_builtin ? '内置 · 只读' : '自定义'
+      }}</template>
       <template #cell-permissions="{ row: role }">{{ role.permissions.length }} 项操作</template>
-      <template #cell-actions="{ row: role }"><button class="secondary small" type="button" @click="openRole(role.code)">
-              {{ role.is_builtin ? '查看权限' : '配置权限' }}
-            </button></template>
+      <template #cell-actions="{ row: role }"
+        ><AppButton type="button" @click="openRole(role.code)" variant="secondary" size="small">
+          {{ role.is_builtin ? '查看权限' : '配置权限' }}
+        </AppButton></template
+      >
     </WorkspaceTable>
 
-    <NModal v-model:show="createOpen" preset="card" title="新增职务" :mask-closable="!busy" :style="{ width: 'min(760px, calc(100vw - 32px))' }">
+    <NModal
+      v-model:show="createOpen"
+      preset="card"
+      title="新增职务"
+      :mask-closable="!busy"
+      :style="{ width: 'min(760px, calc(100vw - 32px))' }"
+    >
       <form class="role-dialog-form" @submit.prevent="submitNewRole">
-        <label>职务名称<input v-model.trim="newRole.label" required maxlength="40" placeholder="例如 库存主管" /></label>
+        <label
+          >职务名称<AppInput
+            v-model.trim="newRole.label"
+            required
+            maxlength="40"
+            placeholder="例如 库存主管"
+        /></label>
         <fieldset class="permission-tree-fieldset role-dialog-tree">
           <legend>授权范围</legend>
-          <PermissionTreePicker v-model="newRole.permissions" :modules="permissionModules" :disabled="busy" />
+          <PermissionTreePicker
+            v-model="newRole.permissions"
+            :modules="permissionModules"
+            :disabled="busy"
+          />
         </fieldset>
         <div class="role-dialog-actions">
-          <button class="secondary" type="button" :disabled="busy" @click="createOpen = false">取消</button>
-          <button class="primary" type="submit" :disabled="busy">创建职务</button>
+          <AppButton type="button" :disabled="busy" @click="createOpen = false" variant="secondary"
+            >取消</AppButton
+          >
+          <AppButton type="submit" :disabled="busy" variant="primary">创建职务</AppButton>
         </div>
       </form>
     </NModal>
 
-    <NModal v-model:show="editorOpen" preset="card" :title="selectedRole?.label ?? '职务权限'" :mask-closable="!busy" :style="{ width: 'min(760px, calc(100vw - 32px))' }">
+    <NModal
+      v-model:show="editorOpen"
+      preset="card"
+      :title="selectedRole?.label ?? '职务权限'"
+      :mask-closable="!busy"
+      :style="{ width: 'min(760px, calc(100vw - 32px))' }"
+    >
       <form v-if="selectedRole" class="role-dialog-form" @submit.prevent="submitRole">
-        <label v-if="!selectedRole.is_builtin">职务名称
-          <input v-model.trim="roleLabelDrafts[selectedRole.code]" required maxlength="40" />
+        <label v-if="!selectedRole.is_builtin"
+          >职务名称
+          <AppInput v-model.trim="roleLabelDrafts[selectedRole.code]" required maxlength="40" />
         </label>
         <p v-else class="muted">内置职务只读，不能修改授权范围。</p>
         <fieldset class="permission-tree-fieldset role-dialog-tree">
@@ -122,8 +167,16 @@ async function submitRole(): Promise<void> {
           />
         </fieldset>
         <div class="role-dialog-actions">
-          <button class="secondary" type="button" :disabled="busy" @click="editorOpen = false">关闭</button>
-          <button v-if="!selectedRole.is_builtin" class="primary" type="submit" :disabled="busy">保存权限</button>
+          <AppButton type="button" :disabled="busy" @click="editorOpen = false" variant="secondary"
+            >关闭</AppButton
+          >
+          <AppButton
+            v-if="!selectedRole.is_builtin"
+            type="submit"
+            :disabled="busy"
+            variant="primary"
+            >保存权限</AppButton
+          >
         </div>
       </form>
     </NModal>
@@ -131,14 +184,35 @@ async function submitRole(): Promise<void> {
 </template>
 
 <style scoped>
-.role-table-search { width: min(100%, 280px); }
-.role-table-filter { width: 145px; }
-.role-table-count { margin-left: auto; white-space: nowrap; }
-.role-dialog-form { display: grid; gap: 18px; }
-.role-dialog-tree { max-height: min(52vh, 540px); overflow-y: auto; }
-.role-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.role-table-search {
+  width: min(100%, 280px);
+}
+.role-table-filter {
+  width: 145px;
+}
+.role-table-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.role-dialog-form {
+  display: grid;
+  gap: 18px;
+}
+.role-dialog-tree {
+  max-height: min(52vh, 540px);
+  overflow-y: auto;
+}
+.role-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 @media (max-width: 650px) {
-  .role-table-search { width: 100%; }
-  .role-table-count { margin-left: 0; }
+  .role-table-search {
+    width: 100%;
+  }
+  .role-table-count {
+    margin-left: 0;
+  }
 }
 </style>

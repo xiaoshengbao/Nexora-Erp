@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import { useAppStore } from '../../../store/app-store'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
@@ -38,9 +42,7 @@ const {
           <dd class="mono">{{ server?.fingerprint }}</dd>
         </div>
       </dl>
-      <button class="secondary" type="button" @click="switchServer">
-        切换服务端
-      </button>
+      <AppButton type="button" @click="switchServer" variant="secondary"> 切换服务端 </AppButton>
     </div>
     <div class="card">
       <div class="section-heading">
@@ -51,13 +53,13 @@ const {
       <form class="inline-form" @submit.prevent="changeOwnPassword">
         <div class="form-grid">
           <label
-            >当前密码<input
+            >当前密码<AppInput
               v-model="passwordChange.current_password"
               type="password"
               required
               autocomplete="current-password" /></label
           ><label
-            >新密码<input
+            >新密码<AppInput
               v-model="passwordChange.new_password"
               type="password"
               required
@@ -68,7 +70,7 @@ const {
           /></label>
         </div>
         <p class="muted">修改后所有设备都需要重新登录。</p>
-        <button class="primary" type="submit" :disabled="busy">修改密码</button>
+        <AppButton type="submit" :disabled="busy" variant="primary">修改密码</AppButton>
       </form>
     </div>
     <div v-if="host.configured" class="card">
@@ -90,33 +92,31 @@ const {
         }}
       </p>
       <div class="onboard-actions">
-        <button
+        <AppButton
           v-if="host.running"
-          class="secondary"
           type="button"
           :disabled="busy"
           @click="stopLocalHost"
+          variant="secondary"
         >
-          停止本机服务</button
-        ><button
+          停止本机服务</AppButton
+        ><AppButton
           v-else
-          class="primary"
           type="button"
           :disabled="busy"
           @click="restartLocalHost"
+          variant="primary"
         >
-          {{
-            host.migrationNeeded ? '迁移并启动系统服务' : '启动本机服务'
-          }}</button
-        ><button
+          {{ host.migrationNeeded ? '迁移并启动系统服务' : '启动本机服务' }}</AppButton
+        ><AppButton
           v-if="host.systemManaged"
-          class="secondary"
           type="button"
           :disabled="busy"
           @click="upgradeLocalHost"
+          variant="secondary"
         >
           用当前安装包升级服务
-        </button>
+        </AppButton>
       </div>
     </div>
   </section>

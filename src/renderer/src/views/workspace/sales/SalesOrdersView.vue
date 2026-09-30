@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -50,7 +56,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('sales_order.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('sales_order.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">SALES ORDER</p>
@@ -61,40 +77,39 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >客户<select v-model.number="salesForm.customer_id" required>
-              <option :value="0" disabled>选择客户</option>
-              <option v-for="item in customers" :key="item.id" :value="item.id">
-                {{ item.name }}
-              </option>
-            </select></label
+            >客户<WorkspaceSelect
+              v-model="salesForm.customer_id"
+              required
+              :options="[
+                { label: '选择客户'.trim(), value: 0, disabled: true },
+                ...customers.map((item) => ({ label: item.name.trim(), value: item.id }))
+              ]" /></label
           ><label
-            >参考单号（可选）<input
-              v-model.trim="salesForm.reference"
-              maxlength="100"
+            >参考单号（可选）<AppInput v-model.trim="salesForm.reference" maxlength="100"
           /></label>
         </div>
         <div class="form-actions">
           <span v-if="!customers.length" class="muted">暂无客户，请先建立客户资料。</span>
-          <button class="text-button" type="button" :disabled="busy" @click="openCustomers">
+          <AppButton type="button" :disabled="busy" @click="openCustomers" variant="text">
             前往客户资料
-          </button>
+          </AppButton>
           <span class="muted">订单草稿会保留，返回后可继续填写。</span>
         </div>
         <h3>销售明细</h3>
-        <div
-          v-for="(line, index) in salesForm.lines"
-          :key="index"
-          class="line-row"
-        >
+        <div v-for="(line, index) in salesForm.lines" :key="index" class="line-row">
           <label
-            >物料<select v-model.number="line.material_id" required>
-              <option :value="0" disabled>选择物料</option>
-              <option v-for="item in materials" :key="item.id" :value="item.id">
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+            >物料<WorkspaceSelect
+              v-model="line.material_id"
+              required
+              :options="[
+                { label: '选择物料'.trim(), value: 0, disabled: true },
+                ...materials.map((item) => ({
+                  label: (item.sku + ' · ' + item.name).trim(),
+                  value: item.id
+                }))
+              ]" /></label
           ><label
-            >数量<input
+            >数量<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
@@ -102,25 +117,24 @@ const filteredRecords = computed(() =>
               step="0.001"
               required /></label
           ><label
-            >单价（元）<input
+            >单价（元）<AppInput
               v-model.trim="line.unit_price"
               type="number"
               min="0"
               max="1000000000"
               step="0.0001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="salesForm.lines.length === 1"
             @click="salesForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="secondary"
+          <AppButton
             type="button"
             @click="
               salesForm.lines.push({
@@ -129,15 +143,16 @@ const filteredRecords = computed(() =>
                 unit_price: '0'
               })
             "
+            variant="secondary"
           >
-            添加明细</button
-          ><button
-            class="primary"
+            添加明细</AppButton
+          ><AppButton
             type="submit"
             :disabled="busy || !customers.length || !materials.length"
+            variant="primary"
           >
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
@@ -150,20 +165,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('sales_order.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建销售订单
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索销售订单
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -195,31 +210,33 @@ const filteredRecords = computed(() =>
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
             {{ line.material_name }} · 已出库 {{ line.shipped_quantity }}/{{ line.quantity }} · 已退
-            {{ line.returned_quantity }} · 净交付 {{ line.net_delivered_quantity }} {{ line.unit }} ·
-            ¥{{ line.unit_price }}/{{ line.unit }}
+            {{ line.returned_quantity }} · 净交付 {{ line.net_delivered_quantity }}
+            {{ line.unit }} · ¥{{ line.unit_price }}/{{ line.unit }}
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('sales_order.confirm')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="confirmSalesOrder(item.id)"
+            variant="primary"
+            size="small"
           >
             确认订单
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="['draft', 'confirmed'].includes(item.status) && can('sales_order.cancel')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelSalesOrder(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消订单
-          </button>
+          </AppButton>
         </div>
       </template>
       <template #empty>

@@ -47,7 +47,7 @@
 | `src/renderer/src/env.d.ts` | 声明渲染窗口可访问的受限预加载接口类型。 |
 | `src/renderer/src/*.css` | 全局基础样式、明暗主题及主题切换样式；只影响某个页面的样式可与该页面放在同一目录。 |
 | `src/renderer/src/assets/` | 渲染层引用的品牌与静态资源入口；实际图片等资源按现有构建路径存放，例如 `brand.ts` 引用 `resources/icon.png`。 |
-| `src/renderer/src/components/app/` | 跨引导页和工作台复用的应用公共组件，当前为连接状态底栏和主题切换按钮。 |
+| `src/renderer/src/components/app/` | 跨引导页和工作台复用的应用公共组件，包括按钮、输入框、折叠项、连接状态底栏和主题切换按钮。 |
 | `src/renderer/src/components/feedback/` | 全局消息提供器及业务反馈桥接组件；只在根组件装配一份。 |
 | `src/renderer/src/components/workspace/` | 工作台专属的侧栏、账号卡片和已打开页面标签栏。新增共享组件按使用范围放入对应分类，不直接平铺在 `components/` 根目录。 |
 | `src/renderer/src/composables/` | 封装 Vue 组合式逻辑和组件级复用行为，当前包括 `use-app-message.ts`；不保存跨页面业务状态。 |
@@ -76,7 +76,7 @@
 | `backend/app/inventory/` | 仓库、调拨、盘点、库存余额与流水。 |
 | `backend/app/sales/` | 客户、销售订单、出库与销售退货。 |
 | `backend/app/production/` | BOM、工单、领退料、报工与工单成本。 |
-| `backend/app/finance/` | 应收应付来源、订单余额、手工收付款、总账基础资料、期初余额、手工凭证、已过账报表及期间结账与重开。 |
+| `backend/app/finance/` | 应收应付来源、订单余额、手工收付款、总账基础资料、期初余额、手工及业务来源凭证、已过账报表及期间结账与重开。 |
 | `backend/app/service/` | 服务状态、局域网发现、系统服务、备份恢复。 |
 | `backend/launcher.py` | 打包后的固定命令入口；新增系统服务命令需同步检查。 |
 | `backend/tests/` | 对应业务接口、服务生命周期及跨模块行为的测试。 |

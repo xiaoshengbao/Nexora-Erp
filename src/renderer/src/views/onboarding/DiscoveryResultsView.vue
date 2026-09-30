@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
 import IconRadarLine from '~icons/ri/radar-line'
 
@@ -19,29 +21,25 @@ const { busy, server, discoveries, host, go, startScan, pickDiscovered } =
     <div v-if="!discoveries.length" class="onboard-empty">
       当前没有发现可用服务端。请确认两台电脑在同一局域网，或手动填写地址。
     </div>
-    <button
+    <AppButton
       v-for="entry in discoveries"
       :key="entry.id"
-      class="server-row"
       type="button"
       :disabled="!entry.online || busy"
       @click="pickDiscovered(entry)"
+      class="server-row"
+      variant="plain"
     >
       <span
         ><strong>{{ entry.name }}</strong
-        ><small
-          >{{ entry.host }}:{{ entry.port }} · v{{ entry.version }}</small
-        ></span
+        ><small>{{ entry.host }}:{{ entry.port }} · v{{ entry.version }}</small></span
       ><span :class="entry.online ? 'online' : 'offline'">{{
         entry.online ? '在线 · 连接 →' : '离线'
       }}</span>
-    </button>
+    </AppButton>
     <div class="onboard-actions">
-      <button class="secondary" type="button" @click="go('manual')">
-        手动填写</button
-      ><button class="primary" type="button" @click="startScan">
-        重新扫描
-      </button>
+      <AppButton type="button" @click="go('manual')" variant="secondary"> 手动填写</AppButton
+      ><AppButton type="button" @click="startScan" variant="primary"> 重新扫描 </AppButton>
     </div>
   </section>
 </template>

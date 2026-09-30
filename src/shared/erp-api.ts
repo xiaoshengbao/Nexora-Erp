@@ -72,7 +72,25 @@ export interface Journal {
   submitted_by: number | null; reviewed_by: number | null; posted_by: number | null; cancelled_by: number | null
   submitted_at: string | null; reviewed_at: string | null; posted_at: string | null; cancelled_at: string | null
   lines: JournalLine[]; total_debit: string; total_credit: string
+  business_source?: { key: string; evidence: BusinessJournalEvidence; mapping: BusinessJournalMapping; policy_version: number } | null
 }
+export type BusinessJournalRole = 'inventory' | 'payable' | 'receivable' | 'income' | 'sales_cost' | 'cash' | 'price_variance' | 'work_in_progress' | 'labor_accrual' | 'overhead_accrual' | 'inventory_offset'
+export type BusinessJournalMapping = Partial<Record<BusinessJournalRole, number>>
+export interface BusinessJournalPolicy { version: number; start_date: string; mapping: BusinessJournalMapping; changed_by?: number; created_at?: string }
+export interface BusinessJournalEvidence {
+  key: string; source_type: string; source_id: number; label: string; source_date: string; fingerprint: string
+  roles: Partial<Record<BusinessJournalRole, string>>; blockers: string[]; warnings: string[]
+  labels: Record<string, string>
+  movements: Pick<InventoryValuationMovement, 'id' | 'warehouse_id' | 'material_id' | 'quantity' | 'source_line_id' | 'created_at' | 'amount' | 'accounting_amount' | 'unit_cost' | 'cost_source' | 'cost_input_id' | 'settlement_id'>[]
+  business: Pick<FinancialEntry, 'source_line_id' | 'order_id' | 'party_id' | 'material_id' | 'quantity' | 'unit_price' | 'amount' | 'kind' | 'posted_at'>[]
+  records: Record<string, string | number | null>[]
+}
+export interface BusinessJournalCandidate extends BusinessJournalEvidence {
+  policy_version: number; journal_id: number | null; journal_status: JournalStatus | null
+  minimum_date: string; can_generate: boolean; no_amount: boolean
+}
+export interface BusinessJournalOptions { policy: BusinessJournalPolicy; roles: Record<BusinessJournalRole, string>; accounts: LedgerAccount[] }
+export interface BusinessJournalGenerateInput { source_key: string; fingerprint: string; policy_version: number; reference: string; journal_date: string; reason: string }
 export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' }
 export type OpeningBalanceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'confirmed' | 'cancelled' | 'reversed'
 export type OpeningBalanceAction = 'submit' | 'approve' | 'reject' | 'confirm' | 'cancel' | 'reverse'
@@ -189,6 +207,7 @@ export interface InventoryValuationMovement {
   cost_source: 'purchase_order' | 'manual' | 'linked_movement' | 'moving_average' | 'unpriced' | 'production_settlement'
   settlement_id: number | null
   cost_input_id: number | null
+  accounting_amount: string | null
 }
 export interface InventoryValuationReport {
   currency: 'CNY'
@@ -946,6 +965,11 @@ export interface ErpOperations {
   financeAccounts: { input: undefined; output: FinanceAccount[] }
   ledgerAccounts: { input: undefined; output: LedgerAccount[] }
   journals: { input: undefined; output: Journal[] }
+  businessJournalSources: { input: undefined; output: BusinessJournalCandidate[] }
+  businessJournalOptions: { input: undefined; output: BusinessJournalOptions }
+  businessJournalPolicyChanges: { input: undefined; output: FinanceMetadataChange<BusinessJournalPolicy>[] }
+  saveBusinessJournalPolicy: { input: BusinessJournalPolicy & { reason: string }; output: BusinessJournalPolicy }
+  generateBusinessJournal: { input: BusinessJournalGenerateInput; output: Journal }
   openingBalances: { input: undefined; output: OpeningBalance[] }
   openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }

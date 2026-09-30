@@ -2,7 +2,8 @@
 import { onMounted, onUnmounted } from 'vue'
 import { NConfigProvider, darkTheme, dateZhCN, zhCN } from 'naive-ui'
 import { storeToRefs } from 'pinia'
-import type { GlobalThemeOverrides } from 'naive-ui'
+// 控件配色集中维护，主题切换由根样式变量与 Naive UI 共同驱动。
+import { naiveThemeOverrides } from './utils/app-theme'
 import { useAppStore } from './store/app-store'
 import { useThemeStore } from './store/theme-store'
 import OnboardingView from './views/OnboardingView.vue'
@@ -16,13 +17,6 @@ onMounted(() => {
   void initialize()
 })
 onUnmounted(dispose)
-const naiveThemeOverrides: GlobalThemeOverrides = {
-  common: {
-    primaryColor: '#237d7a',
-    primaryColorHover: '#1d6c69',
-    primaryColorPressed: '#195d5a'
-  }
-}
 </script>
 
 <template>
@@ -33,9 +27,7 @@ const naiveThemeOverrides: GlobalThemeOverrides = {
     :theme-overrides="naiveThemeOverrides"
   >
     <AppMessageProvider>
-      <OnboardingView
-        v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup'"
-      />
+      <OnboardingView v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup'" />
       <WorkspaceShell v-else />
     </AppMessageProvider>
   </NConfigProvider>

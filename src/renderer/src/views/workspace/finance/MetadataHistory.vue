@@ -1,6 +1,12 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import { onMounted, ref } from 'vue'
-import type { AccountingPeriod, FinanceMetadataChange, LedgerAccount } from '../../../../../shared/erp-api'
+import type {
+  AccountingPeriod,
+  FinanceMetadataChange,
+  LedgerAccount
+} from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { displayError, localTime } from '../../../utils/formatters'
 
@@ -37,8 +43,19 @@ onMounted(reload)
 </script>
 
 <template>
-  <WorkspaceTable title="资料变更记录" :show-title="false" :columns="columns" :data="rows" :error="error" :min-table-width="720">
-    <template #errorActions><button class="secondary" :disabled="loading" @click="reload">重新读取</button></template>
+  <WorkspaceTable
+    title="资料变更记录"
+    :show-title="false"
+    :columns="columns"
+    :data="rows"
+    :error="error"
+    :min-table-width="720"
+  >
+    <template #errorActions
+      ><AppButton :disabled="loading" @click="reload" variant="secondary" type="button"
+        >重新读取</AppButton
+      ></template
+    >
     <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
     <template #cell-changes="{ row }">{{ description(row) }}</template>
     <template #empty>{{ loading ? '正在读取变更记录…' : '暂无变更记录。' }}</template>

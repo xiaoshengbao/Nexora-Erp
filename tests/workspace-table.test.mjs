@@ -5,6 +5,8 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { createSSRApp, h } from 'vue'
+import { createPinia } from 'pinia'
+import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
 
@@ -36,9 +38,15 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
     'cell-actions': ({ row }) => h('button', `编辑${row.name}`),
     empty: () => '没有匹配的资料'
   }
-  const render = (props, activeSlots = slots) => renderToString(createSSRApp({
-    render: () => h(WorkspaceTable, { title: '资料列表', columns, ...props }, activeSlots)
-  }))
+  // 分页下拉也读取统一主题；测试应用与正式渲染窗口一样装配 Pinia。
+  const render = (props, activeSlots = slots) => {
+    const app = createSSRApp({
+      render: () => h(WorkspaceTable, { title: '资料列表', columns, ...props }, activeSlots)
+    }).use(createPinia())
+    // Naive UI 在 SSR 中收集样式，不访问浏览器 document。
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
 
   const populated = await render({ data: [{ name: '物料 A' }], minTableWidth: 360 })
   assert.match(populated, /aria-label="资料列表"/)

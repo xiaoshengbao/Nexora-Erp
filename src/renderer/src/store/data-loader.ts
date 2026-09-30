@@ -77,6 +77,12 @@ export function createDataLoader(
     // 先清理已撤销查看授权的数据，避免其他模块读取失败留下旧的财务快照。
     if (!can('ledger_account.view')) ledgerAccounts.value = []
     if (!can('journal.view')) journals.value = []
+    if (!can('business_journal.view')) {
+      state.businessJournalSources.value = []
+      state.businessJournalOptions.value = null
+      state.businessJournalPolicyChanges.value = []
+      state.businessJournalError.value = ''
+    }
     if (!can('opening_balance.view')) openingBalances.value = []
     if (!can('opening_balance.create')) state.openingBalanceOptions.value = { accounts: [], period: null }
     if (!can('journal.create')) state.journalOptions.value = { accounts: [], periods: [] }

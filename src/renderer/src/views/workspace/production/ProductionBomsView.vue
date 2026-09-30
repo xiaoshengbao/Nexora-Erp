@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -45,7 +51,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('bom.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('bom.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">BILL OF MATERIALS</p>
@@ -54,88 +70,70 @@ const filteredRecords = computed(() =>
         <span class="pill">草稿</span>
       </div>
       <p class="muted">
-        BOM
-        记录生产指定数量成品所需的组件。旧版本会保留供追溯；同一成品一次只能启用一个版本。
+        BOM 记录生产指定数量成品所需的组件。旧版本会保留供追溯；同一成品一次只能启用一个版本。
       </p>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >成品物料<select
-              v-model.number="bomForm.product_material_id"
+            >成品物料<WorkspaceSelect
+              v-model="bomForm.product_material_id"
               required
-            >
-              <option :value="0" disabled>选择成品</option>
-              <option v-for="item in materials" :key="item.id" :value="item.id">
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择成品'.trim(), value: 0, disabled: true },
+                ...materials.map((item) => ({
+                  label: (item.sku + ' · ' + item.name).trim(),
+                  value: item.id
+                }))
+              ]" /></label
           ><label
-            >基准产出数量<input
+            >基准产出数量<AppInput
               v-model.trim="bomForm.base_quantity"
               type="number"
               min="0.001"
               max="1000000"
               step="0.001"
               required /></label
-          ><label
-            >版本说明（可选）<input v-model.trim="bomForm.note" maxlength="200"
-          /></label>
+          ><label>版本说明（可选）<AppInput v-model.trim="bomForm.note" maxlength="200" /></label>
         </div>
         <h3>组件用量</h3>
-        <div
-          v-for="(line, index) in bomForm.lines"
-          :key="index"
-          class="line-row"
-        >
+        <div v-for="(line, index) in bomForm.lines" :key="index" class="line-row">
           <label
-            >组件物料<select
-              v-model.number="line.component_material_id"
+            >组件物料<WorkspaceSelect
+              v-model="line.component_material_id"
               required
-            >
-              <option :value="0" disabled>选择组件</option>
-              <option
-                v-for="item in materials.filter(
-                  (entry) => entry.id !== bomForm.product_material_id
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择组件'.trim(), value: 0, disabled: true },
+                ...materials
+                  .filter((entry) => entry.id !== bomForm.product_material_id)
+                  .map((item) => ({ label: (item.sku + ' · ' + item.name).trim(), value: item.id }))
+              ]" /></label
           ><label
-            >基准用量<input
+            >基准用量<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
               max="1000000"
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="bomForm.lines.length === 1"
             @click="bomForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="secondary"
+          <AppButton
             type="button"
-            @click="
-              bomForm.lines.push({ component_material_id: 0, quantity: '1' })
-            "
+            @click="bomForm.lines.push({ component_material_id: 0, quantity: '1' })"
+            variant="secondary"
           >
-            添加组件</button
-          ><button
-            class="primary"
-            type="submit"
-            :disabled="busy || materials.length < 2"
-          >
+            添加组件</AppButton
+          ><AppButton type="submit" :disabled="busy || materials.length < 2" variant="primary">
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
@@ -148,20 +146,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('bom.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建 BOM 版本
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索生产 BOM
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -199,39 +197,43 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('bom.activate')"
-            class="primary small"
             type="button"
             :disabled="
               busy ||
               boms.some(
                 (other) =>
-                  other.product_material_id === item.product_material_id && other.status === 'active'
+                  other.product_material_id === item.product_material_id &&
+                  other.status === 'active'
               )
             "
             @click="activateBom(item.id)"
+            variant="primary"
+            size="small"
           >
             启用
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="item.status === 'active' && can('bom.retire')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="retireBom(item.id)"
+            variant="secondary"
+            size="small"
           >
             停用
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="item.status === 'draft' && can('bom.cancel')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelBom(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消草稿
-          </button>
+          </AppButton>
         </div>
       </template>
       <template #empty>

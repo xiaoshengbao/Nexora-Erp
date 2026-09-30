@@ -6,6 +6,14 @@ import pytest
 @pytest.fixture
 def remove_closing_schema():
     def remove(db):
+        for table in ('business_journal_sources', 'business_journal_policy_changes', 'business_journal_policies'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for operation in ('view', 'configure', 'generate'):
+            code = 'business_journal.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='finance.business_journals'")
         db.execute('DROP TABLE IF EXISTS period_closings')
         for operation in ('closing_view', 'close', 'reopen'):
             code = 'accounting_period.' + operation
