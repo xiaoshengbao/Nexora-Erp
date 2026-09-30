@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../app/AppButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAppStore } from '../../store/app-store'
 import IconUser3Line from '~icons/ri/user-3-line'
@@ -41,27 +43,28 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeWhenClick
     @keydown.esc.stop="closeOnEscape"
   >
     <div class="sidebar-account-row">
-      <button
-        class="sidebar-account-card"
+      <AppButton
         type="button"
         :aria-expanded="menuOpen"
         aria-controls="sidebar-account-menu"
         @click="menuOpen = !menuOpen"
+        class="sidebar-account-card"
+        variant="plain"
       >
         <span class="sidebar-account-avatar" aria-hidden="true"><IconUser3Line /></span>
         <span class="sidebar-account-identity">
           <strong :title="user.username">{{ user.username }}</strong>
           <small :title="roleText">{{ roleText }}</small>
         </span>
-      </button>
+      </AppButton>
       <!-- 主题图标独立于账号菜单，可直接操作且不影响退出登录入口。 -->
       <ThemeToggle />
     </div>
     <Transition name="account-menu">
       <div v-if="menuOpen" id="sidebar-account-menu" class="sidebar-account-menu">
-        <button type="button" @click="logout">
+        <AppButton type="button" @click="logout" variant="plain">
           <IconLogoutBoxRLine aria-hidden="true" />退出登录
-        </button>
+        </AppButton>
       </div>
     </Transition>
   </div>

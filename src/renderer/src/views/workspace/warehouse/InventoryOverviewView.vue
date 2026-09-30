@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { useAppStore } from '../../../store/app-store'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 
@@ -22,11 +26,23 @@ const columns = [{ key: 'sku', title: '物料编码' }, { key: 'name', title: '�
   <section class="stack">
     <WorkspaceTable :show-title="false" title="库存总览" :columns="columns" :data="stock">
       <template #filters>
-        <label>仓库<select v-model.number="selectedWarehouseId" :disabled="busy" @change="perform(refreshData, '库存已切换。')">
-          <option :value="0">全部仓库</option>
-          <option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}</option>
-        </select></label>
-        <button class="primary" :disabled="busy" @click="perform(refreshData, '数据已刷新。')">刷新库存</button>
+        <label
+          >仓库<WorkspaceSelect
+            v-model="selectedWarehouseId"
+            :disabled="busy"
+            @change="perform(refreshData, '库存已切换。')"
+            :options="[
+              { label: '全部仓库', value: 0 },
+              ...warehouses.map((item) => ({ label: item.name, value: item.id }))
+            ]"
+        /></label>
+        <AppButton
+          :disabled="busy"
+          @click="perform(refreshData, '数据已刷新。')"
+          variant="primary"
+          type="button"
+          >刷新库存</AppButton
+        >
       </template>
       <template #beforeTable>
         <div class="summary-grid">
@@ -35,16 +51,16 @@ const columns = [{ key: 'sku', title: '物料编码' }, { key: 'name', title: '�
           </div>
           <div class="metric">
             <span>已确认入库单</span
-            ><strong>{{
-              receipts.filter((item) => item.status === 'posted').length
-            }}</strong>
+            ><strong>{{ receipts.filter((item) => item.status === 'posted').length }}</strong>
           </div>
           <div class="metric">
             <span>库存流水</span><strong>{{ movements.length }}</strong>
           </div>
         </div>
       </template>
-      <template #cell-quantity="{ row }"><strong>{{ row.quantity }}</strong> {{ row.unit }}</template>
+      <template #cell-quantity="{ row }"
+        ><strong>{{ row.quantity }}</strong> {{ row.unit }}</template
+      >
       <template #empty>暂无物料，先到基础资料中添加。</template>
     </WorkspaceTable>
   </section>

@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { NModal } from 'naive-ui'
@@ -42,7 +48,17 @@ async function submitCreate(): Promise<void> {
 
 <template>
   <section class="stack">
-    <NModal v-if="can('transfer.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('transfer.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">WAREHOUSE TRANSFER</p>
@@ -53,139 +69,155 @@ async function submitCreate(): Promise<void> {
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >来源仓库<select
-              v-model.number="transferForm.from_warehouse_id"
+            >来源仓库<WorkspaceSelect
+              v-model="transferForm.from_warehouse_id"
               required
-            >
-              <option
-                v-for="item in warehouses"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
+              ]" /></label
           ><label
-            >目标仓库<select
-              v-model.number="transferForm.to_warehouse_id"
+            >目标仓库<WorkspaceSelect
+              v-model="transferForm.to_warehouse_id"
               required
-            >
-              <option :value="0" disabled>选择目标仓库</option>
-              <option
-                v-for="item in warehouses.filter(
-                  (entry) => entry.id !== transferForm.from_warehouse_id
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择目标仓库'.trim(), value: 0, disabled: true },
+                ...warehouses
+                  .filter((entry) => entry.id !== transferForm.from_warehouse_id)
+                  .map((item) => ({ label: item.name.trim(), value: item.id }))
+              ]" /></label
           ><label
-            >参考单号（可选）<input
-              v-model.trim="transferForm.reference"
-              maxlength="100"
+            >参考单号（可选）<AppInput v-model.trim="transferForm.reference" maxlength="100"
           /></label>
         </div>
         <h3>调拨明细</h3>
-        <div
-          v-for="(line, index) in transferForm.lines"
-          :key="index"
-          class="line-row"
-        >
+        <div v-for="(line, index) in transferForm.lines" :key="index" class="line-row">
           <label
-            >物料<select v-model.number="line.material_id" required>
-              <option :value="0" disabled>选择物料</option>
-              <option v-for="item in materials" :key="item.id" :value="item.id">
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+            >物料<WorkspaceSelect
+              v-model="line.material_id"
+              required
+              :options="[
+                { label: '选择物料'.trim(), value: 0, disabled: true },
+                ...materials.map((item) => ({
+                  label: (item.sku + ' · ' + item.name).trim(),
+                  value: item.id
+                }))
+              ]" /></label
           ><label
-            >数量<input
+            >数量<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
               max="1000000"
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="transferForm.lines.length === 1"
             @click="transferForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="secondary"
+          <AppButton
             type="button"
             @click="transferForm.lines.push({ material_id: 0, quantity: '1' })"
+            variant="secondary"
           >
-            添加明细</button
-          ><button
-            class="primary"
+            添加明细</AppButton
+          ><AppButton
             type="submit"
             :disabled="busy || connectionLost || warehouses.length < 2 || !materials.length"
+            variant="primary"
           >
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
     <!-- 单据列表与台账共用表格，原有权限检查和冲销明细完整保留。 -->
-    <WorkspaceTable :show-title="false" title="仓库调拨"
-      :columns="columns" :data="filtered" :min-table-width="1050">
+    <WorkspaceTable
+      :show-title="false"
+      title="仓库调拨"
+      :columns="columns"
+      :data="filtered"
+      :min-table-width="1050"
+    >
       <template #actions>
-        <button v-if="can('transfer.create')" class="primary" type="button" :disabled="busy || connectionLost" @click="createOpen = true">新建调拨单</button>
+        <AppButton
+          v-if="can('transfer.create')"
+          type="button"
+          :disabled="busy || connectionLost"
+          @click="createOpen = true"
+          variant="primary"
+          >新建调拨单</AppButton
+        >
       </template>
-      <template #filters><label>搜索调拨单<input v-model="query" placeholder="单号、仓库或物料" /></label></template>
+      <template #filters
+        ><label>搜索调拨单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label
+      ></template>
       <template #cell-document="{ row: item }">
         <strong>#{{ item.id }}</strong>
-        <small>{{ item.reversal_id ? '已冲销' : item.status === 'posted' ? '已调拨' : '待确认' }}</small>
+        <small>{{
+          item.reversal_id ? '已冲销' : item.status === 'posted' ? '已调拨' : '待确认'
+        }}</small>
         <small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small>
         <small v-if="item.reference">{{ item.reference }}</small>
       </template>
-      <template #cell-warehouse="{ row: item }">{{ item.from_warehouse_name }} → {{ item.to_warehouse_name }}</template>
+      <template #cell-warehouse="{ row: item }"
+        >{{ item.from_warehouse_name }} → {{ item.to_warehouse_name }}</template
+      >
       <template #cell-lines="{ row: item }">
-        <div v-for="line in item.lines" :key="line.id">{{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</div>
-        <small v-if="item.reversal_id">冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} · {{ localTime(item.reversed_at!) }}</small>
+        <div v-for="line in item.lines" :key="line.id">
+          {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
+        </div>
+        <small v-if="item.reversal_id"
+          >冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
+          {{ localTime(item.reversed_at!) }}</small
+        >
       </template>
       <template #cell-actions="{ row: item }">
-        <div class="form-actions"><button
-              v-if="item.status === 'draft' && can('transfer.post')"
-              class="primary small"
-              type="button"
-              :disabled="busy || connectionLost"
-              @click="postTransfer(item.id)"
-            >
-              确认调拨
-            </button>
+        <div class="form-actions">
+          <AppButton
+            v-if="item.status === 'draft' && can('transfer.post')"
+            type="button"
+            :disabled="busy || connectionLost"
+            @click="postTransfer(item.id)"
+            variant="primary"
+            size="small"
+          >
+            确认调拨
+          </AppButton>
         </div>
         <form
-          v-if="
-            item.status === 'posted' &&
-            !item.reversal_id &&
-            can('transfer.reverse')
-          "
+          v-if="item.status === 'posted' && !item.reversal_id && can('transfer.reverse')"
           class="inline-form"
           @submit.prevent="reverseTransfer(item.id)"
         >
           <label
-            >冲销原因<input
+            >冲销原因<AppInput
               v-model.trim="transferReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明原调拨为何需要冲销" /></label
-          ><button class="secondary small" type="submit" :disabled="busy || connectionLost">
+          ><AppButton
+            type="submit"
+            :disabled="busy || connectionLost"
+            variant="secondary"
+            size="small"
+          >
             冲销已确认调拨
-          </button>
+          </AppButton>
         </form>
       </template>
       <template #empty>
         <strong>{{ query ? '没有匹配的单据' : '暂无调拨单' }}</strong>
-        <span>{{ query ? '可调整单号、仓库或物料关键词后重新搜索。' : '保存新建单据后，可在这里查看明细与处理状态。' }}</span>
+        <span>{{
+          query
+            ? '可调整单号、仓库或物料关键词后重新搜索。'
+            : '保存新建单据后，可在这里查看明细与处理状态。'
+        }}</span>
       </template>
     </WorkspaceTable>
   </section>

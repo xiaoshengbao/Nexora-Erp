@@ -13,7 +13,7 @@
 :root[data-theme='dark'] .workspace-tab.active { background: #0c1526; color: #f1f6ff; }
 :root[data-theme='dark'] .workspace-tab-close:hover { background: #2a4058; }
 :root[data-theme='dark'] .eyebrow,
-:root[data-theme='dark'] .text-button { color: #7dd8cf; }
+:root[data-theme='dark'] .app-button--text { color: #7dd8cf; }
 :root[data-theme='dark'] .account small,
 :root[data-theme='dark'] .muted { color: #9aadc5; }
 
@@ -46,12 +46,8 @@
 :root[data-theme='dark'] input,
 :root[data-theme='dark'] select { border-color: #425570; background: #101c30; color: #eef5ff; }
 :root[data-theme='dark'] input::placeholder { color: #91a2b8; }
-:root[data-theme='dark'] .secondary,
 :root[data-theme='dark'] .empty-state button { border-color: #526982; background: #1b3149; color: #b6e8e2; }
-:root[data-theme='dark'] .secondary:hover:not(:disabled),
 :root[data-theme='dark'] .empty-state button:hover { background: #26425a; }
-:root[data-theme='dark'] .primary { border-color: #3f9f9a; background: #267a78; }
-:root[data-theme='dark'] .primary:hover:not(:disabled) { background: #328f8c; }
 :root[data-theme='dark'] .receipt-lines span { background: #20344c; color: #c5d4e8; }
 :root[data-theme='dark'] .pill { border-color: #7a6945; background: #3b3525; color: #ead18d; }
 :root[data-theme='dark'] .pill.posted { border-color: #376d5a; background: #1d3a32; color: #9bdfc1; }
@@ -72,7 +68,7 @@
 :root[data-theme='dark'] .onboard-kicker { color: #82b8ff; }
 :root[data-theme='dark'] .onboard-top-note,
 :root[data-theme='dark'] .onboard-hero p:last-child,
-:root[data-theme='dark'] .choice-card > span:nth-last-of-type(1),
+:root[data-theme='dark'] .choice-card .n-button__content > span:nth-last-of-type(1),
 :root[data-theme='dark'] .panel-heading p,
 :root[data-theme='dark'] .trust-panel > p,
 :root[data-theme='dark'] .ready-primary > p:not(.onboard-kicker),
@@ -88,7 +84,7 @@
 :root[data-theme='dark'] .server-details dt { color: #a9bdd5; }
 :root[data-theme='dark'] .onboard-form label { color: #c8d8ee; }
 :root[data-theme='dark'] .onboard-form input { border-color: #49617d; }
-:root[data-theme='dark'] .onboarding .secondary,
+:root[data-theme='dark'] .onboarding .app-button--secondary,
 :root[data-theme='dark'] .server-row { border-color: #49617d; background: #1c334d; color: #c6e4ff; }
 :root[data-theme='dark'] .server-row:hover:not(:disabled) { background: #254663; }
 :root[data-theme='dark'] .server-row small,
@@ -102,3 +98,17 @@
 :root[data-theme='dark'] .panel-icon,
 :root[data-theme='dark'] .choice-symbol { border-color: #42698d; background: #254869; color: #9bc9ff; }
 :root[data-theme='dark'] .offline-symbol { background: #433923; color: #f1c37c; }
+:root[data-theme='dark'] {
+  /* 日期选择框与暗色工作台表单保持一致，弹出的日历由 Naive UI 的 darkTheme 管理。 */
+  --workspace-field-background: #101c30;
+  --workspace-field-disabled: #182638;
+  --workspace-field-text: #eef5ff;
+  --workspace-field-muted: #9cb0c7;
+  --workspace-field-border: #425570;
+  --workspace-field-accent: #78d6cd;
+  --app-button-primary: #267a78;
+  --app-button-primary-hover: #328f8c;
+  --app-button-primary-pressed: #1d6866;
+  --app-button-secondary-hover: #26425a;
+  --app-button-secondary-text: #b6e8e2;
+}

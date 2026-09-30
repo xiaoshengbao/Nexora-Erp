@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../components/app/AppButton.vue'
 import { computed } from 'vue'
 import { useAppStore } from '../store/app-store'
 // 工作台专属导航与跨页面公共组件分目录，避免应用外壳继续依赖平铺组件路径。
@@ -64,16 +66,20 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
               }}
             </h1>
             <!-- 页面说明放在主标题下方，与卡片中的操作和筛选分层。 -->
-            <p v-if="screen === 'app' && activeRouteAllowed && workspacePageDescriptions[activeTab]" class="muted workspace-page-description">{{ workspacePageDescriptions[activeTab] }}</p>
+            <p
+              v-if="screen === 'app' && activeRouteAllowed && workspacePageDescriptions[activeTab]"
+              class="muted workspace-page-description"
+            >
+              {{ workspacePageDescriptions[activeTab] }}
+            </p>
           </div>
           <div v-if="user" class="account">
             <!-- 侧栏在窄窗口收起时，顶部保留账号和退出操作。 -->
             <span class="account-identity"
-              >{{ user.username
-              }}<small>{{ accountRole }}</small></span
-            ><ThemeToggle /><button class="text-button" type="button" @click="logout">
+              >{{ user.username }}<small>{{ accountRole }}</small></span
+            ><ThemeToggle /><AppButton type="button" @click="logout" variant="text">
               退出登录
-            </button>
+            </AppButton>
           </div>
         </header>
 
@@ -89,5 +95,10 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 </template>
 
 <style scoped>
-.workspace-page-description { max-width: 960px; margin: 12px 0 0; line-height: 1.7; font-size: 13px; }
+.workspace-page-description {
+  max-width: 960px;
+  margin: 12px 0 0;
+  line-height: 1.7;
+  font-size: 13px;
+}
 </style>

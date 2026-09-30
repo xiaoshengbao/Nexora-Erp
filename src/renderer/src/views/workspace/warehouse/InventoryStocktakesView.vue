@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { NModal } from 'naive-ui'
@@ -43,7 +49,17 @@ async function submitCreate(): Promise<void> {
 
 <template>
   <section class="stack">
-    <NModal v-if="can('stocktake.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('stocktake.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">STOCKTAKE</p>
@@ -54,59 +70,50 @@ async function submitCreate(): Promise<void> {
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >盘点仓库<select
-              v-model.number="stocktakeForm.warehouse_id"
+            >盘点仓库<WorkspaceSelect
+              v-model="stocktakeForm.warehouse_id"
               required
-            >
-              <option
-                v-for="item in warehouses"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
+              ]" /></label
           ><label
-            >盘点批次或备注（可选）<input
-              v-model.trim="stocktakeForm.reference"
-              maxlength="100"
+            >盘点批次或备注（可选）<AppInput v-model.trim="stocktakeForm.reference" maxlength="100"
           /></label>
         </div>
         <p class="muted">
           只填写实际清点数量。保存时记录账面数量；若确认前库存发生变化，系统会要求重新盘点。
         </p>
-        <div
-          v-for="(line, index) in stocktakeForm.lines"
-          :key="index"
-          class="line-row"
-        >
+        <div v-for="(line, index) in stocktakeForm.lines" :key="index" class="line-row">
           <label
-            >物料<select v-model.number="line.material_id" required>
-              <option :value="0" disabled>选择物料</option>
-              <option v-for="item in materials" :key="item.id" :value="item.id">
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+            >物料<WorkspaceSelect
+              v-model="line.material_id"
+              required
+              :options="[
+                { label: '选择物料'.trim(), value: 0, disabled: true },
+                ...materials.map((item) => ({
+                  label: (item.sku + ' · ' + item.name).trim(),
+                  value: item.id
+                }))
+              ]" /></label
           ><label
-            >实盘数量<input
+            >实盘数量<AppInput
               v-model.trim="line.counted_quantity"
               type="number"
               min="0"
               max="1000000"
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="stocktakeForm.lines.length === 1"
             @click="stocktakeForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="secondary"
+          <AppButton
             type="button"
             @click="
               stocktakeForm.lines.push({
@@ -114,78 +121,115 @@ async function submitCreate(): Promise<void> {
                 counted_quantity: '0'
               })
             "
+            variant="secondary"
           >
-            添加明细</button
-          ><button
-            class="primary"
+            添加明细</AppButton
+          ><AppButton
             type="submit"
             :disabled="busy || connectionLost || !materials.length"
+            variant="primary"
           >
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
     <!-- 单据列表与台账共用表格，原有权限检查和冲销明细完整保留。 -->
-    <WorkspaceTable :show-title="false" title="库存盘点"
-      :columns="columns" :data="filtered" :min-table-width="1050">
+    <WorkspaceTable
+      :show-title="false"
+      title="库存盘点"
+      :columns="columns"
+      :data="filtered"
+      :min-table-width="1050"
+    >
       <template #actions>
-        <button v-if="can('stocktake.create')" class="primary" type="button" :disabled="busy || connectionLost" @click="createOpen = true">新建盘点单</button>
+        <AppButton
+          v-if="can('stocktake.create')"
+          type="button"
+          :disabled="busy || connectionLost"
+          @click="createOpen = true"
+          variant="primary"
+          >新建盘点单</AppButton
+        >
       </template>
-      <template #filters><label>搜索盘点单<input v-model="query" placeholder="单号、仓库或物料" /></label></template>
+      <template #filters
+        ><label>搜索盘点单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label
+      ></template>
       <template #cell-document="{ row: item }">
         <strong>#{{ item.id }}</strong>
-        <small>{{ item.reversal_id ? '已冲销' : item.status === 'posted' ? '已确认' : item.status === 'cancelled' ? '已取消' : '待确认' }}</small>
+        <small>{{
+          item.reversal_id
+            ? '已冲销'
+            : item.status === 'posted'
+              ? '已确认'
+              : item.status === 'cancelled'
+                ? '已取消'
+                : '待确认'
+        }}</small>
         <small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small>
         <small v-if="item.reference">{{ item.reference }}</small>
       </template>
       <template #cell-warehouse="{ row: item }">{{ item.warehouse_name }}</template>
       <template #cell-lines="{ row: item }">
-        <div v-for="line in item.lines" :key="line.id">{{ line.material_name }} · 账面 {{ line.book_quantity }} → 实盘 {{ line.counted_quantity }} {{ line.unit }} · 差异 {{ line.difference }}</div>
-        <small v-if="item.reversal_id">冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} · {{ localTime(item.reversed_at!) }}</small>
+        <div v-for="line in item.lines" :key="line.id">
+          {{ line.material_name }} · 账面 {{ line.book_quantity }} → 实盘
+          {{ line.counted_quantity }} {{ line.unit }} · 差异 {{ line.difference }}
+        </div>
+        <small v-if="item.reversal_id"
+          >冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
+          {{ localTime(item.reversed_at!) }}</small
+        >
       </template>
       <template #cell-actions="{ row: item }">
-        <div class="form-actions"><button
-              v-if="item.status === 'draft' && can('stocktake.post')"
-              class="primary small"
-              type="button"
-              :disabled="busy || connectionLost"
-              @click="postStocktake(item.id)"
-            >
-              确认差异</button
-            ><button
-              v-if="item.status === 'draft' && can('stocktake.cancel')"
-              class="secondary small"
-              type="button"
-              :disabled="busy || connectionLost"
-              @click="cancelStocktake(item.id)"
-            >
-              取消
-            </button>
+        <div class="form-actions">
+          <AppButton
+            v-if="item.status === 'draft' && can('stocktake.post')"
+            type="button"
+            :disabled="busy || connectionLost"
+            @click="postStocktake(item.id)"
+            variant="primary"
+            size="small"
+          >
+            确认差异</AppButton
+          ><AppButton
+            v-if="item.status === 'draft' && can('stocktake.cancel')"
+            type="button"
+            :disabled="busy || connectionLost"
+            @click="cancelStocktake(item.id)"
+            variant="secondary"
+            size="small"
+          >
+            取消
+          </AppButton>
         </div>
         <form
-          v-if="
-            item.status === 'posted' &&
-            !item.reversal_id &&
-            can('stocktake.reverse')
-          "
+          v-if="item.status === 'posted' && !item.reversal_id && can('stocktake.reverse')"
           class="inline-form"
           @submit.prevent="reverseStocktake(item.id)"
         >
           <label
-            >冲销原因<input
+            >冲销原因<AppInput
               v-model.trim="stocktakeReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明原盘点差异为何需要冲销" /></label
-          ><button class="secondary small" type="submit" :disabled="busy || connectionLost">
+          ><AppButton
+            type="submit"
+            :disabled="busy || connectionLost"
+            variant="secondary"
+            size="small"
+          >
             冲销已确认盘点
-          </button>
+          </AppButton>
         </form>
       </template>
       <template #empty>
         <strong>{{ query ? '没有匹配的单据' : '暂无盘点单' }}</strong>
-        <span>{{ query ? '可调整单号、仓库或物料关键词后重新搜索。' : '保存新建单据后，可在这里查看明细与处理状态。' }}</span>
+        <span>{{
+          query
+            ? '可调整单号、仓库或物料关键词后重新搜索。'
+            : '保存新建单据后，可在这里查看明细与处理状态。'
+        }}</span>
       </template>
     </WorkspaceTable>
   </section>

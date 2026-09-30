@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -49,7 +55,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('production_completion.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('production_completion.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">PRODUCTION COMPLETION</p>
@@ -63,27 +79,33 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >生产工单<select
-              v-model.number="completionForm.work_order_id"
+            >生产工单<WorkspaceSelect
+              v-model="completionForm.work_order_id"
               required
               @change="selectCompletionOrder(completionForm.work_order_id)"
-            >
-              <option :value="0" disabled>选择生产中工单</option>
-              <option
-                v-for="item in workOrders.filter(
-                  (entry) =>
-                    entry.status === 'in_progress' &&
-                    Number(entry.remaining_output_quantity) > 0
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                #{{ item.id }} · {{ item.product_name }} · 待报工
-                {{ item.remaining_output_quantity }} {{ item.product_unit }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择生产中工单', value: 0, disabled: true },
+                ...workOrders
+                  .filter(
+                    (entry) =>
+                      entry.status === 'in_progress' && Number(entry.remaining_output_quantity) > 0
+                  )
+                  .map((item) => ({
+                    label: (
+                      ' #' +
+                      item.id +
+                      ' · ' +
+                      item.product_name +
+                      ' · 待报工 ' +
+                      item.remaining_output_quantity +
+                      ' ' +
+                      item.product_unit
+                    ).trim(),
+                    value: item.id
+                  }))
+              ]" /></label
           ><label
-            >本次报工数量<input
+            >本次报工数量<AppInput
               v-model.trim="completionForm.reported_quantity"
               type="number"
               min="0.001"
@@ -91,18 +113,16 @@ const filteredRecords = computed(() =>
               step="0.001"
               required /></label
           ><label
-            >参考号（可选）<input
-              v-model.trim="completionForm.reference"
-              maxlength="100"
+            >参考号（可选）<AppInput v-model.trim="completionForm.reference" maxlength="100"
           /></label>
         </div>
-        <button
-          class="primary"
+        <AppButton
           type="submit"
           :disabled="busy || !completionForm.work_order_id"
+          variant="primary"
         >
           保存报工草稿
-        </button>
+        </AppButton>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
@@ -114,20 +134,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('production_completion.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建完工报工单
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索完工与质检
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -160,7 +180,8 @@ const filteredRecords = computed(() =>
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span>
-            报工 {{ item.reported_quantity }} · 合格 {{ item.accepted_quantity ?? '待质检' }} · 不合格
+            报工 {{ item.reported_quantity }} · 合格 {{ item.accepted_quantity ?? '待质检' }} ·
+            不合格
             {{ item.rejected_quantity ?? '待质检' }}
             {{ item.product_unit }}
           </span>
@@ -168,34 +189,37 @@ const filteredRecords = computed(() =>
             质检说明：{{ item.qc_note }} · 质检人 {{ item.inspected_by_name }}
           </span>
           <span v-if="item.reversal_id">
-            冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
+            冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} ·
+            {{ item.reversed_by_name }} ·
             {{ localTime(item.reversed_at!) }}
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'inspected' && can('production_completion.post')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="postProductionCompletion(item.id)"
+            variant="primary"
+            size="small"
           >
             确认合格品入库
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="
               (item.status === 'draft' || item.status === 'inspected') &&
               can('production_completion.cancel')
             "
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelProductionCompletion(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消
-          </button>
+          </AppButton>
         </div>
         <form
           v-if="
@@ -208,7 +232,7 @@ const filteredRecords = computed(() =>
         >
           <label>
             合格数量
-            <input
+            <AppInput
               v-model.trim="inspectionDrafts[item.id]!.accepted_quantity"
               type="number"
               min="0"
@@ -219,9 +243,11 @@ const filteredRecords = computed(() =>
           </label>
           <label>
             质检说明
-            <input v-model.trim="inspectionDrafts[item.id]!.qc_note" required maxlength="200" />
+            <AppInput v-model.trim="inspectionDrafts[item.id]!.qc_note" required maxlength="200" />
           </label>
-          <button class="primary small" type="submit" :disabled="busy">记录质检结果</button>
+          <AppButton type="submit" :disabled="busy" variant="primary" size="small"
+            >记录质检结果</AppButton
+          >
         </form>
         <form
           v-if="item.status === 'posted' && can('production_completion.reverse')"
@@ -230,14 +256,16 @@ const filteredRecords = computed(() =>
         >
           <label>
             冲销原因
-            <input
+            <AppInput
               v-model.trim="completionReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明报工或质检记录错误"
             />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy">冲销已确认完工</button>
+          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
+            >冲销已确认完工</AppButton
+          >
         </form>
       </template>
       <template #empty>

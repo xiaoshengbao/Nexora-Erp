@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { NModal } from 'naive-ui'
 import { matchesRecordQuery } from '../../../utils/workspace-records'
@@ -37,7 +43,17 @@ const filteredPayments = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('finance.record')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('finance.record')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">PAYMENT RECORD</p>
@@ -50,50 +66,51 @@ const filteredPayments = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >往来类别<select
+            >往来类别<WorkspaceSelect
               v-model="paymentForm.kind"
               @change="paymentForm.order_id = 0"
-            >
-              <option value="receivable">客户应收</option>
-              <option value="payable">供应商应付</option>
-            </select></label
-          >
+              :options="[
+                { label: '客户应收', value: 'receivable' },
+                { label: '供应商应付', value: 'payable' }
+              ]"
+          /></label>
           <label
-            >关联订单<select v-model.number="paymentForm.order_id" required>
-              <option :value="0" disabled>选择已发生业务的订单</option>
-              <option
-                v-for="item in financeAccounts.filter(
-                  (entry) => entry.kind === paymentForm.kind
-                )"
-                :key="`${item.kind}-${item.order_id}`"
-                :value="item.order_id"
-              >
-                #{{ item.order_id }} · {{ item.party_name }} · 未结 ¥{{
-                  item.outstanding_amount
-                }}
-              </option>
-            </select></label
-          >
+            >关联订单<WorkspaceSelect
+              v-model="paymentForm.order_id"
+              required
+              :options="[
+                { label: '选择已发生业务的订单', value: 0, disabled: true },
+                ...financeAccounts
+                  .filter((entry) => entry.kind === paymentForm.kind)
+                  .map((item) => ({
+                    label: (
+                      ' #' +
+                      item.order_id +
+                      ' · ' +
+                      item.party_name +
+                      ' · 未结 ¥' +
+                      item.outstanding_amount
+                    ).trim(),
+                    value: item.order_id
+                  }))
+              ]"
+          /></label>
           <label
-            >业务动作<select v-model="paymentForm.action">
-              <option value="settlement">
-                {{
-                  paymentForm.kind === 'receivable'
-                    ? '收到客户款'
-                    : '支付供应商'
-                }}
-              </option>
-              <option value="refund">
-                {{
-                  paymentForm.kind === 'receivable'
-                    ? '退还客户'
-                    : '收到供应商退款'
-                }}
-              </option>
-            </select></label
-          >
+            >业务动作<WorkspaceSelect
+              v-model="paymentForm.action"
+              :options="[
+                {
+                  label: (paymentForm.kind === 'receivable' ? '收到客户款' : '支付供应商').trim(),
+                  value: 'settlement'
+                },
+                {
+                  label: (paymentForm.kind === 'receivable' ? '退还客户' : '收到供应商退款').trim(),
+                  value: 'refund'
+                }
+              ]"
+          /></label>
           <label
-            >金额（元）<input
+            >金额（元）<AppInput
               v-model.trim="paymentForm.amount"
               type="number"
               min="0.01"
@@ -102,22 +119,20 @@ const filteredPayments = computed(() =>
               required
           /></label>
           <label
-            >银行或收据参考号<input
+            >银行或收据参考号<AppInput
               v-model.trim="paymentForm.reference"
               required
               maxlength="100"
           /></label>
-          <label
-            >备注（可选）<input v-model.trim="paymentForm.note" maxlength="200"
-          /></label>
+          <label>备注（可选）<AppInput v-model.trim="paymentForm.note" maxlength="200" /></label>
         </div>
-        <button
-          class="primary"
+        <AppButton
           type="submit"
           :disabled="busy || connectionLost || !financeAccounts.length"
+          variant="primary"
         >
           登记收付款
-        </button>
+        </AppButton>
       </form>
     </NModal>
     <!-- 冲销入口仍按原记录和反向记录判断，列表筛选不影响防重复冲销。 -->
@@ -129,20 +144,20 @@ const filteredPayments = computed(() =>
       :min-table-width="900"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('finance.record')"
-          class="primary"
           type="button"
           :disabled="busy || connectionLost"
           @click="createOpen = true"
+          variant="primary"
         >
           登记收付款
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索收付款记录
-          <input v-model="paymentQuery" placeholder="输入编号或名称" />
+          <AppInput v-model="paymentQuery" placeholder="输入编号或名称" />
         </label>
       </template>
       <template #cell-document="{ row: item }">
@@ -172,9 +187,15 @@ const filteredPayments = computed(() =>
         >
           <label>
             冲销原因
-            <input v-model.trim="reversalReasons[item.id]" required maxlength="200" />
+            <AppInput v-model.trim="reversalReasons[item.id]" required maxlength="200" />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy || connectionLost">冲销此记录</button>
+          <AppButton
+            type="submit"
+            :disabled="busy || connectionLost"
+            variant="secondary"
+            size="small"
+            >冲销此记录</AppButton
+          >
         </form>
       </template>
       <template #empty>{{ paymentQuery ? '没有匹配的记录。' : '暂无收付款记录。' }}</template>

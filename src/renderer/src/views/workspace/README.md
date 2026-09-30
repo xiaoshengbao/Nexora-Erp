@@ -39,6 +39,16 @@
 
 页面组件处理展示与表单绑定；跨页面草稿和服务端快照放在 `store/state.ts`，业务写操作放在 `store/modules/`。权限与地址规则只在 `router/workspace-routes.ts` 维护。
 
+全应用按钮使用 `components/app/AppButton.vue` 二次封装 Naive UI `NButton`，统一主操作、次操作、文字操作与导航按钮的交互。`variant` 支持 `primary`、`secondary`、`text`、`plain`；默认 `type="button"`，提交表单须显式传 `type="submit"`，`loading` 同时禁用重复操作。导航、标签及启动卡片用 `plain` 保留专属结构样式，图标通过 `icon` 插槽传入。
+
+文本、密码、搜索和数字字段使用 `components/app/AppInput.vue` 封装 `NInput`，`required`、`min`、`max`、`step`、`pattern`、`maxlength` 等属性传给实际输入元素参与浏览器校验。金额、数量保留业务字符串；端口等数字模型及 `.number` 转成数字，清空仍为空字符串；`.trim` 保留原有去空格行为。密码提供显示/隐藏操作。复选框直接使用 `NCheckbox`，标签放在其默认插槽中，保留文字点击、键盘操作、半选及只读保护。输入主题在 `utils/app-theme.ts` 集中维护，配色使用明暗主题变量。
+
+原生控件检查已覆盖引导、登录、工作台与公共组件。仅保留 `WorkspaceSelect` 的不可见必填校验代理及 `WorkspaceTable` 专用横向滚动条；后者复用表格滚动定位和宽度计算，不属于业务表单输入。表格继续使用已有 vxe-table 公共封装，弹窗、开关和通知继续使用 Naive UI。
+
+工作台单值下拉选择统一使用 `components/workspace/WorkspaceSelect.vue`，在 Naive UI `NSelect` 上封装输入高度、明暗主题、可搜索菜单与必填校验。页面传入 `v-model` 和 `{ label, value, disabled? }` 选项，数字编号、布尔值及表示“全部”的 `null` 保持原类型；不要继续使用原生 `<select>` 或绕过公共组件直接引入 `NSelect`。`change` 在模型更新后触发，订单切换等操作可继续读取共享草稿；分页选择使用 `size="small"` 与 `filterable=false`。菜单传送到 `body`，避免被表格和弹窗滚动区截断。
+
+日期输入直接使用 Naive UI `NDatePicker`，不额外封装日期组件。统一设置 `to="body"`、`type="date"`、`format="yyyy-MM-dd"` 和 `value-format="yyyy-MM-dd"`，通过 `formatted-value` 读写已有字符串字段，清空时使用 `utils/date-field.ts` 的 `datePickerString` 转回空字符串。`vDateField` 指令补回原生必填与手输日期的有效性、上下限校验；日历可选范围通过 `dateOutsideRange` 和 `is-date-disabled` 设置，按设备本地日期比较，避免时区使边界偏移。主题在根 `NConfigProvider` 中统一设置。控件替换不改变服务端校验、会计期间规则或 API 数据协议。
+
 工作台中的表格统一由 `components/workspace/WorkspaceTable.vue` 封装的 vxe-table 渲染。页面传入 `columns`、`data` 和可选的最小宽度，通过 `cell-<列键>` 插槽填写业务单元格；标题、筛选、操作、表前说明、空状态和页脚分别使用 `heading`、`filters`、`actions`、`beforeTable`、`empty`、`footer` 插槽。表格超出可视宽度时，底部提供始终可见的横向滚动条；查询失败可用 `error` 和 `errorActions` 显示失败原因与重试入口。采购与库存报表也使用同一组件，CSV 继续基于相同的服务端查询结果。列表新增入口以按钮打开 Naive UI 弹窗，保存失败保留草稿；复杂单据的确认、冲销仍保留原有操作流程。职务仍沿用现有角色与操作权限数据，内置角色只读；授权树由 `components/workspace/PermissionTreePicker.vue` 提供。权限目录在系统管理下使用单独路由，避免职务列表下方再展开很长的名称维护区域。权限目录可独立重试读取服务端数据，其他业务列表加载失败时不会使目录一直空白。
 
 应用业务状态和主题状态由 Pinia 管理。`store/app-store.ts` 的 `useAppStore()` 保留页面现有的响应式 `ref` 取值接口；应用启动与监听器清理由根组件负责。
@@ -61,6 +71,6 @@
 
 `system/MenuManagementView.vue` 提供「菜单管理」（`/workspace/menu-management`），沿用 `users.manage` 权限。一级导航分组与全部页面入口均可从内置图标库选择图标，支持搜索、预览和恢复默认；选择后点击保存才会写入服务端。页面从路由表构建菜单树，配置由 Pinia 共享，保存失败保留编辑内容。配置不支持上传图片，不改变菜单名称、顺序、路由和授权；其他客户端需重新登录或刷新数据后更新。
 
-`finance/LedgerAccountsView.vue` 与 `finance/AccountingPeriodsView.vue` 分别维护总账科目与会计期间，按独立查看、维护权限控制。共享草稿和快照在 Pinia，修改携带旧版本，冲突保留输入；`MetadataHistory.vue` 展示建立、名称、启停及版本变更，读取失败可重试。科目结构和期间日期保存后固定；`JournalsView.vue` 提供手工凭证，`JournalHistory.vue` 展示操作审计；当前没有结账和业务期间锁定。
+`finance/LedgerAccountsView.vue` 与 `finance/AccountingPeriodsView.vue` 分别维护总账科目与会计期间，按独立查看、维护权限控制。共享草稿和快照在 Pinia，修改携带旧版本，冲突保留输入；`MetadataHistory.vue` 展示建立、名称、启停及版本变更，读取失败可重试。科目结构和期间日期保存后固定；`JournalsView.vue` 提供手工凭证，`JournalHistory.vue` 展示操作审计；会计期间支持结账检查、结账与重开，操作沿用公共控件；历史成本锁定由服务端执行。
 
 `finance/OpeningBalancesView.vue` 提供首次总账启用方案，使用 Pinia、独立动作授权和版本校验；同账号不能审核自身建改或提交的方案。`OpeningHistory.vue` 展示阶段、操作者、结果及原因。主表、余额编辑和详情沿用 WorkspaceTable，窄窗口内部横向滚动。`LedgerReportsView.vue` 展示同快照期初来源与审计，正式期初不计本期发生额；业务分户初始余额不自动生成。

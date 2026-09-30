@@ -85,10 +85,10 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   const paymentHtml = await render(financePages[1][0])
   assert.match(paymentHtml, /登记收付款/)
   state.connectionLost.value = true
-  assert.match(await render(financePages[1][0]), /<button[^>]*disabled[^>]*>\s*登记收付款/)
+  assert.match(await render(financePages[1][0]), /<button[^>]*disabled[^>]*>[\s\S]*?登记收付款[\s\S]*?<\/button>/)
   state.connectionLost.value = false
   permissions.delete('finance.record')
-  const buttons = html => [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(m=>({disabled:/(?:^|\s)disabled(?:\s|=|$)/.test(m[1]),label:m[2].trim()}))
+  const buttons = html => [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(m=>({disabled:/(?:^|\s)disabled(?:\s|=|$)/.test(m[1]),label:m[2].replace(/<[^>]*>/g,'').trim()}))
   const finance='finance/PaymentRecordsView.vue'
   assert.doesNotMatch(await render(finance),/冲销此记录/)
   permissions.add('finance.reverse')

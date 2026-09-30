@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
 import IconServerLine from '~icons/ri/server-line'
 import IconAddLine from '~icons/ri/add-line'
@@ -28,23 +32,13 @@ const {
         </div>
       </div>
       <div class="onboard-actions">
-        <button class="secondary" type="button" @click="go('welcome')">
-          返回首页</button
-        ><button
-          class="primary"
-          type="button"
-          :disabled="busy"
-          @click="restartLocalHost"
-        >
+        <AppButton type="button" @click="go('welcome')" variant="secondary"> 返回首页</AppButton
+        ><AppButton type="button" :disabled="busy" @click="restartLocalHost" variant="primary">
           {{ host.running ? '连接本机服务' : '启动本机服务' }}
-        </button>
+        </AppButton>
       </div>
     </div>
-    <form
-      v-else
-      class="onboard-panel onboard-form"
-      @submit.prevent="createLocalHost"
-    >
+    <form v-else class="onboard-panel onboard-form" @submit.prevent="createLocalHost">
       <div class="panel-heading">
         <span class="panel-icon"><IconAddLine aria-hidden="true" /></span>
         <div>
@@ -54,13 +48,13 @@ const {
       </div>
       <div class="form-grid">
         <label
-          >实例名称<input
+          >实例名称<AppInput
             v-model.trim="hostForm.name"
             required
             maxlength="80"
             placeholder="例如 总公司 ERP" /></label
         ><label
-          >服务端口<input
+          >服务端口<AppInput
             v-model.number="hostForm.port"
             type="number"
             min="1"
@@ -71,30 +65,26 @@ const {
       <label
         >数据目录
         <div class="path-picker">
-          <input
+          <AppInput
             v-model.trim="hostForm.dataDir"
             required
             placeholder="选择 SQLite 数据保存位置"
-          /><button class="secondary" type="button" @click="chooseDataDir">
-            选择
-          </button>
+          /><AppButton type="button" @click="chooseDataDir" variant="secondary"> 选择 </AppButton>
         </div></label
       >
       <div class="form-grid">
         <label
-          >首位管理员账号<input
+          >首位管理员账号<AppInput
             v-model.trim="hostForm.username"
             required
             minlength="3"
             maxlength="40"
             autocomplete="username" /></label
-        ><span class="form-hint"
-          >已有数据库会原样保留；已有管理员请使用原账号登录。</span
-        >
+        ><span class="form-hint">已有数据库会原样保留；已有管理员请使用原账号登录。</span>
       </div>
       <div class="form-grid">
         <label
-          >管理员密码<input
+          >管理员密码<AppInput
             v-model="hostForm.password"
             type="password"
             required
@@ -103,7 +93,7 @@ const {
             autocomplete="new-password"
             placeholder="至少 12 位" /></label
         ><label
-          >确认密码<input
+          >确认密码<AppInput
             v-model="hostForm.confirm"
             type="password"
             required
@@ -112,11 +102,10 @@ const {
         /></label>
       </div>
       <div class="onboard-actions">
-        <button class="secondary" type="button" @click="go('welcome')">
-          返回首页</button
-        ><button class="primary" type="submit" :disabled="busy">
+        <AppButton type="button" @click="go('welcome')" variant="secondary"> 返回首页</AppButton
+        ><AppButton type="submit" :disabled="busy" variant="primary">
           {{ busy ? '正在创建服务端…' : '创建并启动' }}
-        </button>
+        </AppButton>
       </div>
     </form>
     <aside class="onboard-panel setup-summary">
@@ -140,9 +129,7 @@ const {
           <dd>需核对证书指纹并登录</dd>
         </div>
       </dl>
-      <p class="summary-note">
-        服务端数据集中保存在此电脑。客户端断网后不能继续编辑或自动同步。
-      </p>
+      <p class="summary-note">服务端数据集中保存在此电脑。客户端断网后不能继续编辑或自动同步。</p>
     </aside>
   </section>
 </template>

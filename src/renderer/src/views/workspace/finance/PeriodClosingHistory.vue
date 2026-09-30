@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { PeriodClosingRecord } from '../../../../../shared/erp-api'
@@ -41,7 +43,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
     <WorkspaceTable title="结账与重开记录" :columns="columns" :data="records" :min-table-width="900">
       <template #cell-action="{ row }">{{ row.action === 'close' ? '结账' : '重开' }}</template>
       <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
-      <template #cell-actions="{ row }"><button v-if="row.action === 'close'" class="text-button" @click="selected = row">查看余额快照</button><span v-else class="muted">保留原结账</span></template>
+      <template #cell-actions="{ row }"><AppButton v-if="row.action === 'close'" @click="selected = row" variant="text" type="button">查看余额快照</AppButton><span v-else class="muted">保留原结账</span></template>
       <template #empty>暂无结账记录。结账后保存余额、来源与操作者，不覆盖原记录。</template>
     </WorkspaceTable>
     <template v-if="evidence">

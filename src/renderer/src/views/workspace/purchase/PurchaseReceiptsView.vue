@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -36,7 +40,7 @@ const filteredRecords = computed(() =>
       <template #filters>
         <label>
           搜索采购入库
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
       <template #cell-document="{ row: item }">
@@ -70,15 +74,16 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('receipt.post')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="postReceipt(item.id)"
+            variant="primary"
+            size="small"
           >
             确认入库
-          </button>
+          </AppButton>
         </div>
         <form
           v-if="item.status === 'posted' && !item.reversal_id && can('receipt.reverse')"
@@ -87,14 +92,16 @@ const filteredRecords = computed(() =>
         >
           <label>
             冲销原因
-            <input
+            <AppInput
               v-model.trim="receiptReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明原入库为何需要冲销"
             />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy">冲销已确认入库</button>
+          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
+            >冲销已确认入库</AppButton
+          >
         </form>
       </template>
       <template #empty>

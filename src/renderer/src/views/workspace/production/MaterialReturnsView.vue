@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -46,7 +52,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('material_return.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('material_return.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">MATERIAL RETURN</p>
@@ -60,37 +76,36 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原领料单<select
-              v-model.number="materialReturnForm.material_issue_id"
+            >原领料单<WorkspaceSelect
+              v-model="materialReturnForm.material_issue_id"
               required
               @change="selectReturnIssue(materialReturnForm.material_issue_id)"
-            >
-              <option :value="0" disabled>选择可退领料单</option>
-              <option
-                v-for="item in materialIssues.filter(
-                  (entry) =>
-                    entry.status === 'posted' &&
-                    workOrders.some(
-                      (order) =>
-                        order.id === entry.work_order_id &&
-                        order.status === 'in_progress'
-                    ) &&
-                    entry.lines.some(
-                      (line) => Number(line.returnable_quantity) > 0
-                    )
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                #{{ item.id }} · 工单 #{{ item.work_order_id }} ·
-                {{ item.warehouse_name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择可退领料单', value: 0, disabled: true },
+                ...materialIssues
+                  .filter(
+                    (entry) =>
+                      entry.status === 'posted' &&
+                      workOrders.some(
+                        (order) =>
+                          order.id === entry.work_order_id && order.status === 'in_progress'
+                      ) &&
+                      entry.lines.some((line) => Number(line.returnable_quantity) > 0)
+                  )
+                  .map((item) => ({
+                    label: (
+                      ' #' +
+                      item.id +
+                      ' · 工单 #' +
+                      item.work_order_id +
+                      ' · ' +
+                      item.warehouse_name
+                    ).trim(),
+                    value: item.id
+                  }))
+              ]" /></label
           ><label
-            >退料原因<input
-              v-model.trim="materialReturnForm.reason"
-              required
-              maxlength="200"
+            >退料原因<AppInput v-model.trim="materialReturnForm.reason" required maxlength="200"
           /></label>
         </div>
         <h3>本次退料数量</h3>
@@ -101,47 +116,43 @@ const filteredRecords = computed(() =>
         >
           <label
             >{{
-              selectedReturnIssue?.lines.find(
-                (item) => item.id === line.material_issue_line_id
-              )?.material_name
+              selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
+                ?.material_name
             }}
             · 可退
             {{
-              selectedReturnIssue?.lines.find(
-                (item) => item.id === line.material_issue_line_id
-              )?.returnable_quantity
-            }}<input
+              selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
+                ?.returnable_quantity
+            }}<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
               :max="
-                selectedReturnIssue?.lines.find(
-                  (item) => item.id === line.material_issue_line_id
-                )?.returnable_quantity
+                selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
+                  ?.returnable_quantity
               "
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="busy"
             @click="
               materialReturnForm.lines = materialReturnForm.lines.filter(
-                (item) =>
-                  item.material_issue_line_id !== line.material_issue_line_id
+                (item) => item.material_issue_line_id !== line.material_issue_line_id
               )
             "
+            variant="text"
           >
             本次不退
-          </button>
+          </AppButton>
         </div>
-        <button
-          class="primary"
+        <AppButton
           type="submit"
           :disabled="busy || !materialReturnForm.lines.length"
+          variant="primary"
         >
           保存退料草稿
-        </button>
+        </AppButton>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
@@ -153,20 +164,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('material_return.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建生产退料单
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索生产退料
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -195,24 +206,26 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('material_return.post')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="postMaterialReturn(item.id)"
+            variant="primary"
+            size="small"
           >
             确认退料
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="item.status === 'draft' && can('material_return.cancel')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelMaterialReturn(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消
-          </button>
+          </AppButton>
         </div>
       </template>
       <template #empty>

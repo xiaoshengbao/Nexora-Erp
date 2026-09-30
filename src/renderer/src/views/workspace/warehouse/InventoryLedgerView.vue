@@ -1,4 +1,11 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 日期直接使用 Naive UI，保持后端字符串格式以及原有必填和范围校验。
+import { NDatePicker } from 'naive-ui'
+import { datePickerString, vDateField } from '../../../utils/date-field'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -46,32 +53,119 @@ onMounted(() => { void runLedgerQuery() })
 
 <template>
   <section class="stack">
-    <WorkspaceTable :show-title="false" :data="ledgerResult.rows" title="库存台账"
-      :columns="columns" :error="ledgerError" :loading="busy" :min-table-width="1000">
+    <WorkspaceTable
+      :show-title="false"
+      :data="ledgerResult.rows"
+      title="库存台账"
+      :columns="columns"
+      :error="ledgerError"
+      :loading="busy"
+      :min-table-width="1000"
+    >
       <template #filters>
-        <label>仓库<select v-model.number="ledgerQuery.warehouse_id"><option :value="null">全部仓库</option><option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-        <label>物料<select v-model.number="ledgerQuery.material_id"><option :value="null">全部物料</option><option v-for="item in materials" :key="item.id" :value="item.id">{{ item.sku }} · {{ item.name }}</option></select></label>
-        <label>开始日期<input v-model="ledgerQuery.from_date" type="date" /></label>
-        <label>结束日期<input v-model="ledgerQuery.to_date" type="date" /></label>
-        <label>来源<select v-model="ledgerQuery.source_type"><option :value="null">全部来源</option><option v-for="[key, label] in sourceOptions" :key="key" :value="key">{{ label }}</option></select></label>
+        <label
+          >仓库<WorkspaceSelect
+            v-model="ledgerQuery.warehouse_id"
+            :options="[
+              { label: '全部仓库', value: null },
+              ...warehouses.map((item) => ({ label: item.name, value: item.id }))
+            ]"
+        /></label>
+        <label
+          >物料<WorkspaceSelect
+            v-model="ledgerQuery.material_id"
+            :options="[
+              { label: '全部物料', value: null },
+              ...materials.map((item) => ({
+                label: (item.sku + ' · ' + item.name).trim(),
+                value: item.id
+              }))
+            ]"
+        /></label>
+        <label
+          >开始日期<NDatePicker
+            to="body"
+            :formatted-value="ledgerQuery.from_date || null"
+            type="date"
+            format="yyyy-MM-dd"
+            value-format="yyyy-MM-dd"
+            v-date-field="{ required: false }"
+            @update:formatted-value="
+              (value) => {
+                ledgerQuery.from_date = datePickerString(value)
+              }
+            "
+            clearable
+        /></label>
+        <label
+          >结束日期<NDatePicker
+            to="body"
+            :formatted-value="ledgerQuery.to_date || null"
+            type="date"
+            format="yyyy-MM-dd"
+            value-format="yyyy-MM-dd"
+            v-date-field="{ required: false }"
+            @update:formatted-value="
+              (value) => {
+                ledgerQuery.to_date = datePickerString(value)
+              }
+            "
+            clearable
+        /></label>
+        <label
+          >来源<WorkspaceSelect
+            v-model="ledgerQuery.source_type"
+            :options="[
+              { label: '全部来源', value: null },
+              ...sourceOptions.map(([key, label]) => ({ label: label, value: key }))
+            ]"
+        /></label>
       </template>
-      <template #filterActions><button class="primary" :disabled="busy || connectionLost" @click="runLedgerQuery">查询台账</button></template>
-      <template #cell-time="{ row: item }">{{ localTime(item.created_at) }}<small>{{ item.created_by_name }}</small></template>
+      <template #filterActions
+        ><AppButton
+          :disabled="busy || connectionLost"
+          @click="runLedgerQuery"
+          variant="primary"
+          type="button"
+          >查询台账</AppButton
+        ></template
+      >
+      <template #cell-time="{ row: item }"
+        >{{ localTime(item.created_at) }}<small>{{ item.created_by_name }}</small></template
+      >
       <template #cell-warehouse="{ row: item }">{{ item.warehouse_name }}</template>
       <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
-      <template #cell-source="{ row: item }">{{ sourceLabels[item.source_type] ?? item.source_type }} #{{ item.source_id }}<small>明细 #{{ item.source_line_id }}</small></template>
-      <template #cell-quantity="{ row: item }">{{ item.quantity.startsWith('-') ? '' : '+' }}{{ item.quantity }} {{ item.unit }}</template>
+      <template #cell-source="{ row: item }"
+        >{{ sourceLabels[item.source_type] ?? item.source_type }} #{{ item.source_id
+        }}<small>明细 #{{ item.source_line_id }}</small></template
+      >
+      <template #cell-quantity="{ row: item }"
+        >{{ item.quantity.startsWith('-') ? '' : '+' }}{{ item.quantity }} {{ item.unit }}</template
+      >
       <template #cell-balance="{ row: item }">{{ item.balance_quantity }} {{ item.unit }}</template>
       <template #empty>
         <strong>筛选范围内暂无库存流水</strong>
         <span>可调整仓库、物料或日期后重新查询。</span>
       </template>
       <template #errorActions>
-        <button class="secondary small" :disabled="busy || connectionLost" @click="runLedgerQuery">重新查询</button>
+        <AppButton
+          :disabled="busy || connectionLost"
+          @click="runLedgerQuery"
+          variant="secondary"
+          size="small"
+          type="button"
+          >重新查询</AppButton
+        >
       </template>
     </WorkspaceTable>
     <!-- 先筛选再查看流水与汇总，避免期初期末把查询入口挤到页面下方。 -->
-    <WorkspaceTable v-if="!ledgerError && ledgerResult.groups.length" title="期初期末" :columns="groupColumns" :data="ledgerResult.groups" :min-table-width="680">
+    <WorkspaceTable
+      v-if="!ledgerError && ledgerResult.groups.length"
+      title="期初期末"
+      :columns="groupColumns"
+      :data="ledgerResult.groups"
+      :min-table-width="680"
+    >
       <template #cell-material="{ row }">{{ row.sku }} · {{ row.material_name }}</template>
       <template #cell-opening="{ row }">{{ row.opening_quantity }} {{ row.unit }}</template>
       <template #cell-closing="{ row }">{{ row.closing_quantity }} {{ row.unit }}</template>

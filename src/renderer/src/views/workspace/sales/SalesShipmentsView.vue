@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -49,7 +55,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('shipment.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('shipment.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">SALES SHIPMENT</p>
@@ -60,82 +76,68 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >销售订单<select
-              v-model.number="shipmentForm.sales_order_id"
+            >销售订单<WorkspaceSelect
+              v-model="shipmentForm.sales_order_id"
               required
               @change="chooseShipmentOrder"
-            >
-              <option :value="0" disabled>选择待出库订单</option>
-              <option
-                v-for="item in salesOrders.filter((entry) =>
-                  ['confirmed', 'partially_shipped'].includes(entry.status)
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                #{{ item.id }} · {{ item.customer_name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择待出库订单'.trim(), value: 0, disabled: true },
+                ...salesOrders
+                  .filter((entry) => ['confirmed', 'partially_shipped'].includes(entry.status))
+                  .map((item) => ({
+                    label: (' #' + item.id + ' · ' + item.customer_name).trim(),
+                    value: item.id
+                  }))
+              ]" /></label
           ><label
-            >出库仓库<select
-              v-model.number="shipmentForm.warehouse_id"
+            >出库仓库<WorkspaceSelect
+              v-model="shipmentForm.warehouse_id"
               required
-            >
-              <option
-                v-for="item in warehouses"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
+              ]" /></label
           ><label
-            >参考单号（可选）<input
-              v-model.trim="shipmentForm.reference"
-              maxlength="100"
+            >参考单号（可选）<AppInput v-model.trim="shipmentForm.reference" maxlength="100"
           /></label>
         </div>
-        <p class="muted">
-          确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。
-        </p>
-        <div
-          v-for="(line, index) in shipmentForm.lines"
-          :key="index"
-          class="line-row"
-        >
+        <p class="muted">确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。</p>
+        <div v-for="(line, index) in shipmentForm.lines" :key="index" class="line-row">
           <label
-            >物料<select v-model.number="line.material_id" required>
-              <option :value="0" disabled>选择物料</option>
-              <option v-for="item in materials" :key="item.id" :value="item.id">
-                {{ item.sku }} · {{ item.name }}
-              </option>
-            </select></label
+            >物料<WorkspaceSelect
+              v-model="line.material_id"
+              required
+              :options="[
+                { label: '选择物料'.trim(), value: 0, disabled: true },
+                ...materials.map((item) => ({
+                  label: (item.sku + ' · ' + item.name).trim(),
+                  value: item.id
+                }))
+              ]" /></label
           ><label
-            >出库数量<input
+            >出库数量<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
               max="1000000"
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             :disabled="shipmentForm.lines.length === 1"
             @click="shipmentForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="secondary"
+          <AppButton
             type="button"
             @click="shipmentForm.lines.push({ material_id: 0, quantity: '1' })"
+            variant="secondary"
           >
-            添加明细</button
-          ><button
-            class="primary"
+            添加明细</AppButton
+          ><AppButton
             type="submit"
             :disabled="
               busy ||
@@ -144,9 +146,10 @@ const filteredRecords = computed(() =>
                 ['confirmed', 'partially_shipped'].includes(entry.status)
               )
             "
+            variant="primary"
           >
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
@@ -159,20 +162,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('shipment.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建出库单
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索销售出库
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -213,24 +216,26 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('shipment.post')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="postShipment(item.id)"
+            variant="primary"
+            size="small"
           >
             确认出库
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="item.status === 'draft' && can('shipment.cancel')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelShipment(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消
-          </button>
+          </AppButton>
         </div>
         <form
           v-if="item.status === 'posted' && !item.reversal_id && can('shipment.reverse')"
@@ -239,14 +244,16 @@ const filteredRecords = computed(() =>
         >
           <label>
             冲销原因
-            <input
+            <AppInput
               v-model.trim="shipmentReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明原出库为何需要冲销"
             />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy">冲销已确认出库</button>
+          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
+            >冲销已确认出库</AppButton
+          >
         </form>
       </template>
       <template #empty>

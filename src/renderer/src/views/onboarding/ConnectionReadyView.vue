@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
 import IconServerLine from '~icons/ri/server-line'
 import IconCheckboxCircleLine from '~icons/ri/checkbox-circle-line'
@@ -17,11 +19,8 @@ const { server, host, go, switchServer } = useAppStore()
       <h2>{{ server.isLocal ? '本机服务已启动' : '连接已建立' }}</h2>
       <p>使用服务端账号登录后，就可以进入 ERP 工作台。</p>
       <div class="onboard-actions">
-        <button class="primary" type="button" @click="go('login')">
-          进入登录 →</button
-        ><button class="secondary" type="button" @click="switchServer">
-          切换服务端
-        </button>
+        <AppButton type="button" @click="go('login')" variant="primary"> 进入登录 →</AppButton
+        ><AppButton type="button" @click="switchServer" variant="secondary"> 切换服务端 </AppButton>
       </div>
     </div>
     <div class="onboard-panel">
@@ -51,9 +50,7 @@ const { server, host, go, switchServer } = useAppStore()
         </div>
       </dl>
       <template v-if="server.isLocal"
-        ><p class="fingerprint-label">
-          请将此指纹提供给需要连接的团队成员核对：
-        </p>
+        ><p class="fingerprint-label">请将此指纹提供给需要连接的团队成员核对：</p>
         <div class="fingerprint compact">
           {{ server.fingerprint }}
         </div></template

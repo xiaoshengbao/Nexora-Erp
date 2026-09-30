@@ -69,7 +69,7 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
   permissions.add('customer.manage')
   assert.match(await render(customers), /新增客户/)
   store.connectionLost = true
-  assert.match(await render(customers), /<button[^>]*disabled[^>]*>\s*新增客户/)
+  assert.match(await render(customers), /<button[^>]*disabled[^>]*>[\s\S]*?新增客户[\s\S]*?<\/button>/)
   store.customers = []
   assert.match(await render(customers), /暂无客户，请先新增/)
   const sales = await render('sales/SalesOrdersView.vue')

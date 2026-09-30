@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
 import { computed, ref } from 'vue'
 import { matchesRecordQuery } from '../../../utils/workspace-records'
 import { storeToRefs } from 'pinia'
@@ -36,13 +40,17 @@ const filteredAccounts = computed(() =>
       :min-table-width="980"
     >
       <template #actions>
-        <button class="secondary" type="button" @click="navigateToRoute('financePayments')">收付款记录</button>
-        <button class="secondary" type="button" @click="navigateToRoute('financeSources')">查看金额来源</button>
+        <AppButton type="button" @click="navigateToRoute('financePayments')" variant="secondary"
+          >收付款记录</AppButton
+        >
+        <AppButton type="button" @click="navigateToRoute('financeSources')" variant="secondary"
+          >查看金额来源</AppButton
+        >
       </template>
       <template #filters>
         <label>
           搜索订单
-          <input v-model="accountQuery" placeholder="输入编号或名称" />
+          <AppInput v-model="accountQuery" placeholder="输入编号或名称" />
         </label>
       </template>
       <template #beforeTable>

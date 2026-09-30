@@ -1,8 +1,14 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NButton, NCollapse, NCollapseItem, NInput, NModal, NSelect } from 'naive-ui'
+import { NCollapse, NCollapseItem, NModal } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -36,18 +42,37 @@ const costQuery = ref('')
 const entryQuery = ref('')
 const costColumns = recordColumns
 const showSettlementForm = ref(false)
-const settledOrderIds = computed(() => new Set(productionCostSettlements.value.filter(
-  (item) => item.status === 'active').map((item) => item.work_order_id)))
-const settlementOptions = computed(() => (productionCostReport.value?.orders ?? []).filter(
-  (item) => item.work_order_status === 'completed' && item.total_amount !== null && !item.settlement_id
-).map((item) => ({ value: item.work_order_id, label: `工单 #${item.work_order_id} · ${item.product_name} · ¥${item.total_amount}` })))
+const settledOrderIds = computed(
+  () =>
+    new Set(
+      productionCostSettlements.value
+        .filter((item) => item.status === 'active')
+        .map((item) => item.work_order_id)
+    )
+)
+const settlementOptions = computed(() =>
+  (productionCostReport.value?.orders ?? [])
+    .filter(
+      (item) =>
+        item.work_order_status === 'completed' && item.total_amount !== null && !item.settlement_id
+    )
+    .map((item) => ({
+      value: item.work_order_id,
+      label: `工单 #${item.work_order_id} · ${item.product_name} · ¥${item.total_amount}`
+    }))
+)
 const settlementColumns = recordColumns
 const sourceColumns = [
-  { key: 'issue', title: '工单与领料' }, { key: 'material', title: '物料' },
-  { key: 'quantity', title: '净领数量' }, { key: 'cost', title: '成本来源与金额' }
+  { key: 'issue', title: '工单与领料' },
+  { key: 'material', title: '物料' },
+  { key: 'quantity', title: '净领数量' },
+  { key: 'cost', title: '成本来源与金额' }
 ]
-const selectedOrder = computed(() => productionCostReport.value?.orders.find(
-  (item) => item.work_order_id === productionSettlementForm.value.work_order_id))
+const selectedOrder = computed(() =>
+  productionCostReport.value?.orders.find(
+    (item) => item.work_order_id === productionSettlementForm.value.work_order_id
+  )
+)
 function openSettlement(orderId: number): void {
   productionSettlementForm.value.work_order_id = orderId
   showSettlementForm.value = true
@@ -87,7 +112,7 @@ const filteredEntries = computed(() =>
       <template #filters>
         <label>
           搜索生产工单
-          <input v-model="costQuery" placeholder="输入编号或名称" />
+          <AppInput v-model="costQuery" placeholder="输入编号或名称" />
         </label>
       </template>
       <template #cell-document="{ row: item }">
@@ -96,18 +121,30 @@ const filteredEntries = computed(() =>
       <template #cell-status="{ row: item }">
         <span class="pill">
           {{
-            item.settlement_id ? '已结算' : item.work_order_status === 'draft'
-              ? '未下达'
-              : item.total_amount === null
-                ? '待核价'
-                : '当前已知'
+            item.settlement_id
+              ? '已结算'
+              : item.work_order_status === 'draft'
+                ? '未下达'
+                : item.total_amount === null
+                  ? '待核价'
+                  : '当前已知'
           }}
         </span>
       </template>
       <template #cell-actions="{ row: item }">
-        <NButton v-if="can('production_cost.settle') && item.work_order_status === 'completed' && !item.settlement_id"
-          type="primary" size="small" :disabled="busy || connectionLost || item.total_amount === null"
-          @click="openSettlement(item.work_order_id)">结算完工成本</NButton>
+        <AppButton
+          v-if="
+            can('production_cost.settle') &&
+            item.work_order_status === 'completed' &&
+            !item.settlement_id
+          "
+          size="small"
+          :disabled="busy || connectionLost || item.total_amount === null"
+          @click="openSettlement(item.work_order_id)"
+          variant="primary"
+          type="button"
+          >结算完工成本</AppButton
+        >
         <span v-else-if="item.settlement_id" class="muted">结算 #{{ item.settlement_id }}</span>
       </template>
       <template #cell-details="{ row: item }">
@@ -116,23 +153,65 @@ const filteredEntries = computed(() =>
           <span>人工 ¥{{ item.labor_amount }}</span>
           <span>制造费用 ¥{{ item.overhead_amount }}</span>
           <span>总成本 {{ item.total_amount === null ? '待核价' : `¥${item.total_amount}` }}</span>
-          <span v-if="item.unpriced_issue_count">待核价领料 {{ item.unpriced_issue_count }} 条</span>
+          <span v-if="item.unpriced_issue_count"
+            >待核价领料 {{ item.unpriced_issue_count }} 条</span
+          >
         </div>
       </template>
 
       <template #empty>{{ costQuery ? '没有匹配的记录。' : '暂无生产工单。' }}</template>
     </WorkspaceTable>
-    <NModal v-model:show="showSettlementForm" preset="card" title="结算完工成本" :mask-closable="!busy"
-      :style="{ width: 'min(680px, calc(100vw - 32px))' }">
+    <NModal
+      v-model:show="showSettlementForm"
+      preset="card"
+      title="结算完工成本"
+      :mask-closable="!busy"
+      :style="{ width: 'min(680px, calc(100vw - 32px))' }"
+    >
       <form class="flex flex-col gap-4" @submit.prevent="submitSettlement">
-        <p class="muted">工单全部报工后，材料、人工和制造费用按合格入库数量分摊到每个完工批次。不合格品消耗也由合格成品承担。结算保存快照；更正来源前须先冲销结算。</p>
-        <label>生产工单<NSelect v-model:value="productionSettlementForm.work_order_id" :options="settlementOptions" :disabled="busy" /></label>
-        <p v-if="selectedOrder">材料 ¥{{ selectedOrder.known_material_amount }} · 人工 ¥{{ selectedOrder.labor_amount }} · 制造费用 ¥{{ selectedOrder.overhead_amount }} · 合计 ¥{{ selectedOrder.total_amount }}</p>
-        <label>结算依据编号<NInput v-model:value="productionSettlementForm.reference" :maxlength="100" :disabled="busy" placeholder="成本结算单编号" /></label>
-        <label>说明<NInput v-model:value="productionSettlementForm.note" :maxlength="200" :disabled="busy" /></label>
+        <p class="muted">
+          工单全部报工后，材料、人工和制造费用按合格入库数量分摊到每个完工批次。不合格品消耗也由合格成品承担。结算保存快照；更正来源前须先冲销结算。
+        </p>
+        <label
+          >生产工单<WorkspaceSelect
+            v-model="productionSettlementForm.work_order_id"
+            :options="settlementOptions"
+            :disabled="busy"
+        /></label>
+        <p v-if="selectedOrder">
+          材料 ¥{{ selectedOrder.known_material_amount }} · 人工 ¥{{ selectedOrder.labor_amount }} ·
+          制造费用 ¥{{ selectedOrder.overhead_amount }} · 合计 ¥{{ selectedOrder.total_amount }}
+        </p>
+        <label
+          >结算依据编号<AppInput
+            v-model="productionSettlementForm.reference"
+            :maxlength="100"
+            :disabled="busy"
+            placeholder="成本结算单编号"
+        /></label>
+        <label
+          >说明<AppInput
+            v-model="productionSettlementForm.note"
+            :maxlength="200"
+            :disabled="busy"
+        /></label>
         <div class="flex justify-end gap-3">
-          <NButton :disabled="busy" @click="showSettlementForm = false">取消</NButton>
-          <NButton attr-type="submit" type="primary" :loading="busy" :disabled="connectionLost || !selectedOrder || !productionSettlementForm.reference.trim()">确认结算</NButton>
+          <AppButton
+            :disabled="busy"
+            @click="showSettlementForm = false"
+            variant="secondary"
+            type="button"
+            >取消</AppButton
+          >
+          <AppButton
+            type="submit"
+            :loading="busy"
+            :disabled="
+              connectionLost || !selectedOrder || !productionSettlementForm.reference.trim()
+            "
+            variant="primary"
+            >确认结算</AppButton
+          >
         </div>
       </form>
     </NModal>
@@ -142,25 +221,29 @@ const filteredEntries = computed(() =>
         <form @submit.prevent="recordMaterialValuation">
           <div class="form-grid">
             <label
-              >待核价领料<select
-                v-model.number="materialValuationForm.material_issue_line_id"
+              >待核价领料<WorkspaceSelect
+                v-model="materialValuationForm.material_issue_line_id"
                 required
-              >
-                <option :value="0" disabled>选择领料明细</option>
-                <option
-                  v-for="line in productionCostReport?.unpriced_lines ?? []"
-                  :key="line.material_issue_line_id"
-                  :value="line.material_issue_line_id"
-                >
-                  工单 #{{ line.work_order_id }} · 领料 #{{
-                    line.material_issue_id
-                  }}
-                  · {{ line.material_name }} · 净领 {{ line.net_quantity }}
-                  {{ line.unit }}
-                </option>
-              </select></label
+                :options="[
+                  { label: '选择领料明细', value: 0, disabled: true },
+                  ...(productionCostReport?.unpriced_lines ?? []).map((line) => ({
+                    label: (
+                      ' 工单 #' +
+                      line.work_order_id +
+                      ' · 领料 #' +
+                      line.material_issue_id +
+                      ' · ' +
+                      line.material_name +
+                      ' · 净领 ' +
+                      line.net_quantity +
+                      ' ' +
+                      line.unit
+                    ).trim(),
+                    value: line.material_issue_line_id
+                  }))
+                ]" /></label
             ><label
-              >核定单价（元）<input
+              >核定单价（元）<AppInput
                 v-model.trim="materialValuationForm.unit_cost"
                 type="number"
                 min="0"
@@ -168,24 +251,22 @@ const filteredEntries = computed(() =>
                 step="0.0001"
                 required /></label
             ><label
-              >依据编号<input
+              >依据编号<AppInput
                 v-model.trim="materialValuationForm.reference"
                 maxlength="100"
                 required
                 placeholder="发票或内部核价单编号" /></label
             ><label
-              >说明（可选）<input
-                v-model.trim="materialValuationForm.note"
-                maxlength="200"
+              >说明（可选）<AppInput v-model.trim="materialValuationForm.note" maxlength="200"
             /></label>
           </div>
-          <button
-            class="primary"
+          <AppButton
             type="submit"
             :disabled="busy || !materialValuationForm.material_issue_line_id"
+            variant="primary"
           >
             保存核价
-          </button>
+          </AppButton>
         </form>
       </div>
       <div class="card">
@@ -193,30 +274,32 @@ const filteredEntries = computed(() =>
         <form @submit.prevent="recordProductionCharge">
           <div class="form-grid">
             <label
-              >生产工单<select
-                v-model.number="productionChargeForm.work_order_id"
+              >生产工单<WorkspaceSelect
+                v-model="productionChargeForm.work_order_id"
                 required
-              >
-                <option :value="0" disabled>选择已下达工单</option>
-                <option
-                  v-for="item in (productionCostReport?.orders ?? []).filter(
-                    (entry) =>
-                      entry.work_order_status !== 'draft' &&
-                      entry.work_order_status !== 'cancelled' && !entry.settlement_id
-                  )"
-                  :key="item.work_order_id"
-                  :value="item.work_order_id"
-                >
-                  #{{ item.work_order_id }} · {{ item.product_name }}
-                </option>
-              </select></label
+                :options="[
+                  { label: '选择已下达工单', value: 0, disabled: true },
+                  ...(productionCostReport?.orders ?? [])
+                    .filter(
+                      (entry) =>
+                        entry.work_order_status !== 'draft' &&
+                        entry.work_order_status !== 'cancelled' &&
+                        !entry.settlement_id
+                    )
+                    .map((item) => ({
+                      label: (' #' + item.work_order_id + ' · ' + item.product_name).trim(),
+                      value: item.work_order_id
+                    }))
+                ]" /></label
             ><label
-              >费用类别<select v-model="productionChargeForm.kind">
-                <option value="labor">人工</option>
-                <option value="overhead">制造费用</option>
-              </select></label
+              >费用类别<WorkspaceSelect
+                v-model="productionChargeForm.kind"
+                :options="[
+                  { label: '人工', value: 'labor' },
+                  { label: '制造费用', value: 'overhead' }
+                ]" /></label
             ><label
-              >金额（元）<input
+              >金额（元）<AppInput
                 v-model.trim="productionChargeForm.amount"
                 type="number"
                 min="0.01"
@@ -224,61 +307,113 @@ const filteredEntries = computed(() =>
                 step="0.01"
                 required /></label
             ><label
-              >依据编号<input
+              >依据编号<AppInput
                 v-model.trim="productionChargeForm.reference"
                 maxlength="100"
                 required /></label
             ><label
-              >说明（可选）<input
-                v-model.trim="productionChargeForm.note"
-                maxlength="200"
+              >说明（可选）<AppInput v-model.trim="productionChargeForm.note" maxlength="200"
             /></label>
           </div>
-          <button
-            class="primary"
+          <AppButton
             type="submit"
             :disabled="busy || !productionChargeForm.work_order_id"
+            variant="primary"
           >
             登记费用
-          </button>
+          </AppButton>
         </form>
       </div>
     </div>
-    <WorkspaceTable title="当前领料成本来源" :columns="sourceColumns" :data="productionCostReport?.material_sources ?? []">
-      <template #cell-issue="{ row: item }">工单 #{{ item.work_order_id }} · 领料 #{{ item.material_issue_id }}</template>
+    <WorkspaceTable
+      title="当前领料成本来源"
+      :columns="sourceColumns"
+      :data="productionCostReport?.material_sources ?? []"
+    >
+      <template #cell-issue="{ row: item }"
+        >工单 #{{ item.work_order_id }} · 领料 #{{ item.material_issue_id }}</template
+      >
       <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
       <template #cell-quantity="{ row: item }">{{ item.net_quantity }}</template>
       <template #cell-cost="{ row: item }">
-        {{ item.cost_source === 'inventory' ? '库存平均成本' : '人工核价' }} · 单价 ¥{{ costUnit(item.unit_cost) }} · 金额 ¥{{ item.amount }}
+        {{ item.cost_source === 'inventory' ? '库存平均成本' : '人工核价' }} · 单价 ¥{{
+          costUnit(item.unit_cost)
+        }}
+        · 金额 ¥{{ item.amount }}
       </template>
     </WorkspaceTable>
-    <WorkspaceTable title="完工成本结算历史" :columns="settlementColumns" :data="productionCostSettlements" :min-table-width="1000">
+    <WorkspaceTable
+      title="完工成本结算历史"
+      :columns="settlementColumns"
+      :data="productionCostSettlements"
+      :min-table-width="1000"
+    >
       <template #cell-document="{ row: item }">
         <strong>结算 #{{ item.id }} · 工单 #{{ item.work_order_id }}</strong>
-        <p class="muted">{{ item.reference }} · {{ item.created_by_name }} · {{ localTime(item.created_at) }}</p>
+        <p class="muted">
+          {{ item.reference }} · {{ item.created_by_name }} · {{ localTime(item.created_at) }}
+        </p>
       </template>
-      <template #cell-status="{ row: item }"><span class="pill">{{ item.status === 'active' ? '有效' : '已冲销' }}</span></template>
+      <template #cell-status="{ row: item }"
+        ><span class="pill">{{ item.status === 'active' ? '有效' : '已冲销' }}</span></template
+      >
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span>合格 {{ item.accepted_quantity }} · 总成本 ¥{{ item.total_amount }}</span>
-          <span>材料 ¥{{ item.material_amount }} · 人工 ¥{{ item.labor_amount }} · 制造费用 ¥{{ item.overhead_amount }}</span>
+          <span
+            >材料 ¥{{ item.material_amount }} · 人工 ¥{{ item.labor_amount }} · 制造费用 ¥{{
+              item.overhead_amount
+            }}</span
+          >
           <span v-if="item.note">{{ item.note }}</span>
-          <span v-if="item.reversal_id">{{ item.reversal_reason }} · {{ item.reversed_by_name }} · {{ localTime(item.reversed_at!) }}</span>
+          <span v-if="item.reversal_id"
+            >{{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
+            {{ localTime(item.reversed_at!) }}</span
+          >
         </div>
         <NCollapse class="mt-3">
           <NCollapseItem title="查看分摊与来源快照" name="sources">
             <div class="flex flex-col gap-2">
-              <span v-for="allocation in item.allocations" :key="allocation.movement_id">完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} · 合格数量 {{ allocation.quantity }} · 分摊 ¥{{ allocation.amount }}</span>
-              <span v-for="source in item.material_sources" :key="source.material_issue_line_id">领料明细 #{{ source.material_issue_line_id }} · {{ source.material_name }} · 净领 {{ source.net_quantity }} · {{ source.cost_source === 'inventory' ? '库存平均成本' : '人工核价' }} ¥{{ costUnit(source.unit_cost) }} · 金额 ¥{{ source.amount }}</span>
-              <span v-for="charge in item.charges" :key="charge.id">费用 #{{ charge.id }} · {{ charge.kind === 'labor' ? '人工' : '制造费用' }} · {{ charge.reference }} · ¥{{ charge.amount }}</span>
+              <span v-for="allocation in item.allocations" :key="allocation.movement_id"
+                >完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} ·
+                合格数量 {{ allocation.quantity }} · 分摊 ¥{{ allocation.amount }}</span
+              >
+              <span v-for="source in item.material_sources" :key="source.material_issue_line_id"
+                >领料明细 #{{ source.material_issue_line_id }} · {{ source.material_name }} · 净领
+                {{ source.net_quantity }} ·
+                {{ source.cost_source === 'inventory' ? '库存平均成本' : '人工核价' }} ¥{{
+                  costUnit(source.unit_cost)
+                }}
+                · 金额 ¥{{ source.amount }}</span
+              >
+              <span v-for="charge in item.charges" :key="charge.id"
+                >费用 #{{ charge.id }} · {{ charge.kind === 'labor' ? '人工' : '制造费用' }} ·
+                {{ charge.reference }} · ¥{{ charge.amount }}</span
+              >
             </div>
           </NCollapseItem>
         </NCollapse>
       </template>
       <template #cell-actions="{ row: item }">
-        <form v-if="item.status === 'active' && can('production_cost.reopen')" class="flex flex-col gap-2" @submit.prevent="reverseProductionSettlement(item.id)">
-          <label>冲销原因<NInput v-model:value="settlementReversalReasons[item.id]" :maxlength="200" :disabled="busy" placeholder="填写更正原因" /></label>
-          <NButton attr-type="submit" size="small" :disabled="busy || connectionLost || !settlementReversalReasons[item.id]?.trim()">冲销结算</NButton>
+        <form
+          v-if="item.status === 'active' && can('production_cost.reopen')"
+          class="flex flex-col gap-2"
+          @submit.prevent="reverseProductionSettlement(item.id)"
+        >
+          <label
+            >冲销原因<AppInput
+              v-model="settlementReversalReasons[item.id]"
+              :maxlength="200"
+              :disabled="busy"
+              placeholder="填写更正原因"
+          /></label>
+          <AppButton
+            type="submit"
+            size="small"
+            :disabled="busy || connectionLost || !settlementReversalReasons[item.id]?.trim()"
+            variant="secondary"
+            >冲销结算</AppButton
+          >
         </form>
       </template>
     </WorkspaceTable>
@@ -292,7 +427,7 @@ const filteredEntries = computed(() =>
       <template #filters>
         <label>
           搜索成本记录
-          <input v-model="entryQuery" placeholder="输入编号或名称" />
+          <AppInput v-model="entryQuery" placeholder="输入编号或名称" />
         </label>
       </template>
       <template #cell-document="{ row: item }">
@@ -302,7 +437,8 @@ const filteredEntries = computed(() =>
             {{ { material: '材料核价', labor: '人工', overhead: '制造费用' }[item.kind] }}
           </strong>
           <p class="muted">
-            {{ localTime(item.created_at) }} · {{ item.created_by_name }} · 依据 {{ item.reference }}
+            {{ localTime(item.created_at) }} · {{ item.created_by_name }} · 依据
+            {{ item.reference }}
           </p>
         </div>
       </template>
@@ -316,9 +452,15 @@ const filteredEntries = computed(() =>
             ¥{{ item.unit_cost }}
           </span>
           <span>
-            {{ item.included_in_current_cost ? '当前计入' : '记录金额' }} {{ item.current_amount === null ? '已冲销' : `¥${item.current_amount}` }}
+            {{ item.included_in_current_cost ? '当前计入' : '记录金额' }}
+            {{ item.current_amount === null ? '已冲销' : `¥${item.current_amount}` }}
           </span>
-          <span v-if="item.status === 'active' && item.kind === 'material' && !item.included_in_current_cost">此记录未用于当前成本，领料已采用库存平均成本。</span>
+          <span
+            v-if="
+              item.status === 'active' && item.kind === 'material' && !item.included_in_current_cost
+            "
+            >此记录未用于当前成本，领料已采用库存平均成本。</span
+          >
           <span v-if="item.note">{{ item.note }}</span>
           <span v-if="item.reversal_id">
             冲销原因：{{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
@@ -328,15 +470,21 @@ const filteredEntries = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <form
-          v-if="item.status === 'active' && can('production_cost.reverse') && !settledOrderIds.has(item.work_order_id)"
+          v-if="
+            item.status === 'active' &&
+            can('production_cost.reverse') &&
+            !settledOrderIds.has(item.work_order_id)
+          "
           class="inline-form"
           @submit.prevent="reverseProductionCost(item.id)"
         >
           <label>
             冲销原因
-            <input v-model.trim="costReversalReasons[item.id]" required maxlength="200" />
+            <AppInput v-model.trim="costReversalReasons[item.id]" required maxlength="200" />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy">冲销记录</button>
+          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
+            >冲销记录</AppButton
+          >
         </form>
       </template>
       <template #empty>{{ entryQuery ? '没有匹配的记录。' : '暂无成本记录。' }}</template>

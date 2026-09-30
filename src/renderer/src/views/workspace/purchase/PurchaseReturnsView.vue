@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -48,7 +54,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('purchase_return.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('purchase_return.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">PURCHASE RETURN</p>
@@ -62,32 +78,32 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原入库单<select
-              v-model.number="purchaseReturnForm.receipt_id"
+            >原入库单<WorkspaceSelect
+              v-model="purchaseReturnForm.receipt_id"
               required
               @change="choosePurchaseReturnReceipt"
-            >
-              <option :value="0" disabled>选择可退货的入库单</option>
-              <option
-                v-for="item in receipts.filter(
-                  (entry) =>
-                    entry.status === 'posted' &&
-                    entry.lines.some(
-                      (line) => Number(line.returnable_quantity) > 0
-                    )
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                #{{ item.id }} · {{ item.supplier_name }} ·
-                {{ item.warehouse_name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择可退货的入库单', value: 0, disabled: true },
+                ...receipts
+                  .filter(
+                    (entry) =>
+                      entry.status === 'posted' &&
+                      entry.lines.some((line) => Number(line.returnable_quantity) > 0)
+                  )
+                  .map((item) => ({
+                    label: (
+                      ' #' +
+                      item.id +
+                      ' · ' +
+                      item.supplier_name +
+                      ' · ' +
+                      item.warehouse_name
+                    ).trim(),
+                    value: item.id
+                  }))
+              ]" /></label
           ><label
-            >退货原因<input
-              v-model.trim="purchaseReturnForm.reason"
-              required
-              maxlength="200"
+            >退货原因<AppInput v-model.trim="purchaseReturnForm.reason" required maxlength="200"
           /></label>
         </div>
         <h3>退货明细</h3>
@@ -97,8 +113,8 @@ const filteredRecords = computed(() =>
           class="line-row"
         >
           <label
-            >原入库物料<input
-              :value="
+            >原入库物料<AppInput
+              :model-value="
                 selectedPurchaseReturnReceipt?.lines.find(
                   (item) => item.id === line.receipt_line_id
                 )?.material_name
@@ -107,10 +123,9 @@ const filteredRecords = computed(() =>
           ><label
             >退货数量（最多
             {{
-              selectedPurchaseReturnReceipt?.lines.find(
-                (item) => item.id === line.receipt_line_id
-              )?.returnable_quantity
-            }}）<input
+              selectedPurchaseReturnReceipt?.lines.find((item) => item.id === line.receipt_line_id)
+                ?.returnable_quantity
+            }}）<AppInput
               v-model.trim="line.quantity"
               type="number"
               min="0.001"
@@ -121,22 +136,22 @@ const filteredRecords = computed(() =>
               "
               step="0.001"
               required /></label
-          ><button
-            class="text-button"
+          ><AppButton
             type="button"
             @click="purchaseReturnForm.lines.splice(index, 1)"
+            variant="text"
           >
             移除
-          </button>
+          </AppButton>
         </div>
         <div class="form-actions">
-          <button
-            class="primary"
+          <AppButton
             type="submit"
             :disabled="busy || !purchaseReturnForm.lines.length"
+            variant="primary"
           >
             保存草稿
-          </button>
+          </AppButton>
         </div>
       </form>
     </NModal>
@@ -149,20 +164,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('purchase_return.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建采购退货
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索采购退货
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -205,24 +220,26 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && !item.outbound_id && can('purchase_return.submit')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="submitPurchaseReturn(item.id)"
+            variant="primary"
+            size="small"
           >
             提交待出库
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="item.status === 'draft' && can('purchase_return.cancel')"
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="cancelPurchaseReturn(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消
-          </button>
+          </AppButton>
         </div>
         <form
           v-if="item.status === 'posted' && !item.reversal_id && can('purchase_return.reverse')"
@@ -231,14 +248,16 @@ const filteredRecords = computed(() =>
         >
           <label>
             冲销原因
-            <input
+            <AppInput
               v-model.trim="purchaseReturnReversalReasons[item.id]"
               required
               maxlength="200"
               placeholder="说明原退货为何需要冲销"
             />
           </label>
-          <button class="secondary small" type="submit" :disabled="busy">冲销已确认退货</button>
+          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
+            >冲销已确认退货</AppButton
+          >
         </form>
       </template>
       <template #empty>

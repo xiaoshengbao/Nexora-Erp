@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
 import IconCloseLine from '~icons/ri/close-line'
 
@@ -15,23 +17,25 @@ const { activeTab, openedTabs, navigateToRoute, closeOpenedRoute } =
       class="workspace-tab"
       :class="{ active: activeTab === item.key }"
     >
-      <button
-        class="workspace-tab-link"
+      <AppButton
         type="button"
         :aria-current="activeTab === item.key ? 'page' : undefined"
         @click="navigateToRoute(item.key)"
+        class="workspace-tab-link"
+        variant="plain"
       >
         {{ item.label }}
-      </button>
-      <button
+      </AppButton>
+      <AppButton
         v-if="openedTabs.length > 1"
-        class="workspace-tab-close"
         type="button"
         :aria-label="`关闭${item.label}`"
         @click="closeOpenedRoute(item.key)"
+        class="workspace-tab-close"
+        variant="plain"
       >
         <IconCloseLine aria-hidden="true" />
-      </button>
+      </AppButton>
     </div>
   </nav>
 </template>

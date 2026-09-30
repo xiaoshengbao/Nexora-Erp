@@ -1,4 +1,11 @@
 <script setup lang="ts">
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../app/AppButton.vue'
+// 日期直接使用 Naive UI，保持后端字符串格式以及原有必填和范围校验。
+import { NDatePicker } from 'naive-ui'
+import { datePickerString, vDateField } from '../../utils/date-field'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from './WorkspaceSelect.vue'
 import { computed, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from './WorkspaceTable.vue'
@@ -31,20 +38,93 @@ onMounted(() => { void run() })
 </script>
 
 <template>
-  <WorkspaceTable :show-title="false" :title="title"
-    :columns="result?.columns ?? []" :data="result?.rows ?? []" :loading="busy" :min-table-width="1050">
+  <WorkspaceTable
+    :show-title="false"
+    :title="title"
+    :columns="result?.columns ?? []"
+    :data="result?.rows ?? []"
+    :loading="busy"
+    :min-table-width="1050"
+  >
     <template #actions>
-      <button class="secondary" :disabled="busy || connectionLost || !result" @click="exportCsv">导出 CSV</button>
+      <AppButton
+        :disabled="busy || connectionLost || !result"
+        @click="exportCsv"
+        variant="secondary"
+        type="button"
+        >导出 CSV</AppButton
+      >
     </template>
     <template #filters>
-      <label>报表<select v-model="query.kind"><option v-for="item in kinds" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-      <label v-if="domain === 'purchase'">供应商<select v-model.number="query.supplier_id"><option :value="null">全部供应商</option><option v-for="item in suppliers" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-      <label v-if="domain === 'inventory' || query.kind === 'receiving_returns'">仓库<select v-model.number="query.warehouse_id"><option :value="null">全部仓库</option><option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-      <label>物料<select v-model.number="query.material_id"><option :value="null">全部物料</option><option v-for="item in materials" :key="item.id" :value="item.id">{{ item.sku }} · {{ item.name }}</option></select></label>
-      <label v-if="query.kind !== 'inventory_balance'">开始日期<input v-model="query.from_date" type="date" /></label>
-      <label>{{ query.kind === 'inventory_balance' ? '截至日期' : '结束日期' }}<input v-model="query.to_date" type="date" /></label>
+      <label
+        >报表<WorkspaceSelect
+          v-model="query.kind"
+          :options="[...kinds.map((item) => ({ label: item.label, value: item.value }))]"
+      /></label>
+      <label v-if="domain === 'purchase'"
+        >供应商<WorkspaceSelect
+          v-model="query.supplier_id"
+          :options="[
+            { label: '全部供应商', value: null },
+            ...suppliers.map((item) => ({ label: item.name, value: item.id }))
+          ]"
+      /></label>
+      <label v-if="domain === 'inventory' || query.kind === 'receiving_returns'"
+        >仓库<WorkspaceSelect
+          v-model="query.warehouse_id"
+          :options="[
+            { label: '全部仓库', value: null },
+            ...warehouses.map((item) => ({ label: item.name, value: item.id }))
+          ]"
+      /></label>
+      <label
+        >物料<WorkspaceSelect
+          v-model="query.material_id"
+          :options="[
+            { label: '全部物料', value: null },
+            ...materials.map((item) => ({
+              label: (item.sku + ' · ' + item.name).trim(),
+              value: item.id
+            }))
+          ]"
+      /></label>
+      <label v-if="query.kind !== 'inventory_balance'"
+        >开始日期<NDatePicker
+          to="body"
+          :formatted-value="query.from_date || null"
+          type="date"
+          format="yyyy-MM-dd"
+          value-format="yyyy-MM-dd"
+          v-date-field="{ required: false }"
+          @update:formatted-value="
+            (value) => {
+              query.from_date = datePickerString(value)
+            }
+          "
+          clearable
+      /></label>
+      <label
+        >{{ query.kind === 'inventory_balance' ? '截至日期' : '结束日期'
+        }}<NDatePicker
+          to="body"
+          :formatted-value="query.to_date || null"
+          type="date"
+          format="yyyy-MM-dd"
+          value-format="yyyy-MM-dd"
+          v-date-field="{ required: false }"
+          @update:formatted-value="
+            (value) => {
+              query.to_date = datePickerString(value)
+            }
+          "
+          clearable
+      /></label>
     </template>
-    <template #filterActions><button class="primary" :disabled="busy || connectionLost" @click="run">查询</button></template>
+    <template #filterActions
+      ><AppButton :disabled="busy || connectionLost" @click="run" variant="primary" type="button"
+        >查询</AppButton
+      ></template
+    >
     <template #empty>筛选范围内暂无记录。</template>
   </WorkspaceTable>
 </template>

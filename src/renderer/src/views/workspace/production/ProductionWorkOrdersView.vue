@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import AppInput from '../../../components/app/AppInput.vue'
+// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
+import AppButton from '../../../components/app/AppButton.vue'
+// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -49,7 +55,17 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal v-if="can('work_order.create')" v-model:show="createOpen" preset="card" :mask-closable="!busy" :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+    <NModal
+      v-if="can('work_order.create')"
+      v-model:show="createOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{
+        width: 'min(900px, calc(100vw - 32px))',
+        maxHeight: 'calc(100vh - 48px)',
+        overflowY: 'auto'
+      }"
+    >
       <div class="section-heading">
         <div>
           <p class="eyebrow">PRODUCTION ORDERS</p>
@@ -64,35 +80,33 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >启用的 BOM<select v-model.number="workOrderForm.bom_id" required>
-              <option :value="0" disabled>选择成品与版本</option>
-              <option
-                v-for="item in boms.filter(
-                  (entry) => entry.status === 'active'
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.product_name }}（{{ item.product_sku }}）· V{{
-                  item.version
-                }}
-              </option>
-            </select></label
-          ><label
-            >完工目标仓库<select
-              v-model.number="workOrderForm.warehouse_id"
+            >启用的 BOM<WorkspaceSelect
+              v-model="workOrderForm.bom_id"
               required
-            >
-              <option
-                v-for="item in warehouses"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select></label
+              :options="[
+                { label: '选择成品与版本', value: 0, disabled: true },
+                ...boms
+                  .filter((entry) => entry.status === 'active')
+                  .map((item) => ({
+                    label: (
+                      item.product_name +
+                      '（' +
+                      item.product_sku +
+                      '）· V' +
+                      item.version
+                    ).trim(),
+                    value: item.id
+                  }))
+              ]" /></label
           ><label
-            >目标产量<input
+            >完工目标仓库<WorkspaceSelect
+              v-model="workOrderForm.warehouse_id"
+              required
+              :options="[
+                ...warehouses.map((item) => ({ label: item.name, value: item.id }))
+              ]" /></label
+          ><label
+            >目标产量<AppInput
               v-model.trim="workOrderForm.target_quantity"
               type="number"
               min="0.001"
@@ -100,26 +114,18 @@ const filteredRecords = computed(() =>
               step="0.001"
               required /></label
           ><label
-            >参考号（可选）<input
+            >参考号（可选）<AppInput
               v-model.trim="workOrderForm.reference"
               maxlength="100" /></label
-          ><label
-            >备注（可选）<input
-              v-model.trim="workOrderForm.note"
-              maxlength="200"
-          /></label>
+          ><label>备注（可选）<AppInput v-model.trim="workOrderForm.note" maxlength="200" /></label>
         </div>
-        <button
-          class="primary"
+        <AppButton
           type="submit"
-          :disabled="
-            busy ||
-            !boms.some((item) => item.status === 'active') ||
-            !warehouses.length
-          "
+          :disabled="busy || !boms.some((item) => item.status === 'active') || !warehouses.length"
+          variant="primary"
         >
           保存工单草稿
-        </button>
+        </AppButton>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
@@ -131,20 +137,20 @@ const filteredRecords = computed(() =>
       :min-table-width="1100"
     >
       <template #actions>
-        <button
+        <AppButton
           v-if="can('work_order.create')"
-          class="primary"
           type="button"
           :disabled="busy"
           @click="createOpen = true"
+          variant="primary"
         >
           新建生产工单
-        </button>
+        </AppButton>
       </template>
       <template #filters>
         <label>
           搜索生产工单
-          <input v-model="recordQuery" placeholder="单号、名称或物料" />
+          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
       </template>
 
@@ -191,50 +197,56 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <button
+          <AppButton
             v-if="item.status === 'draft' && can('work_order.release')"
-            class="primary small"
             type="button"
             :disabled="busy"
             @click="releaseWorkOrder(item.id)"
+            variant="primary"
+            size="small"
           >
             下达
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="
               (item.status === 'released' || item.status === 'in_progress') &&
               item.lines.some((line) => Number(line.remaining_quantity) > 0) &&
               can('material_issue.create')
             "
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="selectIssueOrder(item.id)"
+            variant="secondary"
+            size="small"
           >
             创建领料单
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             v-if="
               item.status === 'in_progress' &&
               Number(item.remaining_output_quantity) > 0 &&
               can('production_completion.create')
             "
-            class="secondary small"
             type="button"
             :disabled="busy"
             @click="selectCompletionOrder(item.id)"
+            variant="secondary"
+            size="small"
           >
             创建完工单
-          </button>
-          <button
-            v-if="(item.status === 'draft' || item.status === 'released') && can('work_order.cancel')"
-            class="secondary small"
+          </AppButton>
+          <AppButton
+            v-if="
+              (item.status === 'draft' || item.status === 'released') && can('work_order.cancel')
+            "
             type="button"
             :disabled="busy"
             @click="cancelWorkOrder(item.id)"
+            variant="secondary"
+            size="small"
           >
             取消
-          </button>
+          </AppButton>
         </div>
       </template>
       <template #empty>
