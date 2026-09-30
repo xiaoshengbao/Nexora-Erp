@@ -101,6 +101,44 @@ export interface ProfitTransferOptions { policy: ProfitTransferPolicy; accounts:
 export interface ProfitTransferGenerateInput {
   period_id: number; period_version: number; policy_version: number; fingerprint: string; reference: string; reason: string
 }
+export type StatementGroup = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense'
+export interface StatementLine { code: string; name: string; group: StatementGroup }
+export interface StatementAllocation { account_id: number; line_code: string }
+export interface StatementPolicy {
+  version: number; lines: StatementLine[]; allocations: StatementAllocation[]; manual_transfer_ids: number[]
+}
+export interface StatementQuery { from_date: string; to_date: string }
+export interface StatementOptions {
+  policy: StatementPolicy; accounts: LedgerAccount[]; periods: AccountingPeriod[]; groups: Record<StatementGroup, string>
+}
+export interface StatementSource {
+  line_id: number; journal_id: number; journal_date: string; reference: string; reversal_of_id: number | null
+  account_id: number; debit: string; credit: string; summary: string; line_code: string | null; excluded_from_income: boolean
+}
+export interface StatementContribution {
+  account_id: number; code: string; name: string; line_code: string; group: StatementGroup
+  opening: string; closing: string; movement: string
+}
+export interface StatementReport {
+  filters: StatementQuery; policy: StatementPolicy; policy_version: number; fingerprint: string
+  balance_rows: (StatementLine & { opening: string; amount: string; account_ids: number[] })[]
+  income_rows: (StatementLine & { opening: string; amount: string; account_ids: number[] })[]
+  contributions: StatementContribution[]; sources: StatementSource[]
+  account_snapshots: LedgerAccount[]
+  opening_sources: { id: number; opening_balance_id: number; account_id: number; debit: string; credit: string; line_code: string | null }[]
+  opening_balance_id: number | null; periods: AccountingPeriod[]
+  pending: { id: number; date: string; status: JournalStatus }[]
+  unmapped: { account_id: number; code: string; name: string; opening: string; closing: string; movement: string }[]
+  unclassified_transfers: number[]
+  totals: Record<'assets' | 'liabilities' | 'equity' | 'unclosed_profit' | 'opening_difference' | 'closing_difference' | 'revenue' | 'expense' | 'net_profit', string>
+  can_archive: boolean; blockers: string[]; warnings: string[]; currency: 'CNY'; time_basis: 'UTC'; generated_at: string; csv: string
+}
+export interface StatementArchiveSummary {
+  id: number; from_date: string; to_date: string; policy_version: number; reason: string
+  created_by: number; created_by_name: string; created_at: string
+}
+export interface StatementArchive { id: number; snapshot: StatementReport; reason: string; created_by: number; created_at: string }
+export interface StatementArchiveInput extends StatementQuery { policy_version: number; fingerprint: string; reason: string }
 export type BusinessJournalRole = 'inventory' | 'payable' | 'receivable' | 'income' | 'sales_cost' | 'cash' | 'price_variance' | 'work_in_progress' | 'labor_accrual' | 'overhead_accrual' | 'inventory_offset'
 export type BusinessJournalMapping = Partial<Record<BusinessJournalRole, number>>
 export interface BusinessJournalPolicy { version: number; start_date: string; mapping: BusinessJournalMapping; changed_by?: number; created_at?: string }
@@ -998,6 +1036,13 @@ export interface ErpOperations {
   saveBusinessJournalPolicy: { input: BusinessJournalPolicy & { reason: string }; output: BusinessJournalPolicy }
   generateBusinessJournal: { input: BusinessJournalGenerateInput; output: Journal }
   profitTransferOptions: { input: undefined; output: ProfitTransferOptions }
+  statementOptions: { input: undefined; output: StatementOptions }
+  statementPolicyChanges: { input: undefined; output: FinanceMetadataChange<StatementPolicy>[] }
+  saveStatementPolicy: { input: StatementPolicy & { reason: string }; output: StatementPolicy }
+  queryStatement: { input: StatementQuery; output: StatementReport }
+  archiveStatement: { input: StatementArchiveInput; output: StatementArchive }
+  statementArchives: { input: undefined; output: StatementArchiveSummary[] }
+  statementArchiveDetail: { input: { id: number }; output: StatementArchive }
   profitTransferPolicyChanges: { input: undefined; output: FinanceMetadataChange<ProfitTransferPolicy>[] }
   profitTransferPreview: { input: { id: number }; output: ProfitTransferPreview }
   saveProfitTransferPolicy: { input: ProfitTransferPolicy & { reason: string }; output: ProfitTransferPolicy }

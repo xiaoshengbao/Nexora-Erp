@@ -150,6 +150,38 @@ class BusinessJournalSource(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class FinancialStatementPolicy(Base):
+    __tablename__ = 'financial_statement_policies'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    configuration_json: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class FinancialStatementPolicyChange(Base):
+    __tablename__ = 'financial_statement_policy_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class FinancialStatement(Base):
+    __tablename__ = 'financial_statements'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    from_date: Mapped[str] = mapped_column(Text, nullable=False)
+    to_date: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class ProfitTransferPolicy(Base):
     __tablename__ = 'profit_transfer_policies'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

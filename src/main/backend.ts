@@ -248,6 +248,25 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'journals': return { method: 'GET', path: '/api/v1/finance/journals' }
     case 'businessJournalSources': return { method: 'GET', path: '/api/v1/finance/business-journals' }
     case 'profitTransferOptions': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy' }
+    case 'statementOptions': return { method: 'GET', path: '/api/v1/finance/statements/options' }
+    case 'statementPolicyChanges': return { method: 'GET', path: '/api/v1/finance/statements/policy/changes' }
+    case 'statementArchives': return { method: 'GET', path: '/api/v1/finance/statements/archives' }
+    case 'statementArchiveDetail': return { method: 'GET', path: `/api/v1/finance/statements/archives/${positiveId(payload, 'id')}` }
+    case 'saveStatementPolicy': {
+      const { version, lines, allocations, manual_transfer_ids, reason } = payload as ErpOperations['saveStatementPolicy']['input']
+      if (!Array.isArray(lines) || !Array.isArray(allocations) || !Array.isArray(manual_transfer_ids)) throw new Error('报表配置列表无效。')
+      return { method: 'PUT', path: '/api/v1/finance/statements/policy', body: { version, reason, manual_transfer_ids,
+        lines: lines.map(({ code, name, group }) => ({ code, name, group })),
+        allocations: allocations.map(({ account_id, line_code }) => ({ account_id, line_code })) } }
+    }
+    case 'queryStatement': {
+      const { from_date, to_date } = payload as ErpOperations['queryStatement']['input']
+      return { method: 'POST', path: '/api/v1/finance/statements/query', body: { from_date, to_date } }
+    }
+    case 'archiveStatement': {
+      const { from_date, to_date, policy_version, fingerprint, reason } = payload as ErpOperations['archiveStatement']['input']
+      return { method: 'POST', path: '/api/v1/finance/statements/archive', body: { from_date, to_date, policy_version, fingerprint, reason } }
+    }
     case 'profitTransferPolicyChanges': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy/changes' }
     case 'profitTransferPreview': return { method: 'GET', path: `/api/v1/finance/profit-transfers/periods/${positiveId(payload, 'id')}` }
     case 'saveProfitTransferPolicy': {

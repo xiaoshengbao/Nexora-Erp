@@ -89,6 +89,10 @@ export function createDataLoader(
       state.profitTransferPolicyChanges.value = []
       state.profitTransferError.value = ''
     }
+    if (!can('financial_statement.view')) {
+      state.statementOptions.value = null; state.statementReport.value = null; state.statementArchive.value = null
+      state.statementArchives.value = []; state.statementPolicyChanges.value = []; state.statementError.value = ''
+    }
     if (!can('opening_balance.view')) openingBalances.value = []
     if (!can('opening_balance.create')) state.openingBalanceOptions.value = { accounts: [], period: null }
     if (!can('journal.create')) state.journalOptions.value = { accounts: [], periods: [] }

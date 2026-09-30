@@ -13,6 +13,12 @@ import type {
   ProfitTransferOptions,
   ProfitTransferPreview,
   ProfitTransferPolicy,
+  StatementOptions,
+  StatementPolicy,
+  StatementQuery,
+  StatementReport,
+  StatementArchiveSummary,
+  StatementArchive,
   FinanceMetadataChange,
   OpeningBalance,
   OpeningBalanceInput,
@@ -128,6 +134,15 @@ export function createAppState() {
   const profitTransferPolicyChanges = ref<FinanceMetadataChange<ProfitTransferPolicy>[]>([])
   const profitTransferLoading = ref(false)
   const profitTransferError = ref('')
+  const statementOptions = ref<StatementOptions | null>(null)
+  const statementPolicyChanges = ref<FinanceMetadataChange<StatementPolicy>[]>([])
+  const statementQuery = ref<StatementQuery>({ from_date: '', to_date: '' })
+  const statementReport = ref<StatementReport | null>(null)
+  const statementArchives = ref<StatementArchiveSummary[]>([])
+  const statementArchive = ref<StatementArchive | null>(null)
+  const statementLoading = ref(false)
+  const statementArchiveLoading = ref(false)
+  const statementError = ref('')
   const ledgerReportQuery = ref<LedgerReportQuery>({ kind: 'trial_balance', from_date: '', to_date: '', account_id: null })
   const ledgerReportResult = ref<LedgerReportResult | null>(null)
   const ledgerReportAccounts = ref<LedgerAccount[]>([])
@@ -442,6 +457,15 @@ export function createAppState() {
     profitTransferPolicyChanges,
     profitTransferLoading,
     profitTransferError,
+    statementOptions,
+    statementPolicyChanges,
+    statementQuery,
+    statementReport,
+    statementArchives,
+    statementArchive,
+    statementLoading,
+    statementArchiveLoading,
+    statementError,
     openingBalances,
     openingBalanceOptions,
     openingBalanceForm,

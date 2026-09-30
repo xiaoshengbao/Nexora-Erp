@@ -20,6 +20,7 @@
 | 财务管理 | 总账凭证 | `#/workspace/journals` | `journal.view`；各动作独立授权 |
 | 财务管理 | 期初余额 | `#/workspace/opening-balances` | `opening_balance.view`；各动作独立授权 |
 | 财务管理 | 总账报表 | `#/workspace/ledger-reports` | `journal.view` |
+| 财务管理 | 财务报表 | `#/workspace/financial-statements` | `financial_statement.view` |
 | 财务管理 | 总账科目 | `#/workspace/ledger-accounts` | `ledger_account.view`；维护要求 `ledger_account.manage` |
 | 财务管理 | 会计期间 | `#/workspace/accounting-periods` | `accounting_period.view`；维护要求 `accounting_period.manage` |
 | 财务管理 | 收付款记录 | `#/workspace/payment-records` | `finance.view`；登记、冲销分别要求 `finance.record`、`finance.reverse` |

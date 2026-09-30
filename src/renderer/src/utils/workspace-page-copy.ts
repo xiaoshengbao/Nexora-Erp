@@ -35,6 +35,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   ledgerAccounts: '维护公司使用的总账科目与启停状态。编码、类别和余额方向固定，名称与启停修改保留记录。',
   journals: '手工录入或按业务来源生成人民币凭证草稿，由另一账号审核后过账。冲销保留原记录与来源快照。',
   openingBalances: '首次总账启用的科目余额、独立审核与确认。',
+  financialStatements: '按公司项目编制资产负债与利润报表，核对科目与凭证来源，保留关闭期间归档。',
   ledgerReports: '核对已过账凭证的科目明细与试算平衡，按凭证日期汇总人民币金额。未结账数据可随后续过账变化。',
   accountingPeriods: '建立不重叠的会计期间；按序结账、倒序重开，保存结账证据并锁定历史成本来源。',
   financePayments: '登记收款、付款与退款；录错时冲销更正，保留原始记录。',

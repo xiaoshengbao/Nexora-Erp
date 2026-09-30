@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 45:
+        if version > 46:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1465,3 +1465,27 @@ def migrate() -> None:
             db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [(role, code) for role in ('admin','finance') for code, _ in operations])
             db.execute("PRAGMA user_version = 45")
+
+        if version < 46:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE financial_statement_policies (
+                id INTEGER PRIMARY KEY CHECK(id=1), configuration_json TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK(version>0), changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE financial_statement_policy_changes (
+                id INTEGER PRIMARY KEY, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
+                reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE financial_statements (
+                id INTEGER PRIMARY KEY, from_date TEXT NOT NULL, to_date TEXT NOT NULL,
+                policy_version INTEGER NOT NULL CHECK(policy_version>0), fingerprint TEXT NOT NULL UNIQUE,
+                snapshot_json TEXT NOT NULL, reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(from_date<=to_date))''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.statements','财务报表','finance',60)")
+            operations = [('financial_statement.view','查看财务报表与归档'),
+                ('financial_statement.configure','配置财务报表项目'), ('financial_statement.archive','归档财务报表')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.statements')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, code) for role in ('admin', 'finance') for code, _ in operations])
+            db.execute('PRAGMA user_version = 46')
