@@ -44,6 +44,7 @@ export interface PeriodClosingEvidence {
   ledger: { rows: Record<string, string>[]; totals: LedgerReportTotals }
   inventory: InventoryValuationReport; business_sources: ReceivablesPayables
   payments: Pick<PaymentRecord, 'id' | 'kind' | 'order_id' | 'action' | 'amount' | 'reference' | 'note' | 'reverses_id' | 'created_by' | 'created_at'>[]; posted_journal_ids: number[]
+  profit_transfer?: { required: boolean; residuals: ProfitTransferBalance[]; policy: ProfitTransferPolicy; journal_id: number | null; excluded_cost_accounts?: ProfitTransferExcludedCost[] }
 }
 export interface PeriodClosingRecord {
   id: number; period_id: number; period_version: number; action: 'close' | 'reopen'
@@ -73,6 +74,32 @@ export interface Journal {
   submitted_at: string | null; reviewed_at: string | null; posted_at: string | null; cancelled_at: string | null
   lines: JournalLine[]; total_debit: string; total_credit: string
   business_source?: { key: string; evidence: BusinessJournalEvidence; mapping: BusinessJournalMapping; policy_version: number } | null
+  profit_transfer?: { period_id: number; evidence: ProfitTransferEvidence; policy: ProfitTransferPolicy } | null
+}
+export interface ProfitTransferPolicy {
+  version: number; start_date: string; target_account_id: number | null; cost_account_ids: number[]
+  changed_by?: number; created_at?: string
+}
+export interface ProfitTransferBalance {
+  account_id: number; code: string; name: string; category: LedgerCategory; balance: string; debit: string; credit: string
+}
+export interface ProfitTransferExcludedCost { account_id: number; code: string; name: string; balance: string }
+export interface ProfitTransferEvidence {
+  period_id: number; start_date: string; end_date: string; policy_version: number; target_account_id: number | null
+  cost_account_ids: number[]; fingerprint: string; currency: 'CNY'; time_basis: 'UTC'
+  rows: ProfitTransferBalance[]; lines: Pick<JournalLineInput, 'account_id' | 'debit' | 'credit'>[]
+  net_profit: string; blockers: string[]; excluded_cost_accounts: ProfitTransferExcludedCost[]
+  target_account: LedgerAccount | null
+  sources: { journal_id: number; line_id: number; account_id: number; journal_date: string; reference: string; reversal_of_id: number | null; debit: string; credit: string }[]
+  opening_sources: { line_id: number; opening_balance_id: number; account_id: number; debit: string; credit: string }[]
+}
+export interface ProfitTransferPreview {
+  period: AccountingPeriod; policy_version: number; evidence: ProfitTransferEvidence; fingerprint: string
+  can_generate: boolean; blockers: string[]; warnings: string[]; journal_id: number | null; journal_status: JournalStatus | null
+}
+export interface ProfitTransferOptions { policy: ProfitTransferPolicy; accounts: LedgerAccount[]; periods: AccountingPeriod[] }
+export interface ProfitTransferGenerateInput {
+  period_id: number; period_version: number; policy_version: number; fingerprint: string; reference: string; reason: string
 }
 export type BusinessJournalRole = 'inventory' | 'payable' | 'receivable' | 'income' | 'sales_cost' | 'cash' | 'price_variance' | 'work_in_progress' | 'labor_accrual' | 'overhead_accrual' | 'inventory_offset'
 export type BusinessJournalMapping = Partial<Record<BusinessJournalRole, number>>
@@ -970,6 +997,11 @@ export interface ErpOperations {
   businessJournalPolicyChanges: { input: undefined; output: FinanceMetadataChange<BusinessJournalPolicy>[] }
   saveBusinessJournalPolicy: { input: BusinessJournalPolicy & { reason: string }; output: BusinessJournalPolicy }
   generateBusinessJournal: { input: BusinessJournalGenerateInput; output: Journal }
+  profitTransferOptions: { input: undefined; output: ProfitTransferOptions }
+  profitTransferPolicyChanges: { input: undefined; output: FinanceMetadataChange<ProfitTransferPolicy>[] }
+  profitTransferPreview: { input: { id: number }; output: ProfitTransferPreview }
+  saveProfitTransferPolicy: { input: ProfitTransferPolicy & { reason: string }; output: ProfitTransferPolicy }
+  generateProfitTransfer: { input: ProfitTransferGenerateInput; output: Journal }
   openingBalances: { input: undefined; output: OpeningBalance[] }
   openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }

@@ -247,6 +247,17 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'journals': return { method: 'GET', path: '/api/v1/finance/journals' }
     case 'businessJournalSources': return { method: 'GET', path: '/api/v1/finance/business-journals' }
+    case 'profitTransferOptions': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy' }
+    case 'profitTransferPolicyChanges': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy/changes' }
+    case 'profitTransferPreview': return { method: 'GET', path: `/api/v1/finance/profit-transfers/periods/${positiveId(payload, 'id')}` }
+    case 'saveProfitTransferPolicy': {
+      const { version, start_date, target_account_id, cost_account_ids, reason } = payload as ErpOperations['saveProfitTransferPolicy']['input']
+      return { method: 'PUT', path: '/api/v1/finance/profit-transfers/policy', body: { version, start_date, target_account_id, cost_account_ids, reason } }
+    }
+    case 'generateProfitTransfer': {
+      const { period_id, period_version, policy_version, fingerprint, reference, reason } = payload as ErpOperations['generateProfitTransfer']['input']
+      return { method: 'POST', path: '/api/v1/finance/profit-transfers/generate', body: { period_id, period_version, policy_version, fingerprint, reference, reason } }
+    }
     case 'businessJournalOptions': return { method: 'GET', path: '/api/v1/finance/business-journals/policy' }
     case 'businessJournalPolicyChanges': return { method: 'GET', path: '/api/v1/finance/business-journals/policy/changes' }
     case 'saveBusinessJournalPolicy': {

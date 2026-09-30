@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this business-source-journal delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this profit-transfer delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -37,7 +37,8 @@ Snapshot: **2026-10-01, this business-source-journal delivery**. Work in progres
 | Posted ledger reports | Merged | Account ledgers, trial balance, journal drill-down and CSV; formal opening balances and snapshot sources are available; balance sheet and income statement remain. |
 | Period closing | Implemented | Check and close ended periods in order, lock historical valuations/allocations, reopen in reverse order, retain every archive and audit. |
 | Business-source journals | Implemented | Configurable accounts, source recomputation, purchase variances and sales-cost entries, atomic deduplication, source snapshots and posted-source protection; independent review remains required. |
-| Full financial accounting | Planned | Subsidiary opening reconciliation, profit transfer and formal financial statements. |
+| Profit transfer | Implemented | Company account scope, period-end drafts, independent review, source protection, reverse-order corrections and zero-balance closing checks. |
+| Full financial accounting | Planned | Subsidiary opening reconciliation, auxiliary accounting and formal financial statements. |
 | Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 

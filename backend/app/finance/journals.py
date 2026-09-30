@@ -19,6 +19,7 @@ from app.core.models import (
     JournalLine,
     JournalChange,
     BusinessJournalSource,
+    ProfitTransfer,
     User,
 )
 from app.core.orm import add_model, model_data, orm_session
@@ -155,6 +156,9 @@ def snapshot(db: Session, record: Journal) -> dict:
     source = db.scalar(select(BusinessJournalSource).where(BusinessJournalSource.journal_id == record.id))
     result['business_source'] = (dict(key=source.source_key, evidence=json.loads(source.source_json),
         mapping=json.loads(source.mapping_json), policy_version=source.policy_version) if source else None)
+    transfer = db.scalar(select(ProfitTransfer).where(ProfitTransfer.journal_id == record.id))
+    result['profit_transfer'] = (dict(period_id=transfer.period_id,
+        evidence=json.loads(transfer.evidence_json), policy=json.loads(transfer.policy_json)) if transfer else None)
     return result
 
 
@@ -330,9 +334,10 @@ def update_journal(
                 record.status not in ("draft", "rejected")
                 or record.reversal_of_id is not None
                 or db.scalar(select(BusinessJournalSource.id).where(BusinessJournalSource.journal_id == record.id)) is not None
+                or db.scalar(select(ProfitTransfer.id).where(ProfitTransfer.journal_id == record.id)) is not None
             ):
                 raise HTTPException(
-                    409, "仅手工草稿或驳回凭证可编辑；业务或冲销草稿需取消后重建"
+                    409, "仅手工草稿或驳回凭证可编辑；业务、结转或冲销草稿需取消后重建"
                 )
             before = snapshot(db, record)
             record.reference, record.journal_date, record.note = (
@@ -388,6 +393,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
         if action in ("submit", "approve", "post"):
             from app.finance.business_journals import validate_source
             validate_source(db, record)
+            from app.finance.profit_transfers import validate_source as validate_transfer
+            validate_transfer(db, record)
             validate_for_post(db, record)
         record.status, record.version = target[action], record.version + 1
         prefix = {
@@ -406,6 +413,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
         db.flush()
         from app.finance.business_journals import release_source
         release_source(db, record)
+        from app.finance.profit_transfers import release_source as release_transfer
+        release_transfer(db, record)
         audit(db, record, before, action, data.reason, user["id"])
         return view(db, record)
 
@@ -468,6 +477,9 @@ def reverse(
                 raise HTTPException(409, "仅已过账的原始凭证可建立冲销")
             if data.journal_date < original.journal_date:
                 raise HTTPException(409, "冲销日期不能早于原凭证日期")
+            transfer = db.scalar(select(ProfitTransfer).where(ProfitTransfer.journal_id == original.id))
+            if transfer and data.journal_date != original.journal_date:
+                raise HTTPException(409, '结转冲销必须记入原期间末；已结期间须先倒序重开')
             existing = db.scalar(
                 select(Journal.id)
                 .where(
