@@ -10,6 +10,9 @@ import type {
   BusinessJournalCandidate,
   BusinessJournalOptions,
   BusinessJournalPolicy,
+  ProfitTransferOptions,
+  ProfitTransferPreview,
+  ProfitTransferPolicy,
   FinanceMetadataChange,
   OpeningBalance,
   OpeningBalanceInput,
@@ -120,6 +123,11 @@ export function createAppState() {
   const businessJournalPolicyChanges = ref<FinanceMetadataChange<BusinessJournalPolicy>[]>([])
   const businessJournalLoading = ref(false)
   const businessJournalError = ref('')
+  const profitTransferOptions = ref<ProfitTransferOptions | null>(null)
+  const profitTransferPreview = ref<ProfitTransferPreview | null>(null)
+  const profitTransferPolicyChanges = ref<FinanceMetadataChange<ProfitTransferPolicy>[]>([])
+  const profitTransferLoading = ref(false)
+  const profitTransferError = ref('')
   const ledgerReportQuery = ref<LedgerReportQuery>({ kind: 'trial_balance', from_date: '', to_date: '', account_id: null })
   const ledgerReportResult = ref<LedgerReportResult | null>(null)
   const ledgerReportAccounts = ref<LedgerAccount[]>([])
@@ -429,6 +437,11 @@ export function createAppState() {
     businessJournalPolicyChanges,
     businessJournalLoading,
     businessJournalError,
+    profitTransferOptions,
+    profitTransferPreview,
+    profitTransferPolicyChanges,
+    profitTransferLoading,
+    profitTransferError,
     openingBalances,
     openingBalanceOptions,
     openingBalanceForm,

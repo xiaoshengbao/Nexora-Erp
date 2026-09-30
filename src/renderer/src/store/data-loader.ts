@@ -83,6 +83,12 @@ export function createDataLoader(
       state.businessJournalPolicyChanges.value = []
       state.businessJournalError.value = ''
     }
+    if (!can('profit_transfer.view')) {
+      state.profitTransferOptions.value = null
+      state.profitTransferPreview.value = null
+      state.profitTransferPolicyChanges.value = []
+      state.profitTransferError.value = ''
+    }
     if (!can('opening_balance.view')) openingBalances.value = []
     if (!can('opening_balance.create')) state.openingBalanceOptions.value = { accounts: [], period: null }
     if (!can('journal.create')) state.journalOptions.value = { accounts: [], periods: [] }

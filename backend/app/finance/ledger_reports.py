@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import AccountingPeriod, Journal, JournalLine, LedgerAccount
+from app.core.models import AccountingPeriod, Journal, JournalLine, LedgerAccount, ProfitTransfer
 from app.core.orm import orm_session
 from app.finance.ledger import PeriodInput, snapshot
 from app.reports.routes import csv_value
@@ -167,6 +167,7 @@ def account_ledger(db: Session, filters: LedgerReportQuery) -> tuple[list[dict],
     )
     debit_sum, credit_sum, net = ZERO, ZERO, opening
     rows = []
+    transfers = set(db.scalars(select(ProfitTransfer.journal_id)))
     for line, journal, period_code in posted_lines(db, filters):
         debit, credit = Decimal(line.debit), Decimal(line.credit)
         net += debit - credit
@@ -192,7 +193,7 @@ def account_ledger(db: Session, filters: LedgerReportQuery) -> tuple[list[dict],
                 source=(
                     f"冲销记-{journal.reversal_of_id}"
                     if journal.reversal_of_id
-                    else "手工录入"
+                    else "损益结转" if journal.id in transfers else "手工录入"
                 ),
             )
         )
