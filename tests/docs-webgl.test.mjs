@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cubicPoints, trimPath, pointOnPath, ribbonMesh, createWebGLStage } from '../docs/site/webgl-stage.mjs'
-import { sceneAt, cloneReflection, mountScene } from '../docs/site/motion.mjs'
+import { cubicPoints, trimPath, pointOnPath, ribbonMesh, floorLightAt, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
+import { sceneAt, mountScene } from '../docs/site/motion.mjs'
 import { focusLayout, windowGeometry, interpolateWindowPose, connectionEndpoints, projectWindowPoint, sceneBoardHeight, advanceMotionClock } from '../docs/site/scene-geometry.mjs'
 
 test('GPU 路径按实际弧长裁切，端点、倒滚和零长度输入保持稳定', () => {
@@ -18,7 +18,7 @@ test('GPU 路径按实际弧长裁切，端点、倒滚和零长度输入保持�
 
 // 生命周期测试模拟 GPU 边界，真实着色器编译与图像对齐另由浏览器验收。
 function fixture({ unavailable = false, compileFailure = false } = {}) {
-  const counters = { contexts: 0, draws: 0, shaders: 0, programs: 0, buffers: 0, frames: 0, materials: [], colors: [] }
+  const counters = { contexts: 0, draws: 0, shaders: 0, programs: 0, buffers: 0, frames: 0, materials: [], colors: [], progress: [] }
   const classes = new Set(), canvases = []
   const scene = { dataset: {}, classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name) } }
   const makeGL = () => {
@@ -31,7 +31,7 @@ function fixture({ unavailable = false, compileFailure = false } = {}) {
       isContextLost: () => gl.lost, drawArrays: () => counters.draws++
     }
     for (const method of ['shaderSource', 'compileShader', 'attachShader', 'linkProgram', 'enable', 'blendFuncSeparate', 'useProgram', 'bindBuffer', 'bufferData', 'enableVertexAttribArray', 'vertexAttribPointer', 'uniform1f', 'uniform2f', 'uniform3f', 'uniform4f', 'viewport', 'clearColor', 'clear']) gl[method] = () => {}
-    gl.uniform1f = (uniform, value) => { if (uniform === 'u_kind') counters.materials.push(value) }
+    gl.uniform1f = (uniform, value) => { if (uniform === 'u_kind') counters.materials.push(value); if (uniform === 'u_progress') counters.progress.push(value) }
     gl.uniform4f = (uniform, ...value) => { if (uniform === 'u_color') counters.colors.push(value) }
     return gl
   }
@@ -45,7 +45,8 @@ function fixture({ unavailable = false, compileFailure = false } = {}) {
     return canvas
   } }
   const board = { ownerDocument: doc, closest: () => scene, append: canvas => canvases.push(canvas) }
-  return { counters, canvases, scene, create: () => createWebGLStage(board, () => counters.frames++) }
+  const guideHost = { ...board, classList: scene.classList }
+  return { counters, canvases, scene, create: () => createWebGLStage(board, () => counters.frames++), createGuide: () => createWebGLGuide(guideHost, () => counters.frames++) }
 }
 const frame = () => ({ width: 1200, height: 600, layout: sceneAt(.8).windows, progress: .8, ratio: 3, staticMode: false,
   connections: [{ visible: true, points: [[0, 0], [100, 100]], amount: .5, node: .3 }] })
@@ -93,12 +94,16 @@ test('GPU 上下文丢失即回退，恢复时重建资源并重绘最后业务�
   assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0)
 })
 
-test('GPU 保留地面光影与来源路径，不再叠加静态镀层窗框', () => {
+test('GPU 绘制漫射光池、低角度掠光和接触阴影，滚动控制光场且不绘制内容镜像', () => {
   const f = fixture(), stage = f.create()
   assert.equal(stage.draw(frame()), true)
-  assert.ok(f.counters.materials.includes(1), '保留地面反光')
+  assert.ok(f.counters.materials.includes(3), '地面漫射光池')
+  assert.ok(f.counters.materials.includes(4), '窗脚低角度掠光')
   assert.ok(f.counters.materials.includes(2), '保留接触阴影')
-  assert.ok(!f.counters.materials.includes(0), '不绘制金属镀层')
+  assert.ok(!f.counters.materials.includes(0) && !f.counters.materials.includes(1), '不绘制金属镀层或假表格倒影')
+  assert.ok(f.counters.progress.every(p => p === .8))
+  stage.draw({ ...frame(), progress: .2 })
+  assert.equal(f.counters.progress.at(-1), .2)
   assert.ok(f.counters.draws > f.counters.materials.length, '来源线仍由 GPU 绘制')
   stage.destroy()
 })
@@ -146,18 +151,21 @@ test('GPU 来源淡出独立于路径行程，旧线清空后不遗留下一帧'
   stage.destroy()
 })
 
-test('倒影复制当前字段属性并去除交互标识，不沿用初始 HTML value', () => {
-  const node = (value, attrs = []) => ({ value, checked: true, attributes: attrs.map(name => ({ name })), removeAttribute(name) { this.attributes = this.attributes.filter(attr => attr.name !== name) } })
-  const original = [node('27.125'), node('supplier-b'), node('new note')]
-  const copies = [node('12', ['data-edit', 'name', 'aria-label']), node('supplier-a', ['id', 'tabindex']), node('old note')]
-  const clone = { ...node(undefined, ['data-content']), querySelectorAll: selector => selector === '*' ? copies : copies }
-  const viewport = { cloneNode: deep => { assert.equal(deep, true); return clone }, querySelectorAll: () => original }
-  assert.equal(cloneReflection(viewport), clone)
-  assert.deepEqual(copies.map(item => item.value), original.map(item => item.value))
-  assert.deepEqual(copies[0].attributes.map(attr => attr.name), ['aria-label'])
-  assert.deepEqual(copies[1].attributes, [])
-  assert.deepEqual(clone.attributes, [])
-  assert.equal(original[0].value, '27.125')
+test('灯光基于真实透视窗底，聚焦、倒滚和宽高变化后仍贴合；退场窗口不产生残留光池', () => {
+  for (const [width, height] of [[1440, 540], [970, 650], [1280, 360]]) {
+    for (const layout of [sceneAt(.45).windows, sceneAt(.92).windows, focusLayout('stock')]) for (const item of layout) {
+      const pose = windowGeometry(item, width, height), light = floorLightAt(pose, width, height)
+      if (!light) continue
+      const left = projectWindowPoint(pose, 0, pose.pixelHeight), right = projectWindowPoint(pose, pose.pixelWidth, pose.pixelHeight)
+      assert.ok(Math.abs(light.center - (left[0] + right[0]) / 2) < 1e-9)
+      assert.ok(Math.abs(light.span - (right[0] - left[0])) < 1e-9)
+      assert.ok(Math.abs(light.bottom - (height - 35)) < 1e-9)
+      assert.ok(light.depth >= 85 && light.depth <= 128)
+    }
+  }
+  assert.equal(floorLightAt({ ...sceneAt(.92).windows[0], opacity: 0 }, 1440, 540), null)
+  assert.equal(floorLightAt({ ...sceneAt(.92).windows[0], x: -3 }, 1440, 540), null)
+  assert.equal(floorLightAt({ ...sceneAt(.92).windows[0], rotation: NaN }, 1440, 540), null)
 })
 
 test('舞台离屏时切换低高度或减少动态偏好，也立即释放旧尺寸与键盘锁定', () => {
@@ -167,12 +175,10 @@ test('舞台离屏时切换低高度或减少动态偏好，也立即释放旧�
       return { add: (...names) => names.forEach(name => values.add(name)), remove: (...names) => names.forEach(name => values.delete(name)), toggle: (name, on) => on ? values.add(name) : values.delete(name), contains: name => values.has(name) }
     }
     const element = () => Object.assign(new EventTarget(), { style: { cssText: '' }, dataset: {}, classList: classes(), setAttribute(name, value) { this[name] = value }, removeAttribute(name) { delete this[name] }, querySelectorAll: () => [] })
-    const doc = element(), win = element(), scene = element(), board = element(), pause = element(), status = element(), canvases = [], media = new Map()
+    const doc = element(), win = element(), scene = element(), board = element(), status = element(), canvases = [], media = new Map()
     const windows = ['receipt', 'stock', 'finance'].map(() => {
-      const el = element(), viewport = element(), reflection = element()
-      viewport.cloneNode = () => ({ attributes: [], querySelectorAll: () => [] })
-      reflection.replaceChildren = () => {}
-      el.querySelector = selector => selector === '.window-reflection' ? reflection : viewport
+      const el = element(), viewport = element()
+      el.querySelector = () => viewport
       return el
     })
     doc.defaultView = win; doc.documentElement = { lang: 'zh-CN' }; doc.querySelector = () => scene
@@ -180,8 +186,7 @@ test('舞台离屏时切换低高度或减少动态偏好，也立即释放旧�
     board.append = canvas => canvases.push(canvas)
     board.querySelectorAll = () => []
     scene.getBoundingClientRect = () => ({ top: 2000, bottom: 4000 })
-    scene.querySelector = selector => selector === '.scene-board' ? board : selector === '[data-pause]' ? pause : selector === '[data-demo-status]' ? status : windows[['receipt', 'stock', 'finance'].findIndex(key => selector.includes(`"${key}"`))]
-    pause.dataset = { pause: '暂停', resume: '继续' }
+    scene.querySelector = selector => selector === '.scene-board' ? board : selector === '[data-demo-status]' ? status : windows[['receipt', 'stock', 'finance'].findIndex(key => selector.includes(`"${key}"`))]
     doc.createElement = () => { const canvas = element(); canvas.remove = () => { canvas.removed = true }; return canvas }
     win.innerHeight = 1045; win.CustomEvent = CustomEvent
     win.sessionStorage = { getItem: () => null, removeItem() {} }
@@ -226,4 +231,124 @@ test('慢帧和后台恢复不会跳过大段切换行程，正常帧保持实�
   assert.equal(clock.elapsed, 50)
   clock = advanceMotionClock(clock, 90016)
   assert.equal(clock.elapsed, 66)
+})
+
+test('封面轻细引导线按需创建 GPU，空场景停绘，丢失/恢复与销毁不泄漏资源', () => {
+  const f = fixture(), guide = f.createGuide()
+  assert.equal(guide.draw({ ...frame(), connections: [] }), false)
+  assert.equal(guide.draw({ ...frame(), staticMode: true }), false)
+  assert.equal(f.counters.contexts, 0)
+  assert.equal(guide.draw(frame()), true)
+  assert.equal(f.canvases.length, 1)
+  assert.equal(f.counters.contexts, 1)
+  assert.ok(f.counters.colors.at(-1)[3] > .5, '初始短线仍然清晰，不再按长度降低透明度')
+  const before = f.counters.draws
+  guide.draw({ ...frame(), connections: [] })
+  assert.equal(f.counters.draws, before)
+  assert.equal(f.canvases[0].hidden, true)
+  f.canvases[0].gl.lost = true; f.canvases[0].fire('webglcontextlost')
+  assert.equal(guide.draw(frame()), false)
+  f.canvases[0].gl.lost = false; f.canvases[0].fire('webglcontextrestored')
+  assert.equal(guide.draw(frame()), true)
+  guide.destroy()
+  assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0); assert.equal(f.counters.shaders, 0)
+  assert.equal(f.canvases[0].removed, true)
+})
+
+test('封面 WebGL 初始化失败只保留 SVG，不影响业务舞台或泄漏半初始化资源', () => {
+  for (const option of [{ unavailable: true }, { compileFailure: true }]) {
+    const f = fixture(option), guide = f.createGuide()
+    assert.equal(guide.draw(frame()), false)
+    assert.ok(f.canvases[0].hidden)
+    guide.destroy()
+    assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0); assert.equal(f.counters.shaders, 0)
+  }
+})
+
+// 运行真实舞台控制器，DOM/GPU 只模拟边界；滚动位置与动画帧可以精确推进。
+function scrollingScene() {
+  const element = () => {
+    const attrs = new Map(), classes = new Set()
+    return Object.assign(new EventTarget(), {
+      dataset: {}, style: { setProperty(name, value) { this[name] = value } }, children: [],
+      classList: { add: name => classes.add(name), remove: (...names) => names.forEach(name => classes.delete(name)), toggle: (name, yes) => yes ? classes.add(name) : classes.delete(name) },
+      setAttribute: (name, value) => attrs.set(name, value), removeAttribute: name => attrs.delete(name), getAttribute: name => attrs.get(name),
+      querySelectorAll: () => [], closest: () => null
+    })
+  }
+  const doc = element(), win = element(), scene = element(), board = element(), svg = element(), sticky = element()
+  const groups = [element(), element()], buttons = Array.from({ length: 4 }, element), captions = Array.from({ length: 4 }, element)
+  const frames = new Map(), windows = ['receipt', 'stock', 'finance'].map(() => {
+    const el = element(), pane = element(), heading = { focus() {} }
+    el.querySelector = selector => selector === '[data-content]' ? pane : selector === 'h2' ? heading : null
+    return el
+  })
+  let sequence = 0, latest
+  win.innerHeight = 1045; win.scrollX = 0; win.scrollY = 1045 + .45 * 2508; win.CustomEvent = CustomEvent
+  win.sessionStorage = { getItem: () => null, removeItem() {} }; win.devicePixelRatio = 1
+  win.matchMedia = () => Object.assign(element(), { matches: false })
+  win.IntersectionObserver = class { observe() {} disconnect() {} }
+  win.getComputedStyle = () => ({ paddingTop: '0', paddingBottom: '0', marginTop: '0', marginBottom: '0' })
+  win.requestAnimationFrame = fn => { frames.set(++sequence, fn); return sequence }; win.cancelAnimationFrame = id => frames.delete(id)
+  win.scrollTo = options => { win.lastScroll = options; win.scrollY = options.top; win.dispatchEvent(new Event('scroll')) }
+  doc.defaultView = win; doc.documentElement = { lang: 'zh-CN' }; doc.querySelector = () => scene
+  doc.createElement = () => Object.assign(element(), { getContext: () => null, remove() {} })
+  scene.ownerDocument = doc; board.ownerDocument = doc; board.parentElement = sticky; sticky.children = [board]
+  board.clientWidth = 1200; board.closest = () => scene; board.append = () => {}
+  Object.defineProperty(board, 'clientHeight', { get: () => parseFloat(board.style.height) || 540 })
+  board.getBoundingClientRect = () => ({ left: 0, top: 100, width: 1200, height: board.clientHeight })
+  board.querySelector = selector => selector === '.connection-layer' ? svg : null
+  svg.querySelector = selector => groups[Number(selector.match(/\d+/)[0])]
+  scene.getBoundingClientRect = () => ({ top: 1045 - win.scrollY, bottom: 4598 - win.scrollY, height: 3553 })
+  scene.querySelectorAll = selector => selector === '[data-stage]' ? buttons : selector === '[data-caption]' ? captions : []
+  scene.querySelector = selector => selector === '.scene-board' ? board : windows[['receipt', 'stock', 'finance'].findIndex(key => selector === `[data-window="${key}"]`)] ?? null
+  scene.addEventListener('scene:geometry', event => { latest = event.detail })
+  const destroy = mountScene(doc, win)
+  const tick = time => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) }
+  const click = (selector, data) => {
+    const event = new Event('click'); Object.defineProperty(event, 'target', { value: { closest: name => name === selector ? { dataset: data } : null } })
+    scene.dispatchEvent(event)
+  }
+  const scroll = p => { win.scrollY = 1045 + p * 2508; win.dispatchEvent(new Event('scroll')) }
+  tick(0)
+  return { scene, win, doc, windows, board, buttons, tick, click, scroll, destroy, latest: () => latest, queued: () => frames.size }
+}
+
+test('聚焦与编辑都不能锁住页面滚动，下一帧直接使用真实进度；快跳和倒滚不延迟恢复', () => {
+  const f = scrollingScene()
+  f.click('[data-focus]', { focus: 'finance' }); f.tick(16); f.tick(32)
+  assert.equal(f.scene.dataset.mode, 'focus')
+  // 编辑打断正在进行的放大，但后续滚动仍必须接管。
+  const event = new Event('focusin')
+  Object.defineProperty(event, 'target', { value: { closest: name => name === '.sandbox-content' ? {} : null, matches: () => true } })
+  f.scene.dispatchEvent(event)
+  for (const progress of [.7, .1, .95, .25]) {
+    f.scroll(progress); f.tick(1000 + progress * 10)
+    assert.equal(f.scene.dataset.mode, 'scroll')
+    assert.ok(Math.abs(f.latest().progress - progress) < 1e-12)
+    assert.equal(f.latest().manual, false)
+    assert.equal(f.queued(), 0, '没有恢复补间或闲时循环')
+    const expected = windowGeometry(sceneAt(progress).windows[0], 1200, f.board.clientHeight)
+    assert.ok(Math.abs(parseFloat(f.windows[0].style.width) - expected.pixelWidth) < 1e-9)
+  }
+  f.doc.hidden = true; f.scroll(.6)
+  assert.equal(f.queued(), 0)
+  f.doc.hidden = false; f.doc.dispatchEvent(new Event('visibilitychange')); f.tick(99999)
+  assert.ok(Math.abs(f.latest().progress - .6) < 1e-12)
+  f.destroy()
+})
+
+test('分步和总览改变真实滚动位置，滚动条与所选阶段一致，没有独立暂停状态', () => {
+  const f = scrollingScene()
+  f.click('[data-focus]', { focus: 'receipt' }); f.tick(16)
+  f.click('[data-stage]', { stage: '2' }); f.tick(32)
+  assert.equal(f.win.lastScroll.top, 1045 + .8 * 2508)
+  assert.equal(f.win.lastScroll.behavior, 'smooth')
+  assert.equal(f.scene.dataset.mode, 'scroll')
+  assert.equal(f.buttons[2].getAttribute('aria-pressed'), 'true')
+  f.click('[data-overview]', {}); f.tick(48)
+  assert.equal(f.win.lastScroll.top, 1045 + .92 * 2508)
+  assert.ok(Math.abs(f.latest().progress - .92) < 1e-12)
+  assert.equal(f.buttons[3].getAttribute('aria-pressed'), 'true')
+  f.destroy()
 })
