@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this formal opening-balance delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, verified main commit `9f5a8cf` (formal opening balances merged)**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -35,6 +35,7 @@ Snapshot: **2026-10-01, this formal opening-balance delivery**. Work in progress
 | Formal opening balances | Implemented | First setup before any posted journal, independent review/confirmation, versions and audit, reversal before posting; excluded from current activity. |
 | Manual journals | Merged | Balanced entries, independent review, posting, linked reversals and auditing; automatic business journals and formal statements remain. |
 | Posted ledger reports | Merged | Account ledgers, trial balance, journal drill-down and CSV; formal opening balances and snapshot sources are available; balance sheet and income statement remain. |
+| Closing and period locks | In development | Implementation and testing in the referenced task; outside this mainline snapshot. Business locks remain unavailable. |
 | Full financial accounting | Planned | Automatic business journals, formal cost-of-goods-sold entries, subsidiary opening reconciliation, closing and formal financial statements. |
 | Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |

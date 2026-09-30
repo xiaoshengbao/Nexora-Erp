@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects verified main commit `0a834fd` on 2026-10-01, including merged manual journals and ledger reports. This version adds formal opening balances with independent review and confirmation. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects verified main commit `9f5a8cf` on 2026-10-01, including merged manual journals, ledger reports and independently reviewed/confirmed opening balances. Closing and period locks are being developed in the referenced task and are outside this mainline snapshot. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -203,7 +203,7 @@ Actions installers are test builds, unsigned/unnotarized, and may trigger SmartS
 
 ## Website and HTML documentation
 
-The website is static HTML/CSS. `scripts/build-docs-site.mjs` uses Marked to convert version-controlled Markdown without business APIs, a database or browser-side Markdown compilation. Chinese lives at `/zh-CN/`, English at `/en/`, with `development.html` for each guide; the root opens Chinese.
+The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mjs` uses Marked to convert version-controlled Markdown without business APIs, a database or browser-side Markdown compilation. Chinese lives at `/zh-CN/`, English at `/en/`, with `development.html` for each guide; the root opens Chinese.
 
 | File | Maintenance |
 | --- | --- |
@@ -217,9 +217,9 @@ Build with `npm run docs:build`, then run `python -m http.server 4173 --director
 
 The homepage contains an independent interactive sandbox. A full receipt window appears first; inventory and payable windows enter from the right as the page scrolls, with WebGL paths connected to actual source anchors. It supports multiple receipts and materials, warehouse/supplier selection, receipt confirmation, stock filtering and tracing, and partial/full demo payments. Quantities use three fixed decimal places; money uses integer cents. Drafts do not produce movements, confirmation cannot repeat, confirmed receipts can only be copied to drafts, and payments cannot exceed the balance.
 
-`sandbox.mjs` manages business state, `sandbox-ui.mjs` renders and mounts HTML controls, `motion.mjs` handles the camera and paths only, and `sandbox.css` styles the stage. Scrolling never changes business data, and no ERP service is contacted. In the same tab, a language-link click transfers data once through `sessionStorage`; refreshing restores the seed. Navigation still works if storage is unavailable. Pause, steps and expanded windows enter manual mode; resume smoothly aligns to scroll position. Mobile windows are stacked vertically; reduced motion disables movement. Without JavaScript, static business examples and documentation remain available.
+`sandbox.mjs` manages business state, `sandbox-ui.mjs` renders and mounts HTML controls, `scene-geometry.mjs` defines the shared HTML/WebGL projection, `motion.mjs` handles the camera and paths only, and `sandbox.css` styles the stage. Scrolling never changes business data, and no ERP service is contacted. In the same tab, a language-link click transfers data once through `sessionStorage`; refreshing restores the seed. Navigation still works if storage is unavailable. Pause, steps and expanded windows enter manual mode; resume smoothly aligns to scroll position. Mobile windows are stacked vertically; reduced motion disables movement. Without JavaScript, static business examples and documentation remain available.
 
-`webgl-stage.mjs` uses native WebGL for perspective frames, metallic highlights, contact shadows, fading reflections and source connections. HTML controls share the same camera layout. GPU layers never intercept input or draw continuously while idle. Context loss or unavailable WebGL restores the CSS/SVG fallback without resetting data. Mobile and reduced-motion modes retain static relationships without creating GPU contexts.
+`webgl-stage.mjs` uses native WebGL for perspective frames, metallic highlights, contact shadows, fading reflections and source connections. HTML controls share the 1400px camera layout. Entire desktop windows scale with their text sidebars intact; side windows use opposing 30° angles and stock uses 4°. Actual HTML mirrors fade below each base. GPU layers never intercept input or draw continuously while idle. Context loss or unavailable WebGL restores the CSS/SVG fallback without resetting data. Mobile and reduced-motion modes retain static relationships without creating GPU contexts.
 
 Run `node --test tests/docs-site.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` to check page paths, business rules, motion stages and GPU lifecycle. See the [website motion and sandbox guide](site/motion-proposal.en.md).
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { initialState, transition, movements, balances, sources, decimal, lineTotal, restoreState } from '../docs/site/sandbox.mjs'
 import { sceneAt, focusLayout, mountScene, intersectsStage } from '../docs/site/motion.mjs'
+import { windowGeometry, projectWindowPoint } from '../docs/site/scene-geometry.mjs'
 import { sandboxMarkup, money } from '../docs/site/sandbox-ui.mjs'
 
 test('草稿、跨仓库多物料与确认只生成一次库存和应付，失败不污染原状态', () => {
@@ -113,5 +114,46 @@ test('两种语言输出可操作单据与独立窗口，无脚本也保留真�
     assert.match(html, /¥120.00/)
     assert.match(html, /data-anchor="stock"/)
     assert.match(html, /data-action="trace"/)
+  }
+})
+
+test('总览保留方窗—横窗—方窗与相反顶边斜率，窗底落在同一地面', () => {
+  for (const width of [951, 1216, 1440, 1856]) {
+    const height = Math.max(360, Math.min(540, width * .34 + 30))
+    const windows = sceneAt(.92).windows.map(w => windowGeometry(w, width, height))
+    const [receipt, stock, finance] = windows
+    assert.equal(receipt.logicalWidth, 600)
+    assert.equal(stock.logicalWidth, 1000)
+    assert.equal(finance.logicalWidth, 600)
+    const corners = windows.map(w => [projectWindowPoint(w, 0, 0), projectWindowPoint(w, w.pixelWidth, 0), projectWindowPoint(w, 0, w.pixelHeight), projectWindowPoint(w, w.pixelWidth, w.pixelHeight)])
+    const slopes = corners.map(([a, b]) => (b[1] - a[1]) / (b[0] - a[0]))
+    assert.ok(slopes[0] > .1 && slopes[2] < -.1, '左右透视必须在屏上可辨，不能仅改变角度变量')
+    assert.ok(Math.abs(slopes[1]) < .06)
+    for (const [a, b, c, d] of corners) {
+      assert.ok(Math.abs(c[1] - d[1]) < .01)
+      assert.ok(Math.abs(c[1] - (height - 35)) < .01)
+      assert.ok(a[0] > -2 && b[0] < width + 2)
+    }
+    const aspects = corners.map(([a, b, c]) => (b[0] - a[0]) / (c[1] - Math.min(a[1], b[1])))
+    assert.ok(aspects[0] > .8 && aspects[0] < 1.1)
+    assert.ok(aspects[1] > 1.5 && aspects[1] < 1.8)
+    assert.ok(aspects[2] > .8 && aspects[2] < 1.1)
+  }
+})
+
+test('聚焦画布可读、投影平展，快速跳滚不会改变逻辑表格宽度', () => {
+  for (const key of ['receipt', 'stock', 'finance']) {
+    const focused = windowGeometry(focusLayout(key)[['receipt', 'stock', 'finance'].indexOf(key)], 951, 650)
+    assert.equal(focused.rotation, 0)
+    assert.ok(focused.scale > .75)
+    assert.ok(focused.pixelHeight <= 615)
+    const [x, y] = projectWindowPoint(focused, 0, 0)
+    assert.ok(Math.abs(x - focused.left) < 1e-9 && Math.abs(y - focused.top) < 1e-9)
+  }
+  for (const p of [.45, .92, .3, 1, .38]) {
+    const stock = windowGeometry(sceneAt(p).windows[1], 951, 400)
+    assert.equal(stock.logicalWidth, 1000)
+    assert.equal(stock.logicalHeight, 585)
+    assert.equal(stock.pixelWidth / stock.logicalWidth, stock.scale)
   }
 })

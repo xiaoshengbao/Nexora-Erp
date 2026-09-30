@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-用户确认纯静态 HTML/CSS，GitHub Pages 为目标；本轮暂不启用线上托管。
+用户确认纯静态 HTML/CSS/JS + WebGL，GitHub Pages 为目标；本轮暂不启用线上托管。
 
 ## Users
 

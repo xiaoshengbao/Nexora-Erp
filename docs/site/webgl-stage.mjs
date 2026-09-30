@@ -1,4 +1,5 @@
 // GPU 只负责视觉层；表单、焦点与业务数据始终由原生 HTML 管理。
+import { perspective, windowGeometry } from './scene-geometry.mjs'
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 export function cubicPoints(a, b, c, d, count = 48) {
   return Array.from({ length: count + 1 }, (_, i) => {
@@ -46,12 +47,11 @@ uniform float u_rotation, u_perspective;
 varying vec2 v_uv;
 void main(){
   v_uv = a_position.xy;
-  vec3 p = vec3((a_position.xy - .5) * u_rect.zw, a_position.z);
+  vec3 p = vec3((a_position.xy - vec2(.5,1.)) * u_rect.zw, a_position.z);
   float c = cos(u_rotation), s = sin(u_rotation);
   p = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c);
-  p.xy += u_rect.xy;
   float w = 1. - p.z / u_perspective;
-  vec2 pixel = u_stage*.5 + (p.xy-u_stage*.5)/w + vec2(40.);
+  vec2 pixel = u_rect.xy + p.xy/w + vec2(40.);
   vec2 clip = pixel / u_canvas * 2. - 1.;
   gl_Position = vec4(clip.x*w, -clip.y*w, 0., w);
 }`
@@ -199,15 +199,17 @@ export function createWebGLStage(board, requestFrame = () => {}) {
       const mesh = depth ? new Float32Array(quad.map((v, i) => i % 3 === 2 ? depth : v)) : quad
       const p = surface.use(0, mesh)
       p.uniform('u_canvas', canvasSize); p.uniform('u_stage', [width, height]); p.uniform('u_rect', rect)
-      p.uniform('u_size', rect.slice(2)); p.uniform('u_rotation', [rotation * Math.PI / 180]); p.uniform('u_perspective', [1800])
+      p.uniform('u_size', rect.slice(2)); p.uniform('u_rotation', [rotation * Math.PI / 180]); p.uniform('u_perspective', [perspective])
       p.uniform('u_opacity', [opacity]); p.uniform('u_kind', [kind]); p.uniform('u_light', [progress * 1.5]); p.draw()
     }
     for (const item of layout) {
       if (item.opacity < .01) continue
-      const w = width * item.width, center = width * item.x + w / 2
-      material([center, height + 13, w + 80, 52], item.rotation, item.opacity, 2)
-      material([center, height + 19, w, 32], item.rotation, item.opacity, 1)
-      material([center, height / 2, w + 8, height + 6], item.rotation, item.opacity, 0, -7)
+      const g = item.pixelWidth ? item : windowGeometry(item, width, height)
+      const w = g.pixelWidth, h = g.pixelHeight, center = g.left + w / 2, bottom = g.top + h
+      material([center, bottom + 31, w + 80, 48], 0, item.opacity, 2)
+      material([center, bottom + 60, w, 58], item.rotation, item.opacity * .5, 1)
+      // 逐层挤出银框的侧面，近侧保留暗面与高光，不用白色边线替代厚度。
+      for (const depth of [-14, -10, -6, -2]) material([center, bottom + 3, w + 8, h + 6], item.rotation, item.opacity, 0, depth)
     }
     for (const connection of connections) {
       if (!connection.visible) continue

@@ -1,3 +1,5 @@
+import { sceneAt, focusLayout, windowGeometry, perspective } from './scene-geometry.mjs'
+export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
 
@@ -7,23 +9,6 @@ const ease = p => 1 - (1 - clamp(p)) ** 3
 const segment = (p, start, end) => ease((p - start) / (end - start))
 const keys = ['receipt', 'stock', 'finance']
 export const intersectsStage = (rect, stage) => rect.right > stage.left && rect.left < stage.right && rect.bottom > stage.top && rect.top < stage.bottom
-export function sceneAt(progress) {
-  const p = clamp(progress), stock = segment(p, .2, .38), finance = segment(p, .52, .7)
-  return {
-    progress: p, stage: p < .32 ? 0 : p < .63 ? 1 : p < .85 ? 2 : 3,
-    windows: [
-      { x: lerp(lerp(.075, 0, stock), 0, finance), width: lerp(lerp(.85, .38, stock), .27, finance), rotation: lerp(0, 7, stock), opacity: 1 },
-      { x: lerp(lerp(1.08, .4, stock), .28, finance), width: lerp(.59, .44, finance), rotation: 0, opacity: stock },
-      { x: lerp(1.08, .73, finance), width: .27, rotation: -7 * finance, opacity: finance }
-    ],
-    lines: [segment(p, .34, .43), segment(p, .66, .76)],
-    nodes: p >= .85 ? [1 - clamp((p - .9) / .05), 1 - clamp((p - .85) / .05)] : [clamp((p - .38) / .1), clamp((p - .7) / .1)]
-  }
-}
-export function focusLayout(key) {
-  let side = 0
-  return keys.map(k => k === key ? { x: .075, width: .85, rotation: 0, opacity: 1 } : { x: side++ === 0 ? -.275 : .975, width: .3, rotation: 0, opacity: .32 })
-}
 export function mountScene(doc = document, win = window) {
   const scene = doc.querySelector('.scroll-scene')
   if (!scene) return () => {}
@@ -35,6 +20,14 @@ export function mountScene(doc = document, win = window) {
   let renderedWindows = sceneAt(0).windows, lastStage = -1, sandbox
   let pendingFocus = null
   let graphics
+  let resolvedWindows = []
+  const refreshReflections = () => windows.forEach(el => {
+    const reflection = el.querySelector('.window-reflection'), viewport = el.querySelector('.window-viewport')
+    reflection.innerHTML = viewport.outerHTML
+    reflection.querySelectorAll('*').forEach(node => {
+      for (const attr of [...node.attributes]) if (attr.name.startsWith('data-') || ['id', 'name', 'tabindex'].includes(attr.name)) node.removeAttribute(attr.name)
+    })
+  })
   const staticMode = () => reduced.matches || mobile.matches
   const targetProgress = () => {
     const rect = scene.getBoundingClientRect()
@@ -72,11 +65,12 @@ export function mountScene(doc = document, win = window) {
       const amount = staticMode() || focused ? 1 : state.lines[i]
       group.style.opacity = a && b && amount > 0 && sameSource ? String(amount) : '0'
       if (!a || !b) continue
-      const x1 = a.x + 4, y1 = a.y, x2 = mobile.matches ? b.x + 4 : b.left - 5, y2 = b.y
-      const bend = mobile.matches ? 30 : Math.max(36, Math.abs(x2 - x1) * .45)
+      const vertical = staticMode()
+      const x1 = a.x + 4, y1 = a.y, x2 = vertical ? b.x + 4 : b.left - 5, y2 = b.y
+      const bend = vertical ? 30 : Math.max(36, Math.abs(x2 - x1) * .45)
       const rail = root.width + 8
-      const d = mobile.matches ? `M ${x1} ${y1} C ${rail} ${y1}, ${rail} ${y1}, ${rail} ${y1 + 24} L ${rail} ${y2 - 24} C ${rail} ${y2}, ${rail} ${y2}, ${x2} ${y2}` : `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`
-      const curve = mobile.matches
+      const d = vertical ? `M ${x1} ${y1} C ${rail} ${y1}, ${rail} ${y1}, ${rail} ${y1 + 24} L ${rail} ${y2 - 24} C ${rail} ${y2}, ${rail} ${y2}, ${x2} ${y2}` : `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`
+      const curve = vertical
         ? [...cubicPoints([x1, y1], [rail, y1], [rail, y1], [rail, y1 + 24]), ...cubicPoints([rail, y2 - 24], [rail, y2], [rail, y2], [x2, y2])]
         : cubicPoints([x1, y1], [x1 + bend, y1], [x2 - bend, y2], [x2, y2])
       const paths = group.querySelectorAll('path')
@@ -86,24 +80,33 @@ export function mountScene(doc = document, win = window) {
       node.setAttribute('cx', String(pos[0])); node.setAttribute('cy', String(pos[1]))
       connections.push({ points: curve, amount, node: nodeProgress, visible: amount > 0 && sameSource })
     }
-    graphics?.draw({ width: root.width, height: root.height, layout: renderedWindows, connections, progress, staticMode: staticMode(), ratio: win.devicePixelRatio })
+    graphics?.draw({ width: root.width, height: root.height, layout: resolvedWindows, connections, progress, staticMode: staticMode(), ratio: win.devicePixelRatio })
   }
   const apply = layout => {
     renderedWindows = layout
     const width = board.clientWidth
+    const compact = focused ? 0 : layout[0].compact
+    if (!staticMode()) board.style.height = `${lerp(Math.min(win.innerHeight - 220, 650), Math.max(360, Math.min(540, width * .34 + 30)), compact)}px`
+    else board.style.height = ''
+    resolvedWindows = layout.map(item => windowGeometry(item, width, board.clientHeight))
     windows.forEach((el, index) => {
-      const item = layout[index]
+      const item = resolvedWindows[index]
       if (staticMode()) { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden') }
       else {
-        el.style.width = `${item.width * 100}%`
-        el.style.transform = `translate3d(${item.x * width}px,0,0) rotateY(${item.rotation}deg)`
+        el.style.width = `${item.pixelWidth}px`
+        el.style.height = `${item.pixelHeight}px`
+        el.style.setProperty('--logical-width', `${item.logicalWidth}px`)
+        el.style.setProperty('--logical-height', `${item.logicalHeight}px`)
+        el.style.setProperty('--ui-scale', String(item.scale))
+        el.style.transform = `translate3d(${item.left}px,${item.top}px,0) perspective(${perspective}px) rotateY(${item.rotation}deg)`
         el.style.opacity = String(item.opacity)
         el.style.zIndex = focused === keys[index] ? '3' : '2'
         const hidden = item.opacity < .1 || !intersectsStage(el.getBoundingClientRect(), board.getBoundingClientRect()) || (focused && focused !== keys[index])
         el.inert = Boolean(hidden)
         if (hidden) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden')
       }
-      el.classList.toggle('is-focused', focused === keys[index])
+      el.classList.toggle('is-focused', !staticMode() && focused === keys[index])
+      el.classList.toggle('is-compact', !staticMode() && item.compact > .5)
     })
     const stage = focused ? keys.indexOf(focused) : sceneAt(progress).stage
     if (lastStage !== stage) {
@@ -136,7 +139,12 @@ export function mountScene(doc = document, win = window) {
       finishFocus()
     }
   }
-  const schedule = () => { if (!frame && !disposed && !doc.hidden && onScreen) frame = win.requestAnimationFrame(update) }
+  const schedule = () => {
+    // 偏好切换会改变舞台高度，旧的交叉观察结果不能阻止下一帧重新布置。
+    const rect = scene.getBoundingClientRect()
+    onScreen = rect.bottom > 0 && rect.top < win.innerHeight
+    if (!frame && !disposed && !doc.hidden && onScreen) frame = win.requestAnimationFrame(update)
+  }
   graphics = createWebGLStage(board, schedule)
   const move = (p, key = null, duration = 450) => {
     manual = true; focused = key
@@ -181,7 +189,8 @@ export function mountScene(doc = document, win = window) {
   const onScroll = () => { if (!manual || staticMode()) schedule() }
   scene.addEventListener('click', onClick)
   scene.addEventListener('sandbox:focus', onFocus)
-  scene.addEventListener('sandbox:render', schedule)
+  const onRender = () => { refreshReflections(); schedule() }
+  scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('focusin', onInputFocus)
   scene.addEventListener('scroll', schedule, true)
   win.addEventListener('scroll', onScroll, { passive: true })
@@ -199,13 +208,14 @@ export function mountScene(doc = document, win = window) {
   }), { threshold: .1 })
   windows.forEach(el => reveals.observe(el))
   scene.classList.add('scene-ready')
+  refreshReflections()
   onPreference()
   sandbox = mountSandbox(scene, doc.documentElement.lang)
   return () => {
     disposed = true
     if (frame) win.cancelAnimationFrame(frame)
     observer.disconnect(); reveals.disconnect(); sandbox.destroy(); graphics.destroy()
-    scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', schedule)
+    scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', onRender)
     scene.removeEventListener('focusin', onInputFocus); scene.removeEventListener('scroll', schedule, true)
     win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', schedule); doc.removeEventListener('visibilitychange', onVisibility)
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference)

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T16:47:17.406Z",
+  "generatedAt": "2026-09-30T18:28:59.510Z",
   "title": "Design System: Nexora ERP 官网",
   "extensions": {
     "colorMeta": {
       "paper": {
         "role": "neutral",
-        "displayName": "paper",
+        "displayName": "文档纸面",
         "tonalRamp": [
           "oklch(15% 0.0017 247.84)",
           "oklch(26% 0.0017 247.84)",
@@ -20,7 +20,7 @@
       },
       "stage": {
         "role": "neutral",
-        "displayName": "stage",
+        "displayName": "浅色舞台",
         "tonalRamp": [
           "oklch(15% 0.0034 247.86)",
           "oklch(26% 0.0034 247.86)",
@@ -34,7 +34,7 @@
       },
       "ink": {
         "role": "neutral",
-        "displayName": "ink",
+        "displayName": "正文墨色",
         "tonalRamp": [
           "oklch(15% 0.0309 232.41)",
           "oklch(26% 0.0309 232.41)",
@@ -48,7 +48,7 @@
       },
       "muted": {
         "role": "neutral",
-        "displayName": "muted",
+        "displayName": "说明灰",
         "tonalRamp": [
           "oklch(15% 0.0253 239.84)",
           "oklch(26% 0.0253 239.84)",
@@ -62,7 +62,7 @@
       },
       "teal": {
         "role": "primary",
-        "displayName": "teal",
+        "displayName": "品牌青绿",
         "tonalRamp": [
           "oklch(15% 0.0796 185.69)",
           "oklch(26% 0.0796 185.69)",
@@ -76,7 +76,7 @@
       },
       "action": {
         "role": "primary",
-        "displayName": "action",
+        "displayName": "业务行动青绿",
         "tonalRamp": [
           "oklch(15% 0.0930 185.14)",
           "oklch(26% 0.0930 185.14)",
@@ -90,7 +90,7 @@
       },
       "action-hover": {
         "role": "primary",
-        "displayName": "action-hover",
+        "displayName": "主行动悬停",
         "tonalRamp": [
           "oklch(15% 0.0817 183.41)",
           "oklch(26% 0.0817 183.41)",
@@ -104,7 +104,7 @@
       },
       "selected": {
         "role": "primary",
-        "displayName": "selected",
+        "displayName": "步骤选择",
         "tonalRamp": [
           "oklch(15% 0.0971 183.76)",
           "oklch(26% 0.0971 183.76)",
@@ -118,7 +118,7 @@
       },
       "linked": {
         "role": "primary",
-        "displayName": "linked",
+        "displayName": "来源青绿",
         "tonalRamp": [
           "oklch(15% 0.1294 179.26)",
           "oklch(26% 0.1294 179.26)",
@@ -132,7 +132,7 @@
       },
       "linked-row": {
         "role": "primary",
-        "displayName": "linked-row",
+        "displayName": "关联库存行",
         "tonalRamp": [
           "oklch(15% 0.0272 173.74)",
           "oklch(26% 0.0272 173.74)",
@@ -146,7 +146,7 @@
       },
       "panel": {
         "role": "neutral",
-        "displayName": "panel",
+        "displayName": "单据白底",
         "tonalRamp": [
           "oklch(15% 0.0000 89.88)",
           "oklch(26% 0.0000 89.88)",
@@ -158,9 +158,136 @@
           "oklch(95% 0.0000 89.88)"
         ]
       },
+      "window-surface": {
+        "role": "neutral",
+        "displayName": "应用冷白",
+        "tonalRamp": [
+          "oklch(15% 0.0034 247.86)",
+          "oklch(26% 0.0034 247.86)",
+          "oklch(37% 0.0034 247.86)",
+          "oklch(49% 0.0034 247.86)",
+          "oklch(61% 0.0034 247.86)",
+          "oklch(73% 0.0034 247.86)",
+          "oklch(85% 0.0034 247.86)",
+          "oklch(95% 0.0034 247.86)"
+        ]
+      },
+      "sidebar-surface": {
+        "role": "neutral",
+        "displayName": "侧栏冷白",
+        "tonalRamp": [
+          "oklch(15% 0.0042 236.50)",
+          "oklch(26% 0.0042 236.50)",
+          "oklch(37% 0.0042 236.50)",
+          "oklch(49% 0.0042 236.50)",
+          "oklch(61% 0.0042 236.50)",
+          "oklch(73% 0.0042 236.50)",
+          "oklch(85% 0.0042 236.50)",
+          "oklch(95% 0.0042 236.50)"
+        ]
+      },
+      "chrome-shade": {
+        "role": "neutral",
+        "displayName": "标题栏浅银",
+        "tonalRamp": [
+          "oklch(15% 0.0093 242.84)",
+          "oklch(26% 0.0093 242.84)",
+          "oklch(37% 0.0093 242.84)",
+          "oklch(49% 0.0093 242.84)",
+          "oklch(61% 0.0093 242.84)",
+          "oklch(73% 0.0093 242.84)",
+          "oklch(85% 0.0093 242.84)",
+          "oklch(95% 0.0093 242.84)"
+        ]
+      },
+      "silver-outer": {
+        "role": "neutral",
+        "displayName": "实体外框灰银",
+        "tonalRamp": [
+          "oklch(15% 0.0236 239.60)",
+          "oklch(26% 0.0236 239.60)",
+          "oklch(37% 0.0236 239.60)",
+          "oklch(49% 0.0236 239.60)",
+          "oklch(61% 0.0236 239.60)",
+          "oklch(73% 0.0236 239.60)",
+          "oklch(85% 0.0236 239.60)",
+          "oklch(95% 0.0236 239.60)"
+        ]
+      },
+      "silver-inner": {
+        "role": "neutral",
+        "displayName": "内银框暗部",
+        "tonalRamp": [
+          "oklch(15% 0.0311 241.84)",
+          "oklch(26% 0.0311 241.84)",
+          "oklch(37% 0.0311 241.84)",
+          "oklch(49% 0.0311 241.84)",
+          "oklch(61% 0.0311 241.84)",
+          "oklch(73% 0.0311 241.84)",
+          "oklch(85% 0.0311 241.84)",
+          "oklch(95% 0.0311 241.84)"
+        ]
+      },
+      "silver-edge": {
+        "role": "neutral",
+        "displayName": "内银框收边",
+        "tonalRamp": [
+          "oklch(15% 0.0210 238.75)",
+          "oklch(26% 0.0210 238.75)",
+          "oklch(37% 0.0210 238.75)",
+          "oklch(49% 0.0210 238.75)",
+          "oklch(61% 0.0210 238.75)",
+          "oklch(73% 0.0210 238.75)",
+          "oklch(85% 0.0210 238.75)",
+          "oklch(95% 0.0210 238.75)"
+        ]
+      },
+      "silver-base": {
+        "role": "neutral",
+        "displayName": "窗底银面",
+        "tonalRamp": [
+          "oklch(15% 0.0324 235.91)",
+          "oklch(26% 0.0324 235.91)",
+          "oklch(37% 0.0324 235.91)",
+          "oklch(49% 0.0324 235.91)",
+          "oklch(61% 0.0324 235.91)",
+          "oklch(73% 0.0324 235.91)",
+          "oklch(85% 0.0324 235.91)",
+          "oklch(95% 0.0324 235.91)"
+        ]
+      },
+      "stage-light": {
+        "role": "neutral",
+        "displayName": "舞台环境光",
+        "tonalRamp": [
+          "oklch(15% 0.0143 231.21)",
+          "oklch(26% 0.0143 231.21)",
+          "oklch(37% 0.0143 231.21)",
+          "oklch(49% 0.0143 231.21)",
+          "oklch(61% 0.0143 231.21)",
+          "oklch(73% 0.0143 231.21)",
+          "oklch(85% 0.0143 231.21)",
+          "oklch(95% 0.0143 231.21)"
+        ],
+        "purpose": "带透明度的舞台环境光；预览色阶展示其不透明基色。"
+      },
+      "placeholder": {
+        "role": "neutral",
+        "displayName": "库存装饰条",
+        "tonalRamp": [
+          "oklch(15% 0.0135 233.75)",
+          "oklch(26% 0.0135 233.75)",
+          "oklch(37% 0.0135 233.75)",
+          "oklch(49% 0.0135 233.75)",
+          "oklch(61% 0.0135 233.75)",
+          "oklch(73% 0.0135 233.75)",
+          "oklch(85% 0.0135 233.75)",
+          "oklch(95% 0.0135 233.75)"
+        ]
+      },
       "rule": {
         "role": "neutral",
-        "displayName": "rule",
+        "displayName": "内容分隔",
         "tonalRamp": [
           "oklch(15% 0.0094 232.38)",
           "oklch(26% 0.0094 232.38)",
@@ -174,7 +301,7 @@
       },
       "field-rule": {
         "role": "neutral",
-        "displayName": "field-rule",
+        "displayName": "字段边界",
         "tonalRamp": [
           "oklch(15% 0.0213 236.79)",
           "oklch(26% 0.0213 236.79)",
@@ -187,8 +314,8 @@
         ]
       },
       "field-focus": {
-        "role": "neutral",
-        "displayName": "field-focus",
+        "role": "primary",
+        "displayName": "字段焦点",
         "tonalRamp": [
           "oklch(15% 0.1085 181.59)",
           "oklch(26% 0.1085 181.59)",
@@ -200,9 +327,51 @@
           "oklch(95% 0.1085 181.59)"
         ]
       },
+      "field-ink": {
+        "role": "neutral",
+        "displayName": "应用字段文字",
+        "tonalRamp": [
+          "oklch(15% 0.0336 235.67)",
+          "oklch(26% 0.0336 235.67)",
+          "oklch(37% 0.0336 235.67)",
+          "oklch(49% 0.0336 235.67)",
+          "oklch(61% 0.0336 235.67)",
+          "oklch(73% 0.0336 235.67)",
+          "oklch(85% 0.0336 235.67)",
+          "oklch(95% 0.0336 235.67)"
+        ]
+      },
+      "secondary-ink": {
+        "role": "neutral",
+        "displayName": "次行动文字",
+        "tonalRamp": [
+          "oklch(15% 0.0489 221.37)",
+          "oklch(26% 0.0489 221.37)",
+          "oklch(37% 0.0489 221.37)",
+          "oklch(49% 0.0489 221.37)",
+          "oklch(61% 0.0489 221.37)",
+          "oklch(73% 0.0489 221.37)",
+          "oklch(85% 0.0489 221.37)",
+          "oklch(95% 0.0489 221.37)"
+        ]
+      },
+      "stage-control-ink": {
+        "role": "neutral",
+        "displayName": "步骤文字",
+        "tonalRamp": [
+          "oklch(15% 0.0365 228.06)",
+          "oklch(26% 0.0365 228.06)",
+          "oklch(37% 0.0365 228.06)",
+          "oklch(49% 0.0365 228.06)",
+          "oklch(61% 0.0365 228.06)",
+          "oklch(73% 0.0365 228.06)",
+          "oklch(85% 0.0365 228.06)",
+          "oklch(95% 0.0365 228.06)"
+        ]
+      },
       "status-bg": {
         "role": "primary",
-        "displayName": "status-bg",
+        "displayName": "已入库浅绿",
         "tonalRamp": [
           "oklch(15% 0.0485 178.68)",
           "oklch(26% 0.0485 178.68)",
@@ -216,7 +385,7 @@
       },
       "status-ink": {
         "role": "primary",
-        "displayName": "status-ink",
+        "displayName": "已入库文字",
         "tonalRamp": [
           "oklch(15% 0.0866 179.86)",
           "oklch(26% 0.0866 179.86)",
@@ -230,7 +399,7 @@
       },
       "draft-bg": {
         "role": "semantic",
-        "displayName": "draft-bg",
+        "displayName": "草稿浅金",
         "tonalRamp": [
           "oklch(15% 0.0385 89.09)",
           "oklch(26% 0.0385 89.09)",
@@ -244,7 +413,7 @@
       },
       "draft-ink": {
         "role": "semantic",
-        "displayName": "draft-ink",
+        "displayName": "草稿文字",
         "tonalRamp": [
           "oklch(15% 0.0943 76.70)",
           "oklch(26% 0.0943 76.70)",
@@ -258,7 +427,7 @@
       },
       "error": {
         "role": "semantic",
-        "displayName": "error",
+        "displayName": "错误文字",
         "tonalRamp": [
           "oklch(15% 0.1569 23.05)",
           "oklch(26% 0.1569 23.05)",
@@ -282,18 +451,45 @@
       "body": {
         "displayName": "文档正文",
         "purpose": "长文阅读，不采用舞台密度。"
+      },
+      "window-title": {
+        "displayName": "窗口标题",
+        "purpose": "逻辑桌面画布字级；总览35px，手机23px。"
+      },
+      "sandbox": {
+        "displayName": "应用正文",
+        "purpose": "逻辑画布整体缩放，手机正文12px。"
+      },
+      "sidebar": {
+        "displayName": "桌面侧栏文字",
+        "purpose": "桌面与紧凑总览保留采购、库存、销售、生产、财务、系统。"
+      },
+      "field-label": {
+        "displayName": "字段标签",
+        "purpose": "逻辑桌面画布标签与输入保持层级。"
+      },
+      "table": {
+        "displayName": "业务表格",
+        "purpose": "等宽数字；手机11px并在窗内横向滚动。"
+      },
+      "amount": {
+        "displayName": "应付金额",
+        "purpose": "逻辑桌面画布字级；总览44px，手机34px。"
+      },
+      "headline": {
+        "displayName": "文档标题",
+        "purpose": "长文页面标题。"
+      },
+      "code": {
+        "displayName": "代码正文",
+        "purpose": "文档代码块与行内代码。"
       }
     },
     "shadows": [
       {
-        "name": "window-webgl-ready-html",
-        "value": "0 2px 2px #3d566429,0 20px 40px #29434f16",
-        "purpose": "GPU 可用时 HTML 窗轻阴影。"
-      },
-      {
-        "name": "window-css-fallback",
-        "value": "0 2px 2px #3d566451,0 18px 30px #29434f20,0 32px 70px #28454b16",
-        "purpose": "CSS 回退窗口。"
+        "name": "window-css-surface",
+        "value": "0 2px 3px #3d566459,0 18px 28px #29434f20",
+        "purpose": "当前实体窗HTML阴影；GPU可用与失效时均保留。"
       },
       {
         "name": "home-action",
@@ -305,7 +501,7 @@
       {
         "name": "ease-css",
         "value": "cubic-bezier(.16,1,.3,1)",
-        "purpose": "CSS 交互与手机显现。"
+        "purpose": "CSS交互与手机显现。"
       },
       {
         "name": "ease-camera",
@@ -315,7 +511,7 @@
       {
         "name": "focus",
         "value": "450ms",
-        "purpose": "放大对应窗至85%。"
+        "purpose": "窗归正并进入目标85%占宽，实际宽度仍受高度限制。"
       },
       {
         "name": "resume",
@@ -325,12 +521,12 @@
       {
         "name": "mobile-reveal",
         "value": "400ms; translate:0 18px",
-        "purpose": "手机轻微显现，减少动态偏好取消。"
+        "purpose": "手机轻微显现；减少动态偏好取消。"
       },
       {
         "name": "stage",
-        "value": "340vh; perspective:1800px; transform-style:flat",
-        "purpose": "独立应用窗及准确控件命中。"
+        "value": "340vh; perspective:1400px; transform-origin:50% 100%; transform-style:flat",
+        "purpose": "独立实体窗与同一地面；HTML/GPU共用几何。"
       }
     ],
     "breakpoints": [
@@ -345,105 +541,229 @@
       {
         "name": "stage-static-mobile",
         "value": "760px"
-      },
-      {
-        "name": "window-compact-container",
-        "value": "650px"
-      },
-      {
-        "name": "window-small-container",
-        "value": "400px"
       }
     ],
+    "geometry": {
+      "source": "scene-geometry.mjs",
+      "perspective": 1400,
+      "origin": "各窗底部中心；下沿为stageHeight - 35",
+      "initialReceipt": {
+        "logicalWidth": 1100,
+        "logicalHeight": 590,
+        "targetWidthFraction": 0.85
+      },
+      "overview": [
+        {
+          "key": "receipt",
+          "logicalWidth": 600,
+          "logicalHeight": 570,
+          "rotation": 30,
+          "targetWidthFraction": 0.29
+        },
+        {
+          "key": "stock",
+          "logicalWidth": 1000,
+          "logicalHeight": 585,
+          "rotation": 4,
+          "targetWidthFraction": 0.46
+        },
+        {
+          "key": "finance",
+          "logicalWidth": 600,
+          "logicalHeight": 550,
+          "rotation": -30,
+          "targetWidthFraction": 0.29
+        }
+      ],
+      "focused": {
+        "logicalWidth": 1000,
+        "logicalHeights": {
+          "receipt": 720,
+          "stock": 650,
+          "finance": 680
+        },
+        "rotation": 0,
+        "targetWidthFraction": 0.85
+      },
+      "fitting": "按逻辑宽高比整体缩放；目标占宽同时受可用高度与透视近侧限制。",
+      "financeColumns": "仅.motion-enabled .is-focused.finance-panel；静态/手机/减少动态保持纵向。",
+      "sidebar": "桌面148px、紧凑145px，保留文字；760px以下40px图标栏。"
+    },
     "renderer": {
       "source": "webgl-stage.mjs",
       "scope": "docs/site",
       "layers": [
-        "GPU下层银框/接触阴影/渐隐反射",
-        "HTML业务交互",
-        "GPU上层曲线/光点；聚焦退至HTML后"
+        "GPU下层逐层挤出银边/地面阴影/反光",
+        "HTML业务窗口与只读内容镜像",
+        "GPU上层来源带/节点；聚焦退至HTML后"
+      ],
+      "extrusionDepths": [
+        -14,
+        -10,
+        -6,
+        -2
       ],
       "input": "canvas pointer-events:none; aria-hidden:true",
       "pixelDensity": "max 2; limited by MAX_RENDERBUFFER_SIZE",
       "initialization": "首次桌面动态绘制；手机/reduced不初始化",
-      "fallback": "初始化/编译失败或contextlost回退HTML/CSS/SVG",
-      "restoration": "重建GPU资源；保留业务状态并请求当前帧",
-      "palettePreview": "colorMeta tonalRamp 为展示生成色阶，不是生产token"
+      "reflection": {
+        "source": "motion.mjs refreshReflections",
+        "refresh": "sandbox:render",
+        "stripAttributes": [
+          "data-*",
+          "id",
+          "name",
+          "tabindex"
+        ],
+        "container": "aria-hidden; inert; pointer-events:none",
+        "presentation": "95px高；opacity .23；blur(.6px)；90px渐隐"
+      },
+      "fallback": "初始化/编译失败或contextlost回退HTML/CSS/SVG；不重置业务数据",
+      "restoration": "重建GPU资源并请求当前帧",
+      "idle": "静止、离屏和后台不维持连续循环",
+      "palettePreview": "colorMeta tonalRamp为展示生成色阶，不是生产token",
+      "componentPreview": "自包含HTML/CSS外观；不运行WebGL或业务状态机，不代表整站验收。"
+    },
+    "advisoryArchive": {
+      "source": "本轮detector提示与实际sandbox.css；按用户批准的银白实体窗口归档。",
+      "palette": [
+        {
+          "token": "silver-outer",
+          "purpose": "实体外框"
+        },
+        {
+          "token": "silver-inner",
+          "purpose": "内银框暗部"
+        },
+        {
+          "token": "silver-edge",
+          "purpose": "内银框收边"
+        },
+        {
+          "token": "silver-base",
+          "purpose": "窗底银面"
+        },
+        {
+          "token": "stage-light",
+          "purpose": "舞台环境光"
+        },
+        {
+          "token": "placeholder",
+          "purpose": "空表装饰占位条，aria-hidden"
+        }
+      ],
+      "radius": [
+        {
+          "token": "window-base",
+          "purpose": "窗底银面下角"
+        },
+        {
+          "token": "window-chrome",
+          "purpose": "内标题栏上角"
+        },
+        {
+          "token": "placeholder",
+          "purpose": "库存装饰条"
+        }
+      ],
+      "font": {
+        "rule": "overused-font",
+        "family": "Inter",
+        "disposition": "保留此前用户批准的字体选择"
+      },
+      "disposition": "忠实记录当前材质用途；未因检测提示改换已批准世界。",
+      "verification": "以当前源码为准；此次规范刷新不等于整站视觉验收通过。"
     }
   },
   "components": [
     {
+      "name": "首页主行动",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "进入开发文档的青绿实心链接；首页使用9px圆角。",
+      "html": "<a class=\"ds-site-action\" href=\"#docs\">阅读开发文档</a>",
+      "css": ".ds-site-action{display:inline-block;font:600 15px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;text-decoration:none;background:#087f75;color:#fff;padding:13px 24px;border-radius:9px;box-shadow:0 8px 22px #087f7518;transition:background .2s cubic-bezier(.16,1,.3,1)}.ds-site-action:hover{background:#087f75}.ds-site-action:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
+    },
+    {
       "name": "业务主行动",
       "kind": "button",
       "refersTo": "sandbox-primary",
-      "description": "确认入库与登记付款的原生 HTML 入口。",
-      "html": "<button class=\"ds-primary\">确认入库</button>",
-      "css": ".ds-primary{font:12px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#fff;background:#087f75;border:1px solid #087f75;padding:8px 11px;min-height:34px;border-radius:5px;cursor:pointer}.ds-primary:hover{background:#06695f}.ds-primary:disabled{opacity:.5;cursor:not-allowed}.ds-primary:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
+      "description": "逻辑桌面画布的原生 HTML 主行动；可见尺寸随整窗缩放。",
+      "html": "<button type=\"button\" class=\"ds-primary\">确认入库</button>",
+      "css": ".ds-primary{font:16px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;color:#fff;background:#087f75;border:1px solid #087f75;padding:9px 13px;min-height:38px;border-radius:5px;white-space:nowrap;cursor:pointer}.ds-primary:hover{background:#06695f}.ds-primary:disabled{opacity:.5;cursor:not-allowed}.ds-primary:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
     },
     {
       "name": "业务次行动",
       "kind": "button",
       "refersTo": "sandbox-secondary",
-      "description": "新增、复制草稿等辅助动作。",
-      "html": "<button class=\"ds-secondary\">复制为草稿</button>",
-      "css": ".ds-secondary{font:12px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#365d6a;border:1px solid #cbdce3;background:#fff;padding:8px 11px;min-height:34px;border-radius:5px;cursor:pointer}.ds-secondary:hover{color:#006c60;background:#ecf9f5;border-color:#84c9be}.ds-secondary:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
+      "description": "新建、复制草稿与付清剩余的辅助入口。",
+      "html": "<button type=\"button\" class=\"ds-secondary\">复制为草稿</button>",
+      "css": ".ds-secondary{font:16px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;color:#365d6a;border:1px solid #cbdce3;background:#fff;padding:9px 13px;min-height:38px;border-radius:5px;white-space:nowrap;cursor:pointer}.ds-secondary:hover{color:#006c60;background:#ecf9f5;border-color:#84c9be}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}.ds-secondary:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
     },
     {
       "name": "业务字段",
       "kind": "input",
       "refersTo": "field",
-      "description": "字段标签、输入与失败说明；原生表单负责交互。",
+      "description": "标签、输入和失败说明由原生表单承载；桌面逻辑字级为16px。",
       "html": "<label class=\"ds-field\">数量<input value=\"12\" inputmode=\"decimal\" aria-label=\"数量\"></label>",
-      "css": ".ds-field{display:flex;flex-direction:column;gap:6px;font:11px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#566e7e}.ds-field input{font:12px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#203440;background:#fff;border:1px solid #ccdbe5;border-radius:5px;padding:8px;min-height:34px;font-variant-numeric:tabular-nums}.ds-field input:focus-visible{outline:2px solid #2ca998;outline-offset:1px}.ds-field input[readonly]{color:#3c5463;background:#f7fafc}.ds-field input[aria-invalid=true]{border-color:#b53d43}"
+      "css": ".ds-field{display:flex;flex-direction:column;gap:7px;font:15px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#566e7e}.ds-field input{font:16px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;color:#203440;background:#fff;border:1px solid #ccdbe5;border-radius:5px;padding:9px;min-height:39px;min-width:0;width:100%;max-width:100%;font-variant-numeric:tabular-nums}.ds-field input:focus{outline:2px solid #2ca998;outline-offset:1px}.ds-field input[readonly]{color:#3c5463;background:#f7fafc;border-color:#e3ebf0}.ds-field input[aria-invalid=true]{border-color:#b53d43}"
     },
     {
-      "name": "已入库状态",
+      "name": "单据状态",
       "kind": "chip",
       "refersTo": "status-chip",
-      "description": "状态始终配文字。",
-      "html": "<span class=\"ds-status\">已入库</span>",
-      "css": ".ds-status{display:inline-block;font:11px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;padding:5px 10px;border-radius:5px;color:#076f61;background:#c9f6eb;white-space:nowrap}"
-    },
-    {
-      "name": "草稿状态",
-      "kind": "chip",
-      "refersTo": "status-chip-draft",
-      "description": "草稿不产生库存或应付。",
-      "html": "<span class=\"ds-draft\">草稿</span>",
-      "css": ".ds-draft{display:inline-block;font:11px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;padding:5px 10px;border-radius:5px;color:#7d5712;background:#fcf1d5;white-space:nowrap}"
+      "description": "已入库与草稿配文字和不同浅底；色彩不单独表达状态。",
+      "html": "<span class=\"ds-status\">已入库</span> <span class=\"ds-status ds-draft\">草稿</span>",
+      "css": ".ds-status{display:inline-block;font:14px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;padding:6px 11px;border-radius:5px;color:#076f61;background:#c9f6eb;white-space:nowrap}.ds-draft{color:#7d5712;background:#fcf1d5}"
     },
     {
       "name": "分步控件",
       "kind": "button",
       "refersTo": "stage-button",
-      "description": "静态外观示例；实际页面由 motion.mjs 维护 aria-pressed 与手动模式。",
-      "html": "<div class=\"ds-track\" role=\"group\" aria-label=\"演示步骤\"><button aria-pressed=\"true\">入库</button><button aria-pressed=\"false\">库存</button><button aria-pressed=\"false\">财务</button><button aria-pressed=\"false\">追溯</button></div>",
+      "description": "外观预览；实际页面由motion.mjs维护aria-pressed与手动模式。",
+      "html": "<div class=\"ds-track\" role=\"group\" aria-label=\"演示步骤\"><button type=\"button\" aria-pressed=\"true\">入库</button><button type=\"button\" aria-pressed=\"false\">库存</button><button type=\"button\" aria-pressed=\"false\">财务</button><button type=\"button\" aria-pressed=\"false\">追溯</button></div>",
       "css": ".ds-track{display:inline-flex;gap:2px;padding:4px;border-radius:26px;border:1px solid #c8d9de;background:#edf3f6;box-shadow:inset 0 1px #fff,0 3px 8px #395d6a08}.ds-track button{font:12px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;line-height:1.4;padding:8px 16px;border:0;border-radius:22px;background:transparent;color:#47616d;cursor:pointer}.ds-track button[aria-pressed=true]{background:#078579;color:#fff;box-shadow:0 3px 8px #087f7520}.ds-track button:hover{background:#d3eee8;color:#076c60}.ds-track button:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
     },
     {
-      "name": "应用窗回退外观",
+      "name": "单据面板",
+      "kind": "card",
+      "refersTo": "receipt-sheet",
+      "description": "逻辑画布中的白底单据区域；紧凑与初始镜头在页面中有局部padding覆盖。",
+      "html": "<section class=\"ds-sheet\"><div class=\"ds-sheet-title\"><h3>单据信息</h3><strong>DEMO-001<i class=\"ds-anchor\"></i></strong></div><p>供应商 A · 主仓库</p><div class=\"ds-total\">合计 <strong>¥120.00</strong></div></section>",
+      "css": ".ds-sheet{font:16px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;padding:23px;background:#fff;border:1px solid #dde7ee;border-radius:8px;color:#203440}.ds-sheet-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:22px}.ds-sheet-title h3{font-size:17px;margin:0}.ds-sheet-title strong{font-size:16px;display:inline-flex;align-items:center;gap:10px;color:#20685e}.ds-anchor{display:inline-block;width:9px;height:9px;border-radius:50%;background:#12bfa7;box-shadow:0 0 0 5px #d4f6ee}.ds-total{display:flex;justify-content:flex-end;align-items:center;gap:8px;font-size:14px;color:#647985;margin-top:18px}.ds-total strong{font-size:23px;color:#193d49;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "银白实体窗的CSS外观",
       "kind": "custom",
       "refersTo": "demo-window",
-      "description": "CSS 回退的自包含静态样例；实际桌面另有 WebGL 下层材质，预览不初始化 GPU。",
-      "html": "<section class=\"ds-window\"><div class=\"ds-chrome\"><i></i><i></i><i></i><span>Nexora ERP · 交互演示</span></div><div class=\"ds-window-body\"><h2>采购入库</h2><p>DEMO-001 · 库存 +12 · 应付 ¥120.00</p></div></section>",
-      "css": ".ds-window{font-family:Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;padding:3px;border-radius:14px;background:linear-gradient(112deg,#a6b4bf,#f9fcfd 1%,#d6dee5 2%,#fff 3%,#eef3f6 98%,#a7b5c0);box-shadow:0 2px 2px #3d566451,0 18px 30px #29434f20,0 32px 70px #28454b16}.ds-chrome{height:34px;display:flex;align-items:center;gap:6px;padding:0 13px;background:linear-gradient(#f9fcfe,#e9eff4);border-radius:11px 11px 0 0;border-bottom:1px solid #dbe4eb;font-size:10px;color:#354955}.ds-chrome i{width:8px;height:8px;border-radius:50%;background:#ff655b}.ds-chrome i:nth-child(2){background:#f5bf4f}.ds-chrome i:nth-child(3){background:#48c775}.ds-chrome span{margin-left:6px}.ds-window-body{padding:25px 26px 20px;background:#fbfdff;color:#203440;border-radius:0 0 10px 10px;font-size:12px}.ds-window-body h2{font-size:27px;line-height:1.2;letter-spacing:-.025em;margin:0 0 20px}"
+      "description": "当前银边、标题栏和窗底的自包含静态外观；完整桌面厚度、地面光影与来源带由WebGL实现，此预览不初始化GPU。",
+      "html": "<section class=\"ds-window\"><div class=\"ds-viewport\"><div class=\"ds-chrome\"><span class=\"ds-lights\" aria-hidden=\"true\"><i></i><i></i><i></i></span><span>Nexora ERP</span><span class=\"ds-demo\">交互演示</span></div><div class=\"ds-window-body\"><h2>采购入库</h2><p>DEMO-001 · 库存 +12 · 应付 ¥120.00</p></div><div class=\"ds-base\" aria-hidden=\"true\"></div></div></section>",
+      "css": ".ds-window{font-family:Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;position:relative;border-radius:14px;transform-origin:50% 100%;background:linear-gradient(110deg,#8e9da8,#fff 2%,#c7d2d9 3%,#fafdff 5%,#fff 96%,#9dafbb);box-shadow:0 2px 3px #3d566459,0 18px 28px #29434f20}.ds-viewport{padding:3px;border-radius:14px;overflow:hidden;background:linear-gradient(110deg,#8396a5,#fff 1%,#becdd5 2%,#fff 3%,#e8f0f6 97%,#b0bec8)}.ds-chrome{height:40px;display:flex;align-items:center;gap:12px;padding:0 16px;background:linear-gradient(#fbfdff,#eaf0f5);border-radius:11px 11px 0 0;border-bottom:1px solid #d6e2e9;font-size:13px;color:#354955}.ds-lights{display:flex;gap:7px;margin-right:8px}.ds-lights i{width:11px;height:11px;border-radius:50%;background:#ff655b;box-shadow:inset 0 0 0 1px #00000012}.ds-lights i:nth-child(2){background:#f5bf4f}.ds-lights i:nth-child(3){background:#48c775}.ds-demo{margin-left:auto;color:#536675}.ds-window-body{padding:28px 30px 24px;background:#fbfdff;color:#203440;border-radius:0 0 10px 10px;font-size:16px}.ds-window-body h2{font-size:36px;line-height:1.2;letter-spacing:-.025em;margin:0 0 24px}.ds-base{height:4px;background:linear-gradient(90deg,#758994,#fff 15%,#d1dbe1 85%,#849aa8);border-radius:0 0 12px 12px}"
+    },
+    {
+      "name": "应用侧栏",
+      "kind": "nav",
+      "description": "桌面保留六项文字；采购、库存、财务是聚焦按钮，销售、生产、系统是不可点击的上下文标签。",
+      "html": "<nav class=\"ds-sidebar\" aria-label=\"演示导航\"><button type=\"button\" class=\"ds-selected\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 3h2l2 12h11l3-9H6M9 20h.01M18 20h.01\"/></svg><span>采购</span></button><button type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 9 9-4M12 12 3 8m9 4v10M7 6l10 5\"/></svg><span>库存</span></button><span class=\"ds-context\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 10V5l8-3 8 3v5M4 10l8-3 8 3v11H4V10Zm5 11v-7h6v7\"/></svg><span>销售</span></span><span class=\"ds-context\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 21V9l6 3V6l6 6V9l6 3v9H3Zm3-5h2m3 0h2m3 0h2M15 4V2h3v6\"/></svg><span>生产</span></span><button type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M15 8h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9m3-10v12\"/></svg><span>财务</span></button><span class=\"ds-bottom\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m9 3 1-2h4l1 2 3 2 2 1v4l-2 1v4l2 1v4l-2 1-3 2-1 2h-4l-1-2-3-2-2-1v-4l2-1v-4L4 10V6l2-1 3-2Z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg><span>系统</span></span></nav>",
+      "css": ".ds-sidebar{display:flex;flex-direction:column;gap:9px;width:148px;min-height:410px;padding:24px 12px 18px;background:linear-gradient(110deg,#eef5f9,#f7fafc);border-right:1px solid #dce7ed;font-family:Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif}.ds-sidebar button,.ds-context,.ds-bottom{display:flex;align-items:center;gap:12px;padding:14px 10px;border:0;background:transparent;border-radius:6px;color:#4c6472;font-size:17px;text-align:left;white-space:nowrap}.ds-sidebar svg{flex-shrink:0}.ds-sidebar .ds-selected{color:#086e66;background:#ccf3ed}.ds-sidebar button:hover{background:#dcefe9;color:#086e66}.ds-sidebar button:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}.ds-bottom{margin-top:auto;padding-top:24px}"
     },
     {
       "name": "官网导航",
       "kind": "nav",
-      "description": "青绿表示当前页，焦点可见。",
+      "description": "青绿表示当前页，键盘焦点可见。",
       "html": "<nav class=\"ds-nav\" aria-label=\"官网导航\"><a href=\"#overview\" aria-current=\"page\">概览</a><a href=\"#docs\">开发文档</a></nav>",
       "css": ".ds-nav{display:flex;gap:30px;font:14px Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif}.ds-nav a{text-decoration:none;color:var(--muted,#596873)}.ds-nav a:hover,.ds-nav a[aria-current]{color:var(--teal,#176f67)}.ds-nav a:focus-visible{outline:3px solid var(--teal,#176f67);outline-offset:5px}"
     }
   ],
   "narrative": {
     "northStar": "清晰的业务舞台",
-    "overview": "浅色舞台、银灰独立应用窗、现代无衬线文字与青绿来源关系共同解释业务。本规范覆盖当前 WebGL 视觉层与 HTML 业务沙盒，取代此前卡片、深色概念图和衬线方案。保留 Nexora/联光 ERP 名称与品牌资源；网站示例不连接 ERP 服务，也不代表桌面应用已支持双语。",
+    "overview": "浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；银边的厚度、同一地面上的阴影与镜像共同表达实体感。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。\n\n本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。",
     "keyCharacteristics": [
-      "浅色独立应用窗，GPU 银框、柔和阴影与渐隐反射。",
-      "入库大窗、库存右进、财务右进、三屏关联。",
-      "HTML 管理业务、表单、焦点；GPU 仅负责视觉。",
-      "文档平实可读，静态回退保留业务操作。"
+      "独立银白实体窗，GPU 逐层挤出银边，地面阴影、反光与只读内容镜像配合。",
+      "三窗共地平线；总览两侧为 30° / −30°，库存中窗为 4°。",
+      "应用逻辑画布整体缩放，桌面保留采购、库存、销售、生产、财务、系统文字。",
+      "HTML 管理业务、表单与焦点；GPU 和镜像只承担视觉。",
+      "文档平实可读，手机与减少动态模式纵向排列并保留业务操作。"
     ],
     "rules": [
       {
@@ -457,21 +777,28 @@
         "section": "typography"
       },
       {
+        "name": "The Shared Ground Rule",
+        "body": "三窗共用底部投影原点与同一地面，窗口内容沿逻辑宽高比整体缩放。",
+        "section": "layout"
+      },
+      {
         "name": "The Purposeful Depth Rule",
         "body": "空间感解释窗口关系，编辑时保证可点击与可读，文档保持平面阅读。",
         "section": "elevation"
       }
     ],
     "dos": [
-      "**Do** 将规范限制在 docs/site，保留浅色独立窗与既定无衬线字体。",
-      "**Do** 保留真实锚点、字段验证、键盘路径、手动模式与 GPU 失效回退。",
+      "**Do** 将规范限制在 docs/site，保留浅色银白实体窗与既定无衬线字体。",
+      "**Do** 让 HTML 与 GPU 使用相同的 1400px 透视、底部中心原点和逻辑画布比例。",
+      "**Do** 保留桌面侧栏文字、真实锚点、字段验证、键盘路径、手动模式与 GPU 失效回退。",
       "**Do** 区分本地演示、桌面能力和计划，随字体保留 OFL 许可。"
     ],
     "donts": [
-      "**Don't** 恢复旧卡片、深色概念图或衬线默认方案。",
-      "**Don't** 用画布承载业务表单、截获输入或在恢复 GPU 时重置业务数据。",
-      "**Don't** 在编辑时移动镜头、以连线遮挡字段或以滚动触发业务操作。",
-      "**Don't** 将本规范覆盖到 ERP 应用，或把预览色阶视为生产 token。"
+      "**Don't** 恢复此前 7° 浅角度、窄长三列的构图，或旧卡片、深色概念图与衬线默认方案。",
+      "**Don't** 用画布或镜像承载业务表单、截获输入，或在恢复 GPU 时重置业务数据。",
+      "**Don't** 在编辑时移动镜头、以连线遮挡字段，或以滚动触发业务操作。",
+      "**Don't** 将销售、生产、系统上下文标签伪装为可操作的演示功能。",
+      "**Don't** 将本规范覆盖到 ERP 应用，把预览色阶当成生产 token，或把静态预览写成整站验收证明。"
     ]
   }
 }

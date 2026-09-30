@@ -89,7 +89,7 @@ export function buildSite(output = resolve(root, 'dist/site')) {
   mkdirSync(resolve(output, 'sources'), { recursive: true })
   copyFileSync(resolve(root, 'docs/site/site.css'), resolve(output, 'assets/site.css'))
   copyFileSync(resolve(root, 'resources/icon.png'), resolve(output, 'assets/brand.png'))
-  for (const file of ['motion.mjs', 'webgl-stage.mjs', 'sandbox.mjs', 'sandbox-ui.mjs', 'sandbox.css']) copyFileSync(resolve(root, 'docs/site', file), resolve(output, 'assets', file))
+  for (const file of ['motion.mjs', 'scene-geometry.mjs', 'webgl-stage.mjs', 'sandbox.mjs', 'sandbox-ui.mjs', 'sandbox.css']) copyFileSync(resolve(root, 'docs/site', file), resolve(output, 'assets', file))
   copyFileSync(resolve(root, 'docs/site/fonts/InterVariable.woff2'), resolve(output, 'assets/InterVariable.woff2'))
   copyFileSync(resolve(root, 'docs/site/fonts/LICENSE.txt'), resolve(output, 'assets/FONT-LICENSE.txt'))
   for (const [language, t] of Object.entries(languages)) {
