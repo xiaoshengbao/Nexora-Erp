@@ -160,7 +160,7 @@ npm run build
 PowerShell 不替原生命令展开通配符，显式枚举测试。`npm run build` 已含类型检查，`npm run preview` 预览已有构建。网站专用检查：
 
 ```bash
-node --test tests/docs-site.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
+node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
 npm run docs:build
 ```
 
@@ -206,6 +206,8 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 ## 官网与 HTML 文档
 
+首页标题与行动独占 `100svh` 封面，页眉叠放在顶部。`cover-motion.mjs` 让按钮下方的青绿引导线随滚动伸向入库窗口的实测顶边，随后由入库、库存和应付来源线接续；倒滚收回，快速离场或手动聚焦清除旧线。桌面使用 WebGL，手机使用同一路径的 SVG；减少动态、低高度及无脚本保留静态引导与文档入口。标题同时按宽高适配，中英文采用同一结构。
+
 官网采用静态 HTML/CSS/JavaScript 构建，`scripts/build-docs-site.mjs` 使用 Marked 将版本控制中的 Markdown 转成页面，无业务 API、数据库或浏览器端 Markdown 编译。中文入口 `/zh-CN/`，英文 `/en/`，对应 `development.html` 为开发文档，根入口为中文。
 
 | 文件 | 维护方式 |
@@ -228,7 +230,7 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 长记录分页展示：入库和应付明细每页 2 行，库存流水每页 4 行，余额和付款记录每页 3 行。页码属于展示状态，合计、确认和余额始终使用完整业务数据。添加物料打开最后一页；确认时若其他页有错误，自动返回对应页并定位字段。删除或筛选后的越界页会收敛到有效页。桌面先按实际内容（包括展开明细和错误提示）计算逻辑高度，再统一缩放窗口与连线；窗口内不建立滚动容器。总览保留物料、数量和单价，金额列及逐行删除入口在放大窗口中操作。
 
-运行 `node --test tests/docs-site.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
+运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
 
 目前按要求**暂不启用线上网站**。准备发布时由管理员在 Settings → Pages → Source 选 GitHub Actions，再启用仓库变量 `PAGES_ENABLED=true` 并手动运行官网工作流。普通推送权限不足以配置 Pages。工作流只上传 `dist/site/`；PR 只验证不发布。预期地址 `https://zhangzzj2003.github.io/Nexora-Erp/`，部署成功前不可称为可用官网。
 

@@ -4,6 +4,14 @@
 
 This describes the implemented light website showcase. It uses local sample data without contacting the ERP service. GitHub Pages remains disabled. Website styles do not affect the desktop application.
 
+## Full-screen cover and guide path
+
+The first viewport is a separate `100svh` cover, with navigation overlaid at the top, the large headline, description and two actions. Type follows both viewport width and height; short viewports reduce vertical spacing so longer English copy cannot push the scroll cue outside the cover. Without scripts, the complete cover and a native link to the business stage remain available.
+
+A fine teal path starts below the actions and grows by actual arc length toward the receipt window's top edge. Cover content moves up at most 28px and scales down 1.8%. Motion stops with scrolling and reverses on the same route. The stage publishes the window's measured projected position; the cover converts page coordinates to viewport coordinates instead of guessing its endpoint. The guide fades over stage progress 8–22%, handing the narrative to the receipt → stock → payable source connections. Manual focus, a direct jump out of the scene or an endpoint above the viewport clears the cover path so old lines cannot remain over the document.
+
+Desktop uses a separate WebGL layer initialized on demand, sharing the business ribbon shader with a thinner, quieter profile and one progress-driven tip. GPU failure restores the same SVG path. Mobile uses SVG tied to the actual stacked receipt, without another GPU context. Reduced motion and heights below 620px use a static short stem and native scroll cue; cover text stays still and all business interactions remain. Visibility and scroll events request frames without a persistent animation loop.
+
 ## Windows and scrolling
 
 Three independent application windows retain sidebars, toolbars, tables, single 1px cool-gray edges and subtle reflections. The desktop scene spans about 340vh with a viewport-height sticky stage. The main headline leaves through normal page scrolling. A single progress mapping controls the scene; reverse scrolling and direct jumps never perform business operations.
@@ -58,6 +66,7 @@ Business data lives in page memory. Same-tab language links transfer data once v
 | `sandbox-ui.mjs` | Bilingual HTML, forms, filters, record pagination, source navigation and local language transfer. |
 | `scene-geometry.mjs` | Sequential layouts, logical canvas sizes, content-height fitting, base projection and pure geometry shared by HTML/GPU. |
 | `motion.mjs` | Sequential entry, focus, pause/resume, paths and media preferences. |
+| `cover-motion.mjs` | Full-screen cover, scroll guide, measured receipt endpoint, mobile SVG and static fallbacks. |
 | `webgl-stage.mjs` | GPU shadows/floor reflections, ribbon paths, nodes and context recovery. |
 | `sandbox.css` | Logical canvases, overview/focus styles, mirrors, mobile and print. |
 
@@ -70,6 +79,8 @@ Mobile uses vertically stacked windows with a subtle visibility reveal and no st
 Viewport heights below 620px also disable the sticky stage. Landscape widths up to 1000px use mobile row cards; wider short viewports retain desktop reading sizes in a vertical stack. Preference changes immediately clear old perspective sizing and keyboard locks even when the stage is offscreen.
 
 ## Verification
+
+Cover regression coverage checks arc-length growth, projected-coordinate translation, manual-mode removal, direct-jump cleanup, background suspension and GPU fallback/disposal. Browser confirmation covers 1505×1045, 1280×620, 390×844, 320×568 and 844×390, both languages, reduced motion and no-script navigation. Continuous capture follows the cover through the three windows and reverse scrolling, checking the receipt top-edge endpoint, internal content overflow and path removal on focus or abrupt exit.
 
 This switching repair adds regression coverage for pose continuity, offscreen/reversed links, GPU fading and old-frame clearing, current-value reflections, offscreen preference changes and stage-height budgeting. Browser checks include consecutive focus switches, rapid step changes, overview, source navigation, editing interruption, reverse scrolling and resume; viewports 320×568, 390×844, 844×390, 1280×600/620, 1015×1039, 1366×768 and 2560×1440, both languages, reduced motion and no script. Actual overflow and top/bottom positions are checked and continuous screen capture is retained. Viewport simulation does not replace physical-device acceptance.
 

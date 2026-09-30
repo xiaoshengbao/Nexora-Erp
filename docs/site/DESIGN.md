@@ -31,7 +31,7 @@ colors:
   draft-ink: "#7d5712"
   error: "#a2292f"
 typography:
-  display: {fontFamily: 'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', fontSize: "clamp(48px, 6vw, 80px)", fontWeight: 750, lineHeight: 1.13, letterSpacing: "-.035em"}
+  display: {fontFamily: 'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', fontSize: "clamp(64px,min(7.6vw,10.7svh),112px)", fontWeight: 750, lineHeight: 1.08, letterSpacing: "-.035em"}
   headline: {fontSize: "clamp(30px, 3.2vw, 45px)", fontWeight: 700, lineHeight: 1.3, letterSpacing: "-.025em"}
   window-title: {fontSize: "36px", lineHeight: 1.2, letterSpacing: "-.025em"}
   body: {fontSize: "16px", lineHeight: 1.9}
@@ -88,6 +88,7 @@ components:
 
 **Key Characteristics:**
 
+- 独占首屏的大标题封面，以一条青绿细线随滚动走向业务舞台。
 - 独立银白应用窗使用单层细边，GPU 地面阴影、反光与只读内容镜像配合。
 - 三窗共地平线；总览两侧为 30° / −30°，库存中窗为 4°。
 - 应用逻辑画布整体缩放，桌面保留采购、库存、销售、生产、财务、系统文字。
@@ -114,13 +115,17 @@ window-frame 是窗口单层 1px 冷灰细边与底线；stage-light 是舞台�
 
 Inter、Segoe UI、PingFang SC、Microsoft YaHei、sans-serif 是既定现代无衬线体系。Inter 本地可变字体支持 100–900 字重及 font-display: swap；中文沿用回退字体。字体来自 [Inter 官方仓库](https://github.com/rsms/inter)，采用 SIL Open Font License 1.1，许可随 fonts/LICENSE.txt 分发。此前字体检测提示已随用户批准的字体选择保留在 sidecar。
 
-前置的 sandbox、sidebar、table、window-title 和 amount 都是逻辑应用画布内的桌面字级；画布缩放后可见尺寸随窗口一起变化。总览的窗口标题局部为 35px，应付金额为 44px。手机标题为 23px、业务正文与字段为 12px、表格为 11px、应付金额为 34px；首页标题在 760px 以下使用 clamp(38px,10vw,62px)，说明由桌面 18px 降为 14px。
+前置的 sandbox、sidebar、table、window-title 和 amount 都是逻辑应用画布内的桌面字级；画布缩放后可见尺寸随窗口一起变化。总览的窗口标题局部为 35px，应付金额为 44px。手机标题为 23px、业务正文与字段为 12px、表格为 11px、应付金额为 34px；封面标题按视口宽高限制在 64–112px，760px 以下使用 clamp(40px,10.6vw,68px)，低于 620px 的视口使用 clamp(36px,min(6vw,11svh),68px)。说明由桌面 18px 降为手机 14px。
 
 文档正文最大 75ch，720px 以下为 15px。业务数字采用等宽数字；代码采用 Consolas、SFMono-Regular、monospace。
 
 **The Readable Documentation Rule.** 产品展示的密度与标题尺度不扩散到长文正文。
 
 ## Layout
+
+首页封面独占 `100svh`，页眉在其顶部叠放；脚本测量页眉高度预留文字空间，CSS 默认状态同样保证首屏不露出业务窗口。标题、说明和两项行动居中，留白按视口高度收敛，底部提供原生舞台锚点。桌面大标题最大 112px，620px 临界高度采用约 66px 的标题与更少的留白，较长英文说明及滚动入口仍容纳在封面中。
+
+`cover-motion.mjs` 用一条细青绿线从行动下方引向入库顶边，随滚动按弧长伸长；内容最多上移 28px、缩小 1.8%，不加循环浮动。舞台以统一实体投影发布真实落点；8–22% 舞台进度淡出封面线，由业务来源线接续。桌面额外使用一个按需 WebGL 线层，SVG 共用路径负责 GPU 失效及手机回退；减少动态和低高度视口使用静态短线。路径不接收输入，手动聚焦、快速离场、后台暂停和倒滚均保留清晰的状态边界。
 
 页眉最大 1360px，桌面舞台最大 1440px。滚动场景为 340vh，粘性区域为 100svh、最小 620px。窗口区初始采用 calc(100svh - 220px)，最大 650px；进入总览时 JS 随窗口状态调整舞台高度。HTML 与 GPU 共用 scene-geometry.mjs，透视距离为 1400px，投影原点在各窗底部中心；窗下沿统一落在舞台底部上方 35px。
 

@@ -2,6 +2,7 @@ import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, pr
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
+import { mountCover } from './cover-motion.mjs'
 
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 const lerp = (a, b, p) => a + (b - a) * p
@@ -149,6 +150,11 @@ export function mountScene(doc = document, win = window) {
       lastStage = stage
     }
     drawLines()
+    if (!staticMode()) {
+      const root = board.getBoundingClientRect(), pose = resolvedWindows[0]
+      const entry = projectWindowPoint(pose, pose.pixelWidth / 2, 0)
+      scene.dispatchEvent(new win.CustomEvent('scene:geometry', { detail: { entry: [root.left + entry[0] + win.scrollX, root.top + entry[1] + win.scrollY], progress, manual } }))
+    }
   }
   const apply = layout => {
     board.style.height = staticMode() ? '' : `${stageHeight(layout)}px`
@@ -310,4 +316,4 @@ export function mountScene(doc = document, win = window) {
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference); short.removeEventListener('change', onPreference)
   }
 }
-if (typeof document !== 'undefined') mountScene()
+if (typeof document !== 'undefined') { mountCover(); mountScene() }

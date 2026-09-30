@@ -156,6 +156,54 @@ function renderer(canvas, material) {
   }
 }
 
+function drawConnections(lines, canvasSize, connections, guide = false) {
+  for (const connection of connections) {
+    if (!connection.visible) continue
+    const opacity = (guide ? 1 : connection.amount) * (connection.alpha ?? 1)
+    const points = trimPath(connection.points, connection.amount)
+    const profile = guide ? [[3, .035], [1.05, .85]] : [[8, .075], [4, .18], [1.7, .95]]
+    for (const [halfWidth, alpha] of profile) {
+      const p = lines.use(0, ribbonMesh(points, halfWidth))
+      p.uniform('u_canvas', canvasSize); p.uniform('u_color', guide ? [.035, .54, .49, alpha * opacity] : [.015, .71, .61, alpha * opacity]); p.draw()
+    }
+    const node = pointOnPath(connection.points, Math.min(connection.node, connection.amount))
+    if (node) {
+      const p = lines.use(1, quad)
+      p.uniform('u_canvas', canvasSize); p.uniform('u_center', node); p.uniform('u_radius', [guide ? 3.5 : 7]); p.uniform('u_opacity', [opacity]); p.draw()
+    }
+  }
+}
+
+// 封面只需要轻细的单条路径，共用业务线的着色器和资源释放规则。
+export function createWebGLGuide(host, requestFrame = () => {}) {
+  const canvas = host.ownerDocument.createElement('canvas')
+  canvas.setAttribute('aria-hidden', 'true'); host.append(canvas)
+  let graphics, failed = false, disposed = false
+  const ready = value => { host.classList.toggle('gpu-ready', value); canvas.hidden = !value }
+  const release = () => { graphics?.destroy(); graphics = undefined }
+  const initialize = () => {
+    try { release(); graphics = renderer(canvas, false); failed = false; return true }
+    catch { release(); failed = true; ready(false); return false }
+  }
+  const lost = event => { event.preventDefault(); failed = true; ready(false); requestFrame() }
+  const restored = () => { if (!disposed && initialize()) requestFrame() }
+  canvas.addEventListener('webglcontextlost', lost); canvas.addEventListener('webglcontextrestored', restored)
+  ready(false)
+  return {
+    draw({ width, height, connections = [], ratio = 1, staticMode = false }) {
+      if (disposed || failed || staticMode || !connections.some(line => line.visible)) { ready(false); return false }
+      if (!graphics && !initialize()) return false
+      if (graphics.gl.isContextLost()) { failed = true; ready(false); return false }
+      ready(true)
+      const size = [width + 80, height + 80]
+      graphics.clear(...size, ratio)
+      drawConnections(graphics, size, connections, true)
+      return true
+    },
+    destroy() { disposed = true; release(); ready(false); canvas.removeEventListener('webglcontextlost', lost); canvas.removeEventListener('webglcontextrestored', restored); canvas.remove() }
+  }
+}
+
 // 下层只绘制地面光影，来源线在前方；窗口使用干净的薄边，不叠加镀层。
 export function createWebGLStage(board, requestFrame = () => {}) {
   const scene = board.closest('.scroll-scene'), doc = board.ownerDocument
@@ -203,21 +251,8 @@ export function createWebGLStage(board, requestFrame = () => {}) {
       material([center, bottom + 31, w + 80, 48], 0, item.opacity, 2)
       material([center, bottom + 60, w, 58], item.rotation, item.opacity * .5, 1)
     }
-    for (const connection of connections) {
-      if (!connection.visible) continue
-      const opacity = connection.amount * (connection.alpha ?? 1)
-      const points = trimPath(connection.points, connection.amount)
-      // 三角带代替硬件宽线，保证不同 GPU 的线宽与柔边一致。
-      for (const [halfWidth, alpha] of [[8, .075], [4, .18], [1.7, .95]]) {
-        const p = lines.use(0, ribbonMesh(points, halfWidth))
-        p.uniform('u_canvas', canvasSize); p.uniform('u_color', [.015, .71, .61, alpha * opacity]); p.draw()
-      }
-      const node = pointOnPath(connection.points, Math.min(connection.node, connection.amount))
-      if (node) {
-        const p = lines.use(1, quad)
-        p.uniform('u_canvas', canvasSize); p.uniform('u_center', node); p.uniform('u_radius', [7]); p.uniform('u_opacity', [opacity]); p.draw()
-      }
-    }
+    // 三角带代替硬件宽线，保证不同 GPU 的线宽与柔边一致。
+    drawConnections(lines, canvasSize, connections)
     return true
   }
   setReady(false)

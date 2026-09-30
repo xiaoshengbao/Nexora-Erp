@@ -20,6 +20,9 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
         assert.match(html, /<h1[ >]/)
         assert.match(html, /scope="col"/)
         if (page === 'index.html') {
+          assert.match(html, /class="hero" data-cover/)
+          assert.match(html, /href="#business-demo"/)
+          assert.match(html, /class="scroll-scene" id="business-demo"/)
           const pauseButton = html.match(/<button[^>]*data-pause[^>]*>/)?.[0]
           assert.ok(pauseButton)
           assert.equal([...pauseButton.matchAll(/\bdata-pause(?=[ =])/g)].length, 1)
@@ -38,6 +41,7 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.equal(readdirSync(resolve(output, 'sources')).length, 4)
     assert.ok(existsSync(resolve(output, 'assets/webgl-stage.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/scene-geometry.mjs')))
+    assert.ok(existsSync(resolve(output, 'assets/cover-motion.mjs')))
     assert.match(readFileSync(resolve(output, 'assets/sandbox.css'), 'utf8'), /\.scroll-scene\{[^}]*overflow-anchor:none/)
     const cn = readFileSync(resolve(output, 'zh-CN/development.html'), 'utf8')
     const en = readFileSync(resolve(output, 'en/development.html'), 'utf8')

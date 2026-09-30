@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cubicPoints, trimPath, pointOnPath, ribbonMesh, createWebGLStage } from '../docs/site/webgl-stage.mjs'
+import { cubicPoints, trimPath, pointOnPath, ribbonMesh, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
 import { sceneAt, cloneReflection, mountScene } from '../docs/site/motion.mjs'
 import { focusLayout, windowGeometry, interpolateWindowPose, connectionEndpoints, projectWindowPoint, sceneBoardHeight, advanceMotionClock } from '../docs/site/scene-geometry.mjs'
 
@@ -45,7 +45,8 @@ function fixture({ unavailable = false, compileFailure = false } = {}) {
     return canvas
   } }
   const board = { ownerDocument: doc, closest: () => scene, append: canvas => canvases.push(canvas) }
-  return { counters, canvases, scene, create: () => createWebGLStage(board, () => counters.frames++) }
+  const guideHost = { ...board, classList: scene.classList }
+  return { counters, canvases, scene, create: () => createWebGLStage(board, () => counters.frames++), createGuide: () => createWebGLGuide(guideHost, () => counters.frames++) }
 }
 const frame = () => ({ width: 1200, height: 600, layout: sceneAt(.8).windows, progress: .8, ratio: 3, staticMode: false,
   connections: [{ visible: true, points: [[0, 0], [100, 100]], amount: .5, node: .3 }] })
@@ -226,4 +227,36 @@ test('慢帧和后台恢复不会跳过大段切换行程，正常帧保持实�
   assert.equal(clock.elapsed, 50)
   clock = advanceMotionClock(clock, 90016)
   assert.equal(clock.elapsed, 66)
+})
+
+test('封面轻细引导线按需创建 GPU，空场景停绘，丢失/恢复与销毁不泄漏资源', () => {
+  const f = fixture(), guide = f.createGuide()
+  assert.equal(guide.draw({ ...frame(), connections: [] }), false)
+  assert.equal(guide.draw({ ...frame(), staticMode: true }), false)
+  assert.equal(f.counters.contexts, 0)
+  assert.equal(guide.draw(frame()), true)
+  assert.equal(f.canvases.length, 1)
+  assert.equal(f.counters.contexts, 1)
+  assert.ok(f.counters.colors.at(-1)[3] > .5, '初始短线仍然清晰，不再按长度降低透明度')
+  const before = f.counters.draws
+  guide.draw({ ...frame(), connections: [] })
+  assert.equal(f.counters.draws, before)
+  assert.equal(f.canvases[0].hidden, true)
+  f.canvases[0].gl.lost = true; f.canvases[0].fire('webglcontextlost')
+  assert.equal(guide.draw(frame()), false)
+  f.canvases[0].gl.lost = false; f.canvases[0].fire('webglcontextrestored')
+  assert.equal(guide.draw(frame()), true)
+  guide.destroy()
+  assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0); assert.equal(f.counters.shaders, 0)
+  assert.equal(f.canvases[0].removed, true)
+})
+
+test('封面 WebGL 初始化失败只保留 SVG，不影响业务舞台或泄漏半初始化资源', () => {
+  for (const option of [{ unavailable: true }, { compileFailure: true }]) {
+    const f = fixture(option), guide = f.createGuide()
+    assert.equal(guide.draw(frame()), false)
+    assert.ok(f.canvases[0].hidden)
+    guide.destroy()
+    assert.equal(f.counters.programs, 0); assert.equal(f.counters.buffers, 0); assert.equal(f.counters.shaders, 0)
+  }
 })
