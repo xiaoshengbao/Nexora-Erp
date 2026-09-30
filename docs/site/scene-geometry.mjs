@@ -69,3 +69,9 @@ export function sceneBoardHeight(width, height, chrome, compact = 0) {
   const available = Math.max(120, Math.min(height - chrome - 8, 650))
   return lerp(available, Math.min(available, Math.max(360, Math.min(540, width * .34 + 30))), clamp(compact))
 }
+
+// GPU/布局偶发慢帧不应让实体瞬间越过大段行程；后台恢复从暂停姿态接续。
+export function advanceMotionClock(clock, time) {
+  const step = clock.lastTime == null ? 0 : Math.max(0, Math.min(34, time - clock.lastTime))
+  return { elapsed: clock.elapsed + step, lastTime: time }
+}

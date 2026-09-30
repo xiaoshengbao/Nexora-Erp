@@ -6,7 +6,7 @@
 .overview .subtitle{display:none}
 .overview .hero-description{font-size:18px}
 .overview .primary{background:#087f75;border-radius:9px;box-shadow:0 8px 22px #087f7518}
-.scroll-scene{position:relative;padding:0;isolation:isolate}
+.scroll-scene{position:relative;padding:0;isolation:isolate;overflow-anchor:none}
 .scene-sticky{padding:22px 32px 18px;overflow:clip;background:radial-gradient(ellipse at 50% 80%,#dfeaf078,transparent 70%)}
 .stage-heading{max-width:1440px;width:100%;margin:0 auto 20px;display:flex;justify-content:space-between;gap:16px;align-items:center;color:#506574;font-size:13px}
 .stage-heading button{border:0;background:none;color:#286b67;padding:8px;font-size:12px}

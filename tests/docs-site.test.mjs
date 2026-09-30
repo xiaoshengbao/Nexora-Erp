@@ -38,6 +38,7 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.equal(readdirSync(resolve(output, 'sources')).length, 4)
     assert.ok(existsSync(resolve(output, 'assets/webgl-stage.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/scene-geometry.mjs')))
+    assert.match(readFileSync(resolve(output, 'assets/sandbox.css'), 'utf8'), /\.scroll-scene\{[^}]*overflow-anchor:none/)
     const cn = readFileSync(resolve(output, 'zh-CN/development.html'), 'utf8')
     const en = readFileSync(resolve(output, 'en/development.html'), 'utf8')
     for (const text of ['dist:win', 'dist:mac', 'NEXORA_PYTHON', 'PAGES_ENABLED', 'period-closing.md']) {

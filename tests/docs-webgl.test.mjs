@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cubicPoints, trimPath, pointOnPath, ribbonMesh, createWebGLStage } from '../docs/site/webgl-stage.mjs'
 import { sceneAt, cloneReflection, mountScene } from '../docs/site/motion.mjs'
-import { focusLayout, windowGeometry, interpolateWindowPose, connectionEndpoints, projectWindowPoint, sceneBoardHeight } from '../docs/site/scene-geometry.mjs'
+import { focusLayout, windowGeometry, interpolateWindowPose, connectionEndpoints, projectWindowPoint, sceneBoardHeight, advanceMotionClock } from '../docs/site/scene-geometry.mjs'
 
 test('GPU 路径按实际弧长裁切，端点、倒滚和零长度输入保持稳定', () => {
   const path = cubicPoints([0, 0], [20, 50], [80, 50], [100, 0])
@@ -214,4 +214,16 @@ test('最低动态视口按实际说明和按钮高度留空间，所有过渡�
       assert.ok(pose.top >= 0 && pose.pixelHeight <= board - 35)
     }
   }
+})
+
+test('慢帧和后台恢复不会跳过大段切换行程，正常帧保持实际时间', () => {
+  let clock = advanceMotionClock({ elapsed: 0, lastTime: null }, 100)
+  clock = advanceMotionClock(clock, 116)
+  assert.equal(clock.elapsed, 16)
+  clock = advanceMotionClock(clock, 370)
+  assert.equal(clock.elapsed, 50)
+  clock = advanceMotionClock({ ...clock, lastTime: null }, 90000)
+  assert.equal(clock.elapsed, 50)
+  clock = advanceMotionClock(clock, 90016)
+  assert.equal(clock.elapsed, 66)
 })

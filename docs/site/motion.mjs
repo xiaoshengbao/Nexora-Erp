@@ -1,4 +1,4 @@
-import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight } from './scene-geometry.mjs'
+import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight, advanceMotionClock } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
@@ -168,8 +168,8 @@ export function mountScene(doc = document, win = window) {
     frame = 0
     if (disposed || doc.hidden || !onScreen) return
     if (tween) {
-      if (tween.start === null) tween.start = time
-      const elapsed = time - tween.start, lead = Math.min(80, tween.duration * .2)
+      tween.clock = advanceMotionClock(tween.clock, time)
+      const elapsed = tween.clock.elapsed, lead = Math.min(80, tween.duration * .2)
       if (elapsed < lead) {
         linksAlpha = tween.fromAlpha * (1 - ease(elapsed / lead))
         place(); schedule(); return
@@ -207,7 +207,7 @@ export function mountScene(doc = document, win = window) {
     const from = resolvedWindows.map(item => ({ ...item })), fromHeight = board.clientHeight
     const target = focused ? focusLayout(focused) : sceneAt(p).windows
     const toHeight = stageHeight(target)
-    tween = { from, target, to: null, fromAlpha: linksAlpha, fromHeight, toHeight, fromProgress: progress, toProgress: p, start: null, duration }
+    tween = { from, target, to: null, fromAlpha: linksAlpha, fromHeight, toHeight, fromProgress: progress, toProgress: p, clock: { elapsed: 0, lastTime: null }, duration }
     heldPose = false
   }
   const move = (p, key = null, duration = 450) => {
@@ -257,7 +257,10 @@ export function mountScene(doc = document, win = window) {
     }
     syncControls(); schedule()
   }
-  const onVisibility = () => { if (doc.hidden && frame) { win.cancelAnimationFrame(frame); frame = 0 } else schedule() }
+  const onVisibility = () => {
+    if (doc.hidden) { if (tween) tween.clock.lastTime = null; if (frame) { win.cancelAnimationFrame(frame); frame = 0 } }
+    else schedule()
+  }
   const onScroll = () => { if (!manual || staticMode()) schedule() }
   scene.addEventListener('click', onClick)
   scene.addEventListener('sandbox:focus', onFocus)
@@ -283,6 +286,7 @@ export function mountScene(doc = document, win = window) {
   reduced.addEventListener('change', onPreference); mobile.addEventListener('change', onPreference); short.addEventListener('change', onPreference)
   const observer = new win.IntersectionObserver(entries => {
     onScreen = entries[0].isIntersecting
+    if (!onScreen && tween) tween.clock.lastTime = null
     if (!onScreen && frame) { win.cancelAnimationFrame(frame); frame = 0 }
     schedule()
   })

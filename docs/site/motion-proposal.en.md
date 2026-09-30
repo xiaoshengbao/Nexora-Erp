@@ -44,6 +44,10 @@ Expand controls, navigation or source links enlarge the selected window to about
 
 Manual switching measures destination content once and interpolates displayed and target positions, sizes, angles, opacity and stage height. The destination logical layout remains fixed while its canvas scales with the frame edges, returning to uniform scaling at rest. Tables and fitted heights are not recalculated every animation frame. Rapid switches continue from the last displayed pose; editing or pausing holds an interrupted pose. Reflections use DOM clones with current input/select/textarea values and update immediately on edits rather than serializing initial HTML attributes.
 
+Manual transitions advance by at most 34ms per frame: slow frames extend the transition rather than skipping a large displacement. Offscreen/background pauses retain elapsed animation time and resume from the displayed pose. Normal frame rates retain the approximate 450ms / 300ms durations.
+
+Browser scroll anchoring is disabled within the showcase so content-height and focus-layout changes do not shift the page scroll position.
+
 Business data lives in page memory. Same-tab language links transfer data once via sessionStorage, deleting it when consumed. Refresh/reset restores the seed. Navigation remains available without storage, but restarts the demo. Restoration validates versions, document states, IDs, catalog values and payment balances.
 
 ## Implementation boundary
