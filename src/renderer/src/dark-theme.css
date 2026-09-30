@@ -27,9 +27,7 @@
 :root[data-theme='dark'] .role-row small { color: #9aadc5; }
 :root[data-theme='dark'] .permission-catalog-row small { color: #9aadc5; }
 :root[data-theme='dark'] .permission-tree-module { border-color: #33465d; background: #17283e; }
-:root[data-theme='dark'] .permission-tree-expand,
-:root[data-theme='dark'] .permission-catalog-group > summary,
-:root[data-theme='dark'] .permission-catalog-document > summary { color: #d3e4f1; }
+:root[data-theme='dark'] .permission-tree-expand { color: #d3e4f1; }
 :root[data-theme='dark'] .permission-tree-expand small { color: #9aadc5; }
 :root[data-theme='dark'] .permission-tree-children,
 :root[data-theme='dark'] .permission-catalog-document { border-color: #3b5367; }
