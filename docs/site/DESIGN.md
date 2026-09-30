@@ -16,10 +16,7 @@ colors:
   window-surface: "#fbfdff"
   sidebar-surface: "#f7fafc"
   chrome-shade: "#eaf0f5"
-  silver-outer: "#8e9da8"
-  silver-inner: "#8396a5"
-  silver-edge: "#b0bec8"
-  silver-base: "#849aa8"
+  window-frame: "#d6e2e9"
   stage-light: "#dfeaf078"
   placeholder: "#dfe9ef"
   rule: "#d9e0e4"
@@ -38,7 +35,7 @@ typography:
   headline: {fontSize: "clamp(30px, 3.2vw, 45px)", fontWeight: 700, lineHeight: 1.3, letterSpacing: "-.025em"}
   window-title: {fontSize: "36px", lineHeight: 1.2, letterSpacing: "-.025em"}
   body: {fontSize: "16px", lineHeight: 1.9}
-  sandbox: {fontSize: "16px"}
+  sandbox: {fontSize: "16px", lineHeight: 1.45}
   sidebar: {fontSize: "17px"}
   field-label: {fontSize: "15px"}
   table: {fontSize: "15px", lineHeight: 1.5}
@@ -73,7 +70,7 @@ components:
   stage-button: {textColor: "{colors.stage-control-ink}", rounded: "{rounded.step}", padding: "8px 16px"}
   stage-button-selected: {backgroundColor: "{colors.selected}", textColor: "{colors.panel}"}
   demo-window: {rounded: "{rounded.window}"}
-  window-viewport: {rounded: "{rounded.window}", padding: "3px"}
+  window-viewport: {rounded: "{rounded.window}", padding: "1px"}
   receipt-sheet: {backgroundColor: "{colors.panel}", rounded: "{rounded.sheet}", padding: "23px"}
 ---
 
@@ -85,13 +82,13 @@ components:
 
 **Creative North Star: "清晰的业务舞台"**
 
-浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；银边的厚度、同一地面上的阴影与镜像共同表达实体感。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。
+浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；单层细边、同一地面上的阴影与镜像共同表达实体感；取消镀层高光与厚底边。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。
 
 本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。
 
 **Key Characteristics:**
 
-- 独立银白实体窗，GPU 逐层挤出银边，地面阴影、反光与只读内容镜像配合。
+- 独立银白应用窗使用单层细边，GPU 地面阴影、反光与只读内容镜像配合。
 - 三窗共地平线；总览两侧为 30° / −30°，库存中窗为 4°。
 - 应用逻辑画布整体缩放，桌面保留采购、库存、销售、生产、财务、系统文字。
 - HTML 管理业务、表单与焦点；GPU 和镜像只承担视觉。
@@ -109,7 +106,7 @@ teal 用于官网链接与全局焦点，action 用于主行动，action-hover �
 
 paper 是文档纸面，stage 是首页底色，panel 是单据面板。window-surface、sidebar-surface 与 chrome-shade 保留应用内容、侧栏和标题栏的冷白层次；ink、muted 区分正文与说明，rule、field-rule 承担内容分隔和字段边界。
 
-silver-outer 是实体外框的灰银，silver-inner 与 silver-edge 是内银框的暗部和收边，silver-base 是窗底银面；stage-light 是舞台环境光，placeholder 是库存表中的装饰占位条。它们是当前源码中新增材质的实际色值，已在 sidecar 归档 palette advisory 的用途。GPU 金属、来源带和光点颜色由着色器生成，不以单个 CSS 色块代替材质。
+window-frame 是窗口单层 1px 冷灰细边与底线；stage-light 是舞台环境光，placeholder 是库存表中的装饰占位条。移除旧 silver token，sidecar 同步当前细边外观。GPU 来源带和光点颜色由着色器生成。
 
 **The Business Accent Rule.** 品牌色强调操作与来源关系，不替代字段文字。
 
@@ -127,11 +124,11 @@ Inter、Segoe UI、PingFang SC、Microsoft YaHei、sans-serif 是既定现代无
 
 页眉最大 1360px，桌面舞台最大 1440px。滚动场景为 340vh，粘性区域为 100svh、最小 620px。窗口区初始采用 calc(100svh - 220px)，最大 650px；进入总览时 JS 随窗口状态调整舞台高度。HTML 与 GPU 共用 scene-geometry.mjs，透视距离为 1400px，投影原点在各窗底部中心；窗下沿统一落在舞台底部上方 35px。
 
-初始入库的逻辑画布为 1100 × 590；总览的入库、库存、财务分别为 600 × 570、1000 × 585、600 × 550。初始入库的目标占宽为 85%，双窗目标占宽为 40% / 59%，三窗为 29% / 46% / 29%；这些是布局意图，实际宽度同时受可用高度及透视近侧限制。窗口保留逻辑宽高比，整体等比缩放，不将桌面界面挤成窄表单。
+初始入库的最小逻辑画布为 1100 × 590；总览的入库、库存、财务分别为 600 × 570、1000 × 585、600 × 550。初始入库的目标占宽为 85%，双窗目标占宽为 40% / 59%，三窗为 29% / 46% / 29%；这些是布局意图，实际宽度同时受可用高度及透视近侧限制。窗口保留逻辑宽高比，整体等比缩放，不将桌面界面挤成窄表单。
 
-聚焦窗归正至 0°，逻辑宽统一为 1000px；入库、库存、财务的逻辑高度分别为 720px、650px、680px。目标占宽仍为 85%，高度不足时等比缩小。其余窗移向两侧、透明度降至 .25，并退出交互。财务仅在启用桌面动态且聚焦时将来源摘要与付款表单分为两列；静态、手机与减少动态模式保持纵向布局。
+聚焦窗归正至 0°，逻辑宽统一为 1000px；入库、库存、财务的最小逻辑高度分别为 720px、650px、680px。实际高度按当前页内容、展开明细和字段错误适配，加上标题栏/窗底 43px，再沿同一镜头整体缩放。目标占宽仍为 85%，高度不足时等比缩小。其余窗移向两侧、透明度降至 .25，并退出交互。财务仅在启用桌面动态且聚焦时将来源摘要与付款表单分为两列；静态、手机与减少动态模式保持纵向布局。
 
-桌面侧栏保持 148px，紧凑总览为 145px，并保留全部业务名称。仅在 760px 以下变为 40px 图标栏；手机窗口最大 600px、间距 54px，取消固定行程，表格在窗内横向滚动。减少动态模式同样取消透视及固定行程，纵向舞台最大 1100px。
+桌面侧栏保持 148px，紧凑总览为 145px，并保留全部业务名称。仅在 760px 以下变为 40px 图标栏；手机窗口最大 600px、间距 54px，取消固定行程，表格变为带字段名的行卡片，长列表分页；只有页面自然滚动，窗口不建立横向或纵向滚动容器。减少动态模式同样取消透视及固定行程，纵向舞台最大 1100px。
 
 文档最大 1210px，230px 目录、最大 840px 正文、70px 列距。1100px 以下为 190px 目录、35px 列距；720px 以下单列。打印恢复顺序内容流并隐藏画布、连线与镜像。
 
@@ -139,29 +136,29 @@ Inter、Segoe UI、PingFang SC、Microsoft YaHei、sans-serif 是既定现代无
 
 ## Elevation & Depth
 
-桌面原生 WebGL 使用两块透明画布。下层绘制深度为 −14、−10、−6、−2 的逐层银框侧面、地面接触阴影与反光；上层以三角带绘制柔边来源线和光点。窗口内容仍是 HTML。画布 pointer-events:none 且 aria-hidden，不截获输入；父舞台保持 transform-style:flat，子窗使用底部中心的 perspective 与 rotateY。
+桌面原生 WebGL 使用两块透明画布。下层仅绘制地面接触阴影与反光，取消逐层银框和金属高光；上层以三角带绘制柔边来源线和光点。窗口内容仍是 HTML。画布 pointer-events:none 且 aria-hidden，不截获输入；父舞台保持 transform-style:flat，子窗使用底部中心的 perspective 与 rotateY。
 
-内容镜像是窗口 viewport 的只读 HTML 复制，随业务 render 更新；移除 data-*、id、name、tabindex，镜像容器 aria-hidden、inert，且 pointer-events:none。镜像在窗下方翻转、模糊并渐隐，提供当前内容的倒影；GPU 反光作为地面材质补充，两者都不承载第二份交互。
+内容镜像是窗口 viewport 的只读 HTML 复制，随业务 render 或明细 toggle 更新；移除 data-*、id、name、tabindex，镜像容器 aria-hidden、inert，且 pointer-events:none。镜像在窗下方翻转、模糊并渐隐，提供当前内容的倒影；GPU 反光作为地面材质补充，两者都不承载第二份交互。
 
-聚焦时来源线退至窗后（z-index 1、opacity .4），目标窗为 z-index 3，避免覆盖表单。CSS 窗口仍保留轻阴影（0 2px 3px #3d566459,0 18px 28px #29434f20）；GPU 失效时银边渐变与这份阴影继续提供窗口外观。首页主行动使用柔和阴影（0 8px 22px #087f7518），文档依靠浅色层次与分隔线组织阅读。
+聚焦时来源线退至窗后（z-index 1、opacity .4），目标窗为 z-index 3，避免覆盖表单。CSS 窗口仍保留轻阴影（0 2px 3px #3d566429,0 18px 28px #29434f18）；GPU 失效时单层细边与这份阴影继续提供窗口外观。首页主行动使用柔和阴影（0 8px 22px #087f7518），文档依靠浅色层次与分隔线组织阅读。
 
 **The Purposeful Depth Rule.** 空间感解释窗口关系，编辑时保证可点击与可读，文档保持平面阅读。
 
 ## Shapes
 
-实体窗与内 viewport 使用柔和圆角（14px）；标题栏上角（11px）、内容下角（10px）与底部银面下角（12px）组成同一轮廓。单据面板（8px）、字段、业务按钮和状态（5px）、侧栏选择（6px）保持软件界面的紧凑感。首页行动（9px）、步骤按钮（22px）、轨道（26px）与表格占位条（3px）按各自用途区分。边框通常为 1px；GPU 圆角材质独立实现。
+实体窗与内 viewport 使用柔和圆角（14px）；标题栏上角（11px）、内容下角（10px）与1px 底线下角（12px）组成同一轮廓。单据面板（8px）、字段、业务按钮和状态（5px）、侧栏选择（6px）保持软件界面的紧凑感。首页行动（9px）、步骤按钮（22px）、轨道（26px）与表格占位条（3px）按各自用途区分。边框通常为 1px；窗口 viewport 仅 1px padding，底线仅 1px 高，不再叠加角部镀层。
 
-底部银面的 12px、内标题栏的 11px 和占位条的 3px 是当前源码中的实际 radius advisory，随用途归档，不将它们当成全站新增圆角档位的建议。
+底线的 12px、内标题栏的 11px 和占位条的 3px 是当前源码中的实际 radius advisory，随用途归档，不将它们当成全站新增圆角档位的建议。
 
 ## Components
 
 ### Buttons and Fields
 
-桌面逻辑画布内，普通沙盒按钮最小高 38px、字段最小高 39px；主按钮实心青绿、次按钮白底，禁用 opacity .5。字段焦点为 2px、外扩 1px；全局键盘焦点为 3px 青绿、外扩 5px。错误关联 aria-invalid、说明文本与状态播报；主动来源导航结束后聚焦目标标题，输入获得焦点冻结镜头，未出现、离开舞台或聚焦后退到两侧的桌面窗 inert 且 aria-hidden。较多物料与付款记录可在窗口内容区正常滚动。
+桌面逻辑画布内，普通沙盒按钮最小高 38px、字段最小高 39px；主按钮实心青绿、次按钮白底，禁用 opacity .5。字段焦点为 2px、外扩 1px；全局键盘焦点为 3px 青绿、外扩 5px。错误关联 aria-invalid、说明文本与状态播报；主动来源导航结束后聚焦目标标题，输入获得焦点冻结镜头，未出现、离开舞台或聚焦后退到两侧的桌面窗 inert 且 aria-hidden。较多记录使用分页：物料及应付明细每页 2 行，库存流水每页 4 行，余额/付款记录每页 3 行。添加行打开末页，校验失败定位错误所在页，删除/筛选后的页码自动收敛；所有合计始终使用完整业务数据。默认示例和展开操作均不建立内部滚动容器。
 
 ### Application Navigation
 
-采购、库存、财务按钮进入对应窗口的聚焦操作。销售、生产、系统是应用上下文标签，保留文字与图标但不可点击；不为演示添加不存在的业务入口。静态和手机模式的跳转滚动至对应窗，不附加桌面聚焦的两列样式。
+采购、库存、财务按钮进入对应窗口的聚焦操作。销售、生产、系统是应用上下文标签，保留文字与图标但不可点击；不为演示添加不存在的业务入口。静态和手机模式的跳转滚动至对应窗，不附加桌面聚焦的两列样式。手机图标按钮保留 aria-label。
 
 ### Business Sandbox
 

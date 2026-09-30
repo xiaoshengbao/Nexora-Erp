@@ -6,7 +6,7 @@ This describes the implemented light website showcase. It uses local sample data
 
 ## Windows and scrolling
 
-Three independent application windows retain sidebars, toolbars, tables, silver edges and subtle reflections. The desktop scene spans about 340vh with a viewport-height sticky stage. The main headline leaves through normal page scrolling. A single progress mapping controls the scene; reverse scrolling and direct jumps never perform business operations.
+Three independent application windows retain sidebars, toolbars, tables, single 1px cool-gray edges and subtle reflections. The desktop scene spans about 340vh with a viewport-height sticky stage. The main headline leaves through normal page scrolling. A single progress mapping controls the scene; reverse scrolling and direct jumps never perform business operations.
 
 | Progress | Composition and connection |
 | --- | --- |
@@ -19,9 +19,9 @@ Three independent application windows retain sidebars, toolbars, tables, silver 
 | 85–95% | Reverse nodes trace finance → inventory → receipt. |
 | 95–100% | Completed relationship holds, then the sticky stage naturally releases into feature/progress content. |
 
-Desktop uses native WebGL. The GPU projects and extrudes silver frames, with shaders producing metallic highlights, contact shadows and floor lighting. A second transparent canvas renders teal connection ribbons and traveling nodes. HTML windows and the GPU share a 1400px perspective and a projection origin at the window base. Forms remain native interactive controls, and canvases never intercept pointer events.
+Desktop uses native WebGL. The GPU renders contact shadows and floor lighting. Frames use clean CSS edges without static plating or corner highlights. A second transparent canvas renders teal connection ribbons and traveling nodes. HTML windows and the GPU share a 1400px perspective and a projection origin at the window base. Forms remain native interactive controls, and canvases never intercept pointer events.
 
-In the overview, receipt/stock/finance use logical canvases of 600×570, 1000×585 and 600×550. Entire windows scale together, retaining text navigation on desktop. Side windows have opposing 30° angles; stock uses 4°. Sloping top edges and a common baseline establish the camera geometry. Height follows aspect ratio rather than viewport height. The first receipt uses 1100×590; focused views use a 1000px logical width, fitting available height uniformly. Read-only mirrors of actual HTML update on business renders and fade below the windows; they receive no keyboard focus, business events or source queries.
+In the overview, receipt/stock/finance use minimum logical canvases of 600×570, 1000×585 and 600×550. Entire windows scale together, retaining text navigation on desktop. Side windows have opposing 30° angles; stock uses 4°. Sloping top edges and a common baseline establish the camera geometry. Height follows aspect ratio rather than viewport height. The first receipt uses 1100×590; focused views use a 1000px logical width, fitting available height uniformly. Read-only mirrors of actual HTML update on business renders and fade below the windows; they receive no keyboard focus, business events or source queries.
 
 Overview retains document selection, creation, the full initial line, total and copy action. Finance shows its source, payable/paid/remaining amounts, line summary and an expand-to-pay action. Detailed filters and payment forms appear in the expanded window. Only dynamic desktop finance focus uses two columns; mobile and reduced motion remain vertical. Blank inventory bars are visual placeholders, not additional movement records.
 
@@ -36,6 +36,8 @@ Paths follow actual transformed source anchors. Inventory paths meet row edges r
 - Drafts create no stock or payable records. Confirmation is one pure state transition and cannot repeat. Payments only change paid/remaining amounts and payment history.
 - Quantities use three fixed decimals; unit prices and payments use two. Round each line to cents before summing. Overflow, invalid dates and invalid numbers are rejected without replacing the previous business state.
 
+Long records use pagination: 2 rows for receipt/payable lines, 4 for stock movements, and 3 for balances/payment history. Page numbers belong to presentation state; totals, confirmation and balances use all business records. Adding a material opens the last page. Confirmation reveals and focuses invalid fields on another page; removal/filtering clamps out-of-range pages. Desktop layout measures actual content, including expanded details and errors, before scaling windows and paths together. There are no internal scrolling containers. Overview keeps material, quantity and price; line amounts and removal controls appear in the expanded window.
+
 ## Focus, pause and data lifetime
 
 Expand controls, navigation or source links enlarge the selected window to about 85% width over approximately 450ms, moving other windows to the sides. Manual mode prevents scrolling from replacing the current view. Input focus freezes the camera. Overview shows the three windows; Resume scroll aligns to current progress over about 300ms. Step buttons enter manual mode; exploring never requires completing business tasks.
@@ -47,18 +49,18 @@ Business data lives in page memory. Same-tab language links transfer data once v
 | File | Responsibility |
 | --- | --- |
 | `sandbox.mjs` | Pure business model, fixed-point amounts, derived stock/payables and transfer validation. |
-| `sandbox-ui.mjs` | Bilingual HTML, forms, filters, source navigation and local language transfer. |
-| `scene-geometry.mjs` | Sequential layouts, logical canvas sizes, base projection and pure geometry shared by HTML/GPU. |
+| `sandbox-ui.mjs` | Bilingual HTML, forms, filters, record pagination, source navigation and local language transfer. |
+| `scene-geometry.mjs` | Sequential layouts, logical canvas sizes, content-height fitting, base projection and pure geometry shared by HTML/GPU. |
 | `motion.mjs` | Sequential entry, focus, pause/resume, paths and media preferences. |
-| `webgl-stage.mjs` | GPU projection, metallic frames, shadows/reflections, ribbon paths, nodes and context recovery. |
+| `webgl-stage.mjs` | GPU shadows/floor reflections, ribbon paths, nodes and context recovery. |
 | `sandbox.css` | Logical canvases, overview/focus styles, mirrors, mobile and print. |
 
 Native controls support keyboard interaction. Errors are linked to fields and results announced in a status region. Hidden/receded windows cannot take focus. Demand-driven requestAnimationFrame batches updates, with no continuous loop while idle, off-screen or hidden. Teardown removes listeners and observers.
 
 WebGL initializes on the first dynamic desktop frame. Pixel density is capped at 2 and constrained by GPU renderbuffer limits. Initialization/shader failure or context loss immediately retains the HTML/CSS/SVG view without resetting business data. Context restoration rebuilds resources and requests a frame from current state; teardown releases programs and buffers. See the [WebGL interface](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext) and [context-loss testing extension](https://developer.mozilla.org/en-US/docs/Web/API/WEBGL_lose_context).
 
-Mobile uses vertically stacked windows with a subtle visibility reveal and no sticky stage. All business operations remain available; wide tables scroll inside their windows. Reduced motion removes movement/perspective while retaining interaction and static links. Without JavaScript, static examples and documentation remain readable; demo controls do not perform operations.
+Mobile uses vertically stacked windows with a subtle visibility reveal and no sticky stage. All business operations remain available; tables become labeled row cards, using pagination and natural page scrolling with no internal horizontal or vertical scrollbars. Reduced motion removes movement/perspective while retaining interaction and static links. Without JavaScript, static examples and documentation remain readable; demo controls do not perform operations.
 
 ## Verification
 
-Automated coverage includes multiple materials/warehouses, rounding, duplicate confirmation, immutable confirmed documents, partial/excess payments, failure atomicity, language restoration, stage boundaries, reverse scrolling, direct jumps, projected top-edge slopes/aspects/common baseline and focus geometry. Browser acceptance covers both languages, 1505×1045 reference viewport, the actual 1015×1039 user viewport, and 390px mobile, focused forms, tracing, pause/resume, reduced motion and no-script reading. Continuous scroll capture is stored in the task preview directory, not committed with the website.
+Automated coverage includes multiple materials/warehouses, rounding, duplicate confirmation, immutable confirmed documents, partial/excess payments, failure atomicity, language restoration, stage boundaries, reverse scrolling, direct jumps, projected top-edge slopes/aspects/common baseline, focus geometry, pagination/global indices/full totals, page clamping and content-height fitting. Browser acceptance covers both languages, 1505×1045 reference viewport, the actual 1015×1039 user viewport, and 390px mobile, focused forms, tracing, pause/resume, reduced motion and no-script reading. The latest clean-frame/no-internal-scroll checks cover 1490×1035, 1015×1039, 390px, five materials, errors on other pages, four partial payments, expanded details, keyboard operation and language-state retention. Actual content dimensions are checked against available dimensions instead of merely hiding scrollbars. Earlier continuous scroll capture is stored in the task preview directory, not committed with the website.

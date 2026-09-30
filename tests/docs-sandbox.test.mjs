@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { initialState, transition, movements, balances, sources, decimal, lineTotal, restoreState } from '../docs/site/sandbox.mjs'
 import { sceneAt, focusLayout, mountScene, intersectsStage } from '../docs/site/motion.mjs'
-import { windowGeometry, projectWindowPoint } from '../docs/site/scene-geometry.mjs'
-import { sandboxMarkup, money } from '../docs/site/sandbox-ui.mjs'
+import { windowGeometry, projectWindowPoint, fitWindowContent } from '../docs/site/scene-geometry.mjs'
+import { sandboxMarkup, sandboxBody, pageItems, money } from '../docs/site/sandbox-ui.mjs'
 
 test('草稿、跨仓库多物料与确认只生成一次库存和应付，失败不污染原状态', () => {
   const original = initialState()
@@ -156,4 +156,61 @@ test('聚焦画布可读、投影平展，快速跳滚不会改变逻辑表格�
     assert.equal(stock.logicalHeight, 585)
     assert.equal(stock.pixelWidth / stock.logicalWidth, stock.scale)
   }
+})
+
+test('分页保留全局行号，删除或筛选后越界页回到有效页，不修改列表', () => {
+  const items = ['A', 'B', 'C', 'D', 'E']
+  const second = pageItems(items, 1, 2)
+  assert.deepEqual(second.rows, [{ item: 'C', index: 2 }, { item: 'D', index: 3 }])
+  assert.equal(second.total, 5)
+  assert.deepEqual(pageItems(items.slice(0, 1), 99, 2).rows, [{ item: 'A', index: 0 }])
+  assert.equal(pageItems([], 99).page, 0)
+  assert.equal(pageItems(items, NaN).page, 0)
+  assert.equal(pageItems(items, -3).page, 0)
+  assert.throws(() => pageItems(items, 0, 0), RangeError)
+  assert.deepEqual(items, ['A', 'B', 'C', 'D', 'E'])
+})
+
+test('多物料与付款分页不截断合计，编辑索引及来源追溯仍指向原记录', () => {
+  let state = transition(initialState(), { type: 'copy' })
+  for (let i = 0; i < 4; i++) state = transition(state, { type: 'addLine' })
+  state = transition(state, { type: 'edit', field: 'price', index: 4, value: '99.99' })
+  const unchanged = structuredClone(state)
+  for (const lang of ['zh-CN', 'en']) {
+    const receipt = sandboxBody('receipt', state, lang, undefined, undefined, { receipt: 2 })
+    assert.match(receipt, /data-edit="price" data-index="4"/)
+    assert.doesNotMatch(receipt, /data-index="0"/)
+    assert.match(receipt, /¥249.99/)
+    assert.match(receipt, /3 \/ 3 · 5/)
+  }
+  assert.deepEqual(state, unchanged)
+  state = transition(state, { type: 'post' })
+  for (let i = 0; i < 4; i++) state = transition(state, { type: 'pay', amount: '1.00' })
+  for (const lang of ['zh-CN', 'en']) {
+    const stock = sandboxBody('stock', state, lang, undefined, undefined, { stock: 1 })
+    assert.match(stock, /data-anchor="stock"/)
+    assert.match(stock, new RegExp(`data-id="${state.selectedId}"`))
+    const finance = sandboxBody('finance', state, lang, undefined, undefined, { source: 2, payment: 1 })
+    assert.match(finance, /¥249.99/)
+    assert.match(finance, /¥245.99/)
+    assert.match(finance, /PAY-4/)
+    assert.doesNotMatch(finance, /PAY-1/)
+    assert.match(finance, /3 \/ 3 · 5/)
+    assert.match(finance, /2 \/ 2 · 4/)
+  }
+  assert.equal(movements(state).length, 6)
+  assert.equal(state.payments.length, 4)
+})
+
+test('内容适配保留默认比例，展开明细或错误提示时完整投影且不改原镜头', () => {
+  const layout = focusLayout('receipt')[0]
+  assert.deepEqual(fitWindowContent(layout, 400), layout)
+  assert.deepEqual(fitWindowContent(layout, NaN), layout)
+  const fitted = fitWindowContent(layout, 850.5)
+  assert.equal(fitted.logicalHeight, 894)
+  assert.equal(layout.logicalHeight, 720)
+  const geometry = windowGeometry(fitted, 951, 650)
+  assert.ok(geometry.top >= 0)
+  assert.ok(geometry.pixelHeight <= 615)
+  assert.equal(geometry.logicalWidth, layout.logicalWidth)
 })

@@ -1,4 +1,4 @@
-import { sceneAt, focusLayout, windowGeometry, perspective } from './scene-geometry.mjs'
+import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
@@ -44,7 +44,7 @@ export function mountScene(doc = document, win = window) {
       const element = board.querySelector(`[data-anchor="${key}"]`)
       if (!element) return null
       const rect = element.getBoundingClientRect(), pane = element.closest('.sandbox-content').getBoundingClientRect()
-      // 超出内部滚动区域的行不绘线，避免将线连到被裁掉的内容。
+      // 只连接当前页实际可见的来源，不把线连向未展示记录。
       if (rect.bottom < pane.top || rect.top > pane.bottom) return null
       const edge = key === 'stock' ? element.closest('tr').getBoundingClientRect() : rect
       return { x: Math.min(edge.right, pane.right) - root.left, y: rect.top + rect.height / 2 - root.top, left: Math.max(edge.left, pane.left) - root.left }
@@ -89,7 +89,7 @@ export function mountScene(doc = document, win = window) {
     if (!staticMode()) board.style.height = `${lerp(Math.min(win.innerHeight - 220, 650), Math.max(360, Math.min(540, width * .34 + 30)), compact)}px`
     else board.style.height = ''
     resolvedWindows = layout.map(item => windowGeometry(item, width, board.clientHeight))
-    windows.forEach((el, index) => {
+    const placeWindow = (el, index) => {
       const item = resolvedWindows[index]
       if (staticMode()) { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden') }
       else {
@@ -107,7 +107,18 @@ export function mountScene(doc = document, win = window) {
       }
       el.classList.toggle('is-focused', !staticMode() && focused === keys[index])
       el.classList.toggle('is-compact', !staticMode() && item.compact > .5)
-    })
+    }
+    windows.forEach(placeWindow)
+    if (!staticMode()) {
+      // 先落实逻辑宽度和展示样式，再按内容末端计算完整高度，避免隐藏溢出来伪装无滚动条。
+      renderedWindows = layout.map((item, index) => {
+        const pane = windows[index].querySelector('[data-content]')
+        const bottom = Math.max(0, ...[...pane.children].map(child => child.offsetHeight ? child.offsetTop - pane.offsetTop + child.offsetHeight : 0))
+        return fitWindowContent(item, bottom + parseFloat(win.getComputedStyle(pane).paddingBottom))
+      })
+      resolvedWindows = renderedWindows.map(item => windowGeometry(item, width, board.clientHeight))
+      windows.forEach(placeWindow)
+    }
     const stage = focused ? keys.indexOf(focused) : sceneAt(progress).stage
     if (lastStage !== stage) {
       buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === stage)))
@@ -190,7 +201,11 @@ export function mountScene(doc = document, win = window) {
   scene.addEventListener('click', onClick)
   scene.addEventListener('sandbox:focus', onFocus)
   const onRender = () => { refreshReflections(); schedule() }
+  const onDetails = event => {
+    if (!event.target.closest('.window-reflection')) { refreshReflections(); schedule() }
+  }
   scene.addEventListener('sandbox:render', onRender)
+  scene.addEventListener('toggle', onDetails, true)
   scene.addEventListener('focusin', onInputFocus)
   scene.addEventListener('scroll', schedule, true)
   win.addEventListener('scroll', onScroll, { passive: true })
@@ -216,6 +231,7 @@ export function mountScene(doc = document, win = window) {
     if (frame) win.cancelAnimationFrame(frame)
     observer.disconnect(); reveals.disconnect(); sandbox.destroy(); graphics.destroy()
     scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', onRender)
+    scene.removeEventListener('toggle', onDetails, true)
     scene.removeEventListener('focusin', onInputFocus); scene.removeEventListener('scroll', schedule, true)
     win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', schedule); doc.removeEventListener('visibilitychange', onVisibility)
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference)

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T18:28:59.510Z",
+  "generatedAt": "2026-09-30T19:27:59.486182+00:00",
   "title": "Design System: Nexora ERP 官网",
   "extensions": {
     "colorMeta": {
@@ -200,62 +200,6 @@
           "oklch(95% 0.0093 242.84)"
         ]
       },
-      "silver-outer": {
-        "role": "neutral",
-        "displayName": "实体外框灰银",
-        "tonalRamp": [
-          "oklch(15% 0.0236 239.60)",
-          "oklch(26% 0.0236 239.60)",
-          "oklch(37% 0.0236 239.60)",
-          "oklch(49% 0.0236 239.60)",
-          "oklch(61% 0.0236 239.60)",
-          "oklch(73% 0.0236 239.60)",
-          "oklch(85% 0.0236 239.60)",
-          "oklch(95% 0.0236 239.60)"
-        ]
-      },
-      "silver-inner": {
-        "role": "neutral",
-        "displayName": "内银框暗部",
-        "tonalRamp": [
-          "oklch(15% 0.0311 241.84)",
-          "oklch(26% 0.0311 241.84)",
-          "oklch(37% 0.0311 241.84)",
-          "oklch(49% 0.0311 241.84)",
-          "oklch(61% 0.0311 241.84)",
-          "oklch(73% 0.0311 241.84)",
-          "oklch(85% 0.0311 241.84)",
-          "oklch(95% 0.0311 241.84)"
-        ]
-      },
-      "silver-edge": {
-        "role": "neutral",
-        "displayName": "内银框收边",
-        "tonalRamp": [
-          "oklch(15% 0.0210 238.75)",
-          "oklch(26% 0.0210 238.75)",
-          "oklch(37% 0.0210 238.75)",
-          "oklch(49% 0.0210 238.75)",
-          "oklch(61% 0.0210 238.75)",
-          "oklch(73% 0.0210 238.75)",
-          "oklch(85% 0.0210 238.75)",
-          "oklch(95% 0.0210 238.75)"
-        ]
-      },
-      "silver-base": {
-        "role": "neutral",
-        "displayName": "窗底银面",
-        "tonalRamp": [
-          "oklch(15% 0.0324 235.91)",
-          "oklch(26% 0.0324 235.91)",
-          "oklch(37% 0.0324 235.91)",
-          "oklch(49% 0.0324 235.91)",
-          "oklch(61% 0.0324 235.91)",
-          "oklch(73% 0.0324 235.91)",
-          "oklch(85% 0.0324 235.91)",
-          "oklch(95% 0.0324 235.91)"
-        ]
-      },
       "stage-light": {
         "role": "neutral",
         "displayName": "舞台环境光",
@@ -438,6 +382,20 @@
           "oklch(85% 0.1569 23.05)",
           "oklch(95% 0.1569 23.05)"
         ]
+      },
+      "window-frame": {
+        "role": "neutral",
+        "displayName": "单层冷灰窗边",
+        "tonalRamp": [
+          "oklch(15% 0.0161 233.04)",
+          "oklch(26% 0.0161 233.04)",
+          "oklch(37% 0.0161 233.04)",
+          "oklch(49% 0.0161 233.04)",
+          "oklch(61% 0.0161 233.04)",
+          "oklch(73% 0.0161 233.04)",
+          "oklch(85% 0.0161 233.04)",
+          "oklch(95% 0.0161 233.04)"
+        ]
       }
     },
     "typographyMeta": {
@@ -470,7 +428,7 @@
       },
       "table": {
         "displayName": "业务表格",
-        "purpose": "等宽数字；手机11px并在窗内横向滚动。"
+        "purpose": "等宽数字；手机11px，带字段名的行卡片与分页。"
       },
       "amount": {
         "displayName": "应付金额",
@@ -488,7 +446,7 @@
     "shadows": [
       {
         "name": "window-css-surface",
-        "value": "0 2px 3px #3d566459,0 18px 28px #29434f20",
+        "value": "0 2px 3px #3d566429,0 18px 28px #29434f18",
         "purpose": "当前实体窗HTML阴影；GPU可用与失效时均保留。"
       },
       {
@@ -585,30 +543,24 @@
         "rotation": 0,
         "targetWidthFraction": 0.85
       },
-      "fitting": "按逻辑宽高比整体缩放；目标占宽同时受可用高度与透视近侧限制。",
+      "fitting": "分页控制记录数量；实际逻辑高度=max(镜头最小高度,内容末端含padding+43px)；按可用高度与透视近侧限制整体缩放。",
       "financeColumns": "仅.motion-enabled .is-focused.finance-panel；静态/手机/减少动态保持纵向。",
-      "sidebar": "桌面148px、紧凑145px，保留文字；760px以下40px图标栏。"
+      "sidebar": "桌面148px、紧凑145px，保留文字；760px以下40px图标栏。 手机图标按钮保留aria-label。"
     },
     "renderer": {
       "source": "webgl-stage.mjs",
       "scope": "docs/site",
       "layers": [
-        "GPU下层逐层挤出银边/地面阴影/反光",
+        "GPU下层地面接触阴影/反光；CSS单层1px细边",
         "HTML业务窗口与只读内容镜像",
         "GPU上层来源带/节点；聚焦退至HTML后"
-      ],
-      "extrusionDepths": [
-        -14,
-        -10,
-        -6,
-        -2
       ],
       "input": "canvas pointer-events:none; aria-hidden:true",
       "pixelDensity": "max 2; limited by MAX_RENDERBUFFER_SIZE",
       "initialization": "首次桌面动态绘制；手机/reduced不初始化",
       "reflection": {
         "source": "motion.mjs refreshReflections",
-        "refresh": "sandbox:render",
+        "refresh": "sandbox:render或原窗口明细toggle",
         "stripAttributes": [
           "data-*",
           "id",
@@ -625,23 +577,11 @@
       "componentPreview": "自包含HTML/CSS外观；不运行WebGL或业务状态机，不代表整站验收。"
     },
     "advisoryArchive": {
-      "source": "本轮detector提示与实际sandbox.css；按用户批准的银白实体窗口归档。",
+      "source": "沿用此前字体选择与检测归档；按当前用户要求移除镀层并同步实际sandbox.css。",
       "palette": [
         {
-          "token": "silver-outer",
-          "purpose": "实体外框"
-        },
-        {
-          "token": "silver-inner",
-          "purpose": "内银框暗部"
-        },
-        {
-          "token": "silver-edge",
-          "purpose": "内银框收边"
-        },
-        {
-          "token": "silver-base",
-          "purpose": "窗底银面"
+          "token": "window-frame",
+          "purpose": "单层1px细边与底线；旧镀层已移除"
         },
         {
           "token": "stage-light",
@@ -655,7 +595,7 @@
       "radius": [
         {
           "token": "window-base",
-          "purpose": "窗底银面下角"
+          "purpose": "1px底线下角"
         },
         {
           "token": "window-chrome",
@@ -673,6 +613,15 @@
       },
       "disposition": "忠实记录当前材质用途；未因检测提示改换已批准世界。",
       "verification": "以当前源码为准；此次规范刷新不等于整站视觉验收通过。"
+    },
+    "pagination": {
+      "receipt": 2,
+      "source": 2,
+      "stock": 4,
+      "balance": 3,
+      "payment": 3,
+      "state": "仅展示页码；计算与提交使用完整业务数据",
+      "errors": "确认失败自动定位对应页"
     }
   },
   "components": [
@@ -736,9 +685,9 @@
       "name": "银白实体窗的CSS外观",
       "kind": "custom",
       "refersTo": "demo-window",
-      "description": "当前银边、标题栏和窗底的自包含静态外观；完整桌面厚度、地面光影与来源带由WebGL实现，此预览不初始化GPU。",
+      "description": "当前单层1px冷灰细边与标题栏的自包含静态外观；地面光影和来源带由WebGL绘制，此预览不初始化GPU。",
       "html": "<section class=\"ds-window\"><div class=\"ds-viewport\"><div class=\"ds-chrome\"><span class=\"ds-lights\" aria-hidden=\"true\"><i></i><i></i><i></i></span><span>Nexora ERP</span><span class=\"ds-demo\">交互演示</span></div><div class=\"ds-window-body\"><h2>采购入库</h2><p>DEMO-001 · 库存 +12 · 应付 ¥120.00</p></div><div class=\"ds-base\" aria-hidden=\"true\"></div></div></section>",
-      "css": ".ds-window{font-family:Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;position:relative;border-radius:14px;transform-origin:50% 100%;background:linear-gradient(110deg,#8e9da8,#fff 2%,#c7d2d9 3%,#fafdff 5%,#fff 96%,#9dafbb);box-shadow:0 2px 3px #3d566459,0 18px 28px #29434f20}.ds-viewport{padding:3px;border-radius:14px;overflow:hidden;background:linear-gradient(110deg,#8396a5,#fff 1%,#becdd5 2%,#fff 3%,#e8f0f6 97%,#b0bec8)}.ds-chrome{height:40px;display:flex;align-items:center;gap:12px;padding:0 16px;background:linear-gradient(#fbfdff,#eaf0f5);border-radius:11px 11px 0 0;border-bottom:1px solid #d6e2e9;font-size:13px;color:#354955}.ds-lights{display:flex;gap:7px;margin-right:8px}.ds-lights i{width:11px;height:11px;border-radius:50%;background:#ff655b;box-shadow:inset 0 0 0 1px #00000012}.ds-lights i:nth-child(2){background:#f5bf4f}.ds-lights i:nth-child(3){background:#48c775}.ds-demo{margin-left:auto;color:#536675}.ds-window-body{padding:28px 30px 24px;background:#fbfdff;color:#203440;border-radius:0 0 10px 10px;font-size:16px}.ds-window-body h2{font-size:36px;line-height:1.2;letter-spacing:-.025em;margin:0 0 24px}.ds-base{height:4px;background:linear-gradient(90deg,#758994,#fff 15%,#d1dbe1 85%,#849aa8);border-radius:0 0 12px 12px}"
+      "css": ".ds-window{font-family:Inter,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;position:relative;border-radius:14px;transform-origin:50% 100%;background:#d6e2e9;box-shadow:0 2px 3px #3d566429,0 18px 28px #29434f18}.ds-viewport{padding:1px;border-radius:14px;overflow:hidden;background:#d6e2e9}.ds-chrome{height:40px;display:flex;align-items:center;gap:12px;padding:0 16px;background:linear-gradient(#fbfdff,#eaf0f5);border-radius:11px 11px 0 0;border-bottom:1px solid #d6e2e9;font-size:13px;color:#354955}.ds-lights{display:flex;gap:7px;margin-right:8px}.ds-lights i{width:11px;height:11px;border-radius:50%;background:#ff655b;box-shadow:inset 0 0 0 1px #00000012}.ds-lights i:nth-child(2){background:#f5bf4f}.ds-lights i:nth-child(3){background:#48c775}.ds-demo{margin-left:auto;color:#536675}.ds-window-body{padding:28px 30px 24px;background:#fbfdff;color:#203440;border-radius:0 0 10px 10px;font-size:16px}.ds-window-body h2{font-size:36px;line-height:1.2;letter-spacing:-.025em;margin:0 0 24px}.ds-base{height:1px;background:#d6e2e9;border-radius:0 0 12px 12px}"
     },
     {
       "name": "应用侧栏",
@@ -757,9 +706,9 @@
   ],
   "narrative": {
     "northStar": "清晰的业务舞台",
-    "overview": "浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；银边的厚度、同一地面上的阴影与镜像共同表达实体感。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。\n\n本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。",
+    "overview": "浅色舞台、银白实体应用窗、现代无衬线文字与青绿来源关系共同解释业务。窗口保持独立软件界面的宽高与桌面侧栏，整体缩小后形成明显透视；单层细边、同一地面上的阴影与镜像共同表达实体感；取消镀层高光与厚底边。保留用户批准的浅色方向与 Inter 字体，不恢复此前浅角度、窄长三列的构图。\n\n本规范覆盖当前 WebGL 视觉层、原生 HTML 业务沙盒与平实文档。Nexora/联光 ERP 名称及品牌资源沿用项目资产；官网支持中英文，本地演示不连接 ERP 服务，也不代表桌面应用已支持双语。",
     "keyCharacteristics": [
-      "独立银白实体窗，GPU 逐层挤出银边，地面阴影、反光与只读内容镜像配合。",
+      "独立银白应用窗使用单层细边，GPU 地面阴影、反光与只读内容镜像配合。",
       "三窗共地平线；总览两侧为 30° / −30°，库存中窗为 4°。",
       "应用逻辑画布整体缩放，桌面保留采购、库存、销售、生产、财务、系统文字。",
       "HTML 管理业务、表单与焦点；GPU 和镜像只承担视觉。",

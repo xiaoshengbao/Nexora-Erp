@@ -12,10 +12,10 @@
 .stage-heading button{border:0;background:none;color:#286b67;padding:8px;font-size:12px}
 .stage-heading button:hover{text-decoration:underline}
 .scene-board{display:grid;gap:48px;position:relative;max-width:1440px;margin:0 auto;width:100%;transform-style:flat}
-.demo-window{min-width:0;position:relative;border-radius:14px;transform-origin:50% 100%;overflow:visible;background:linear-gradient(110deg,#8e9da8,#fff 2%,#c7d2d9 3%,#fafdff 5%,#fff 96%,#9dafbb);box-shadow:0 2px 3px #3d566459,0 18px 28px #29434f20}
-.window-viewport{position:relative;padding:3px;border-radius:14px;overflow:hidden;background:linear-gradient(110deg,#8396a5,#fff 1%,#becdd5 2%,#fff 3%,#e8f0f6 97%,#b0bec8);width:100%}
+.demo-window{min-width:0;position:relative;border-radius:14px;transform-origin:50% 100%;overflow:visible;background:#d6e2e9;box-shadow:0 2px 3px #3d566429,0 18px 28px #29434f18}
+.window-viewport{position:relative;padding:1px;border-radius:14px;overflow:hidden;background:#d6e2e9;width:100%}
 .window-reflection{display:none}
-.window-base{height:4px;background:linear-gradient(90deg,#758994,#fff 15%,#d1dbe1 85%,#849aa8);border-radius:0 0 12px 12px}
+.window-base{height:1px;background:#d6e2e9;border-radius:0 0 12px 12px}
 .window-chrome{height:40px;display:flex;align-items:center;gap:12px;padding:0 16px;background:linear-gradient(#fbfdff,#eaf0f5);border-radius:11px 11px 0 0;border-bottom:1px solid #d6e2e9;font-size:13px;color:#354955}
 .traffic-lights{display:flex;gap:7px;margin-right:8px}
 .traffic-lights i{width:11px;height:11px;border-radius:50%;background:#ff655b;box-shadow:inset 0 0 0 1px #00000012}
@@ -31,7 +31,7 @@
 .app-sidebar button.selected{color:#086e66;background:#ccf3ed}
 .app-sidebar button:hover{background:#dcefe9;color:#086e66}
 .sidebar-bottom{margin-top:auto;padding-top:24px}
-.sandbox-content{flex:1;min-width:0;padding:28px 30px 24px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#b8cbd1 transparent;color:#203440;font-size:16px;caret-color:#007d71}
+.sandbox-content{flex:1;min-width:0;padding:28px 30px 24px;overflow:visible;color:#203440;font-size:16px;line-height:1.45;caret-color:#007d71}
 .window-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:24px}
 .window-heading p{display:none}
 .window-heading h2{font-size:36px;line-height:1.2;margin:0;letter-spacing:-.025em}
@@ -58,7 +58,10 @@
 .demo-fields{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:25px}
 .demo-field{display:flex;flex-direction:column;gap:7px;font-size:15px;color:#566e7e;min-width:0}
 .readonly-value{display:flex;align-items:center;min-height:39px;color:#446777;font-size:15px}
-.demo-table-scroll{overflow:auto;scrollbar-width:thin;border-radius:5px}
+.demo-table-scroll{overflow:visible;border-radius:5px}
+.demo-pagination{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#506574}
+.demo-pagination>span:last-child{display:flex;gap:6px}
+.sandbox-content .demo-pagination button{font-size:12px;min-height:28px;padding:4px 9px}
 .sandbox-table{border-collapse:collapse;width:100%;text-align:left;line-height:1.5;font-size:15px;font-variant-numeric:tabular-nums}
 .sandbox-table th{background:#eef4f8;color:#506b7b;font-weight:500;white-space:nowrap}
 .sandbox-table th,.sandbox-table td{padding:12px 10px;border-bottom:1px solid #e5edf2}
@@ -126,7 +129,7 @@
 .motion-enabled .scene-board{display:block;gap:0;height:calc(100svh - 220px);max-height:650px;flex-shrink:0}
 .motion-enabled .demo-window{position:absolute;left:0;top:0;will-change:transform;transition:none}
 .motion-enabled .window-viewport{position:absolute;left:0;top:0;width:var(--logical-width);height:var(--logical-height);transform:scale(var(--ui-scale));transform-origin:0 0}
-.motion-enabled .app-layout{height:calc(100% - 44px);min-height:0}
+.motion-enabled .app-layout{height:calc(100% - 41px);min-height:0}
 .motion-enabled .sandbox-content{height:100%}
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .demo-fields{grid-template-columns:repeat(4,minmax(0,1fr))}
 .motion-enabled .receipt-panel:not(.is-compact):not(.is-focused) .receipt-sheet{padding:18px}
@@ -148,7 +151,7 @@
 .is-compact .receipt-sheet[data-posted=true] .demo-field{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:6px;font-size:16px}
 .is-compact .receipt-sheet[data-posted=true] .demo-field:nth-child(4){display:none}
 .is-compact .receipt-sheet[data-posted=true] input,.is-compact .receipt-sheet[data-posted=true] select{border:0;border-radius:0;background:transparent;padding:3px 0;min-height:30px;appearance:none}
-.is-compact .receipt-sheet[data-posted=true] .receipt-lines th:nth-child(4),.is-compact .receipt-sheet[data-posted=true] .receipt-lines td:nth-child(4){display:none}
+.is-compact .receipt-lines th:nth-child(n+4),.is-compact .receipt-lines td:nth-child(n+4){display:none}
 .is-compact .receipt-lines{min-width:0}
 .is-compact .receipt-lines td:first-child{width:58%}
 .is-compact .receipt-lines th,.is-compact .receipt-lines td{padding:10px 8px}
@@ -190,7 +193,7 @@
 .motion-enabled .is-focused.finance-panel .payable-detail{display:grid;grid-template-columns:1fr 1fr;gap:32px}
 .motion-enabled .is-focused.finance-panel .payment-editor form{margin-top:0}
 .is-focused .form-actions p{max-width:38ch}
-/* 默认单行示例的主要操作留在窗内；复杂多行内容仍可正常滚动。 */
+/* 默认示例完整展示；长记录分页，高度由实际内容适配，不建立内部滚动容器。 */
 .is-compact.receipt-panel .sandbox-content{padding-top:24px;padding-bottom:18px}
 .is-compact.receipt-panel .window-heading{margin-bottom:12px}
 .is-compact.receipt-panel .demo-toolbar{margin-bottom:14px}
@@ -208,7 +211,7 @@
 .motion-enabled .receipt-panel:not(.is-compact) .demo-fields{margin-bottom:16px}
 .motion-enabled .receipt-panel:not(.is-compact) .receipt-lines th,.motion-enabled .receipt-panel:not(.is-compact) .receipt-lines td{padding-top:9px;padding-bottom:9px}
 .motion-enabled .receipt-panel:not(.is-compact) .form-actions{margin-top:12px}
-/* 画布只绘制实体银边、地面光影和曲线；不拦截输入。 */
+/* 画布只绘制地面光影和曲线；不拦截输入。 */
 .webgl-materials,.webgl-connections{position:absolute;left:-40px;top:-40px;pointer-events:none;max-width:none}
 .webgl-materials{z-index:0}.webgl-connections{z-index:5}
 .webgl-ready .connection-layer{visibility:hidden}
@@ -224,7 +227,15 @@
 .demo-filters{grid-template-columns:1fr 1fr;gap:9px}.demo-filters .demo-field:last-child{grid-column:1/-1}.demo-toolbar{gap:6px}.demo-toolbar button,.sandbox-content button{font-size:11px;padding:8px}
 .form-actions{flex-direction:column;align-items:stretch}.form-actions .demo-primary{align-self:flex-start}.form-actions p{font-size:11px}.payable-detail{padding:15px}.payable-summary>p,.sandbox-content details,.payable-picker{font-size:12px}
 .window-heading h2{font-size:23px}.sandbox-content h3{font-size:14px}.sheet-title strong{font-size:12px}.status-chip{font-size:11px}.sheet-footer{font-size:11px}.sheet-footer strong{font-size:20px}
-.receipt-lines{min-width:375px}.receipt-lines select,.sandbox-table{font-size:11px}.movement-table{min-width:410px}.sandbox-table td small{font-size:9px}.sandbox-table th,.sandbox-table td{padding:10px 8px}
+.receipt-lines,.movement-table{min-width:0}.receipt-lines select,.sandbox-table{font-size:11px}.sandbox-table td small{font-size:9px}.sandbox-table th,.sandbox-table td{padding:10px 8px}
+.sandbox-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.sandbox-table,.sandbox-table tbody{display:block}
+.sandbox-table tbody tr:not(.movement-placeholder){display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-bottom:8px;border-bottom:1px solid #d6e2e9}
+.sandbox-table td{display:block;min-width:0;text-align:left;border:0;overflow-wrap:anywhere}
+.sandbox-table td[data-label]:before{content:attr(data-label);display:block;margin-bottom:6px;color:#506b7b;font-size:10px}
+.receipt-lines td:first-child,.movement-table td:first-child,.movement-table td:last-child,.sandbox-table .empty-state{grid-column:1/-1;width:auto}
+.receipt-lines select,.sandbox-table input{min-width:0;width:100%}
+.demo-pagination{font-size:10px}.sandbox-content .demo-pagination button{font-size:10px}
 .payable-amount{font-size:34px}.payment-totals>div{font-size:12px}.payment-totals strong{font-size:17px}.stock-balances>div,.window-note{font-size:11px}.field-error{font-size:11px}
 .mobile-motion .demo-window{opacity:.45;translate:0 18px;transition:opacity 400ms var(--ease),translate 400ms var(--ease)}.mobile-motion .demo-window.in-view{opacity:1;translate:0 0}
 .scene-narration{font-size:12px;margin-top:25px;min-height:36px}.scene-controls{gap:8px}.scene-controls button{padding:8px 13px;font-size:11px}.demo-disclaimer,.demo-status{font-size:10px}
