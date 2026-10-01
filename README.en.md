@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this company-statement delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this auxiliary-accounting delivery**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -39,7 +39,8 @@ Snapshot: **2026-10-01, this company-statement delivery**. Work in progress is n
 | Business-source journals | Implemented | Configurable accounts, source recomputation, purchase variances and sales-cost entries, atomic deduplication, source snapshots and posted-source protection; independent review remains required. |
 | Profit transfer | Implemented | Company account scope, period-end drafts, independent review, source protection, reverse-order corrections and zero-balance closing checks. |
 | Company financial statements | Implemented | Project/account mappings, balance sheet and income statement, source drill-down, CSV, configuration audit and fixed archives for closed periods. |
-| Full financial accounting | Planned | Subsidiary opening reconciliation, auxiliary accounting, cash flow, statutory templates, taxes and bank reconciliation. |
+| Auxiliary accounting | Implemented | Customer/supplier/department/project dimensions, required account rules, split openings, grouped transfers, balances, sources, auditing and CSV. |
+| Full financial accounting | Planned | Subsidiary opening reconciliation, cash flow, statutory templates, taxes and bank reconciliation. |
 | Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 

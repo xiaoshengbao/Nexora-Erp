@@ -19,6 +19,11 @@ import type {
   StatementReport,
   StatementArchiveSummary,
   StatementArchive,
+  AuxiliaryOptions,
+  AuxiliaryChange,
+  AuxiliaryReport,
+  AuxiliaryQuery,
+  AuxiliarySelectionOptions,
   FinanceMetadataChange,
   OpeningBalance,
   OpeningBalanceInput,
@@ -121,7 +126,7 @@ export function createAppState() {
   const financeAccounts = ref<FinanceAccount[]>([])
   const ledgerAccounts = ref<LedgerAccount[]>([])
   const openingBalances = ref<OpeningBalance[]>([])
-  const openingBalanceOptions = ref<{ accounts: LedgerAccount[]; period: AccountingPeriod | null }>({ accounts: [], period: null })
+  const openingBalanceOptions = ref<{ accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions>>({ accounts: [], period: null })
   const openingBalanceForm = ref<OpeningBalanceInput & { id: number | null; version: number }>({ id: null, version: 1, reference: '', effective_date: '', note: '', reason: '', lines: [] })
   const journals = ref<Journal[]>([])
   const businessJournalSources = ref<BusinessJournalCandidate[]>([])
@@ -135,6 +140,12 @@ export function createAppState() {
   const profitTransferLoading = ref(false)
   const profitTransferError = ref('')
   const statementOptions = ref<StatementOptions | null>(null)
+  const auxiliaryOptions = ref<AuxiliaryOptions | null>(null)
+  const auxiliaryChanges = ref<AuxiliaryChange[]>([])
+  const auxiliaryQuery = ref<AuxiliaryQuery>({ account_id: 0, kind: 'customer', from_date: '', to_date: '', entity_id: null })
+  const auxiliaryReport = ref<AuxiliaryReport | null>(null)
+  const auxiliaryLoading = ref(false)
+  const auxiliaryError = ref('')
   const statementPolicyChanges = ref<FinanceMetadataChange<StatementPolicy>[]>([])
   const statementQuery = ref<StatementQuery>({ from_date: '', to_date: '' })
   const statementReport = ref<StatementReport | null>(null)
@@ -151,7 +162,7 @@ export function createAppState() {
   const ledgerReportJournal = ref<Journal | null>(null)
   const ledgerReportJournalLoading = ref(false)
   const ledgerReportJournalError = ref('')
-  const journalOptions = ref<{ accounts: LedgerAccount[]; periods: AccountingPeriod[] }>({ accounts: [], periods: [] })
+  const journalOptions = ref<{ accounts: LedgerAccount[]; periods: AccountingPeriod[] } & Partial<AuxiliarySelectionOptions>>({ accounts: [], periods: [] })
   const journalForm = ref<JournalInput & { id: number | null; version: number }>({
     id: null, version: 1, reference: '', journal_date: '', note: '', reason: '', lines: []
   })
@@ -458,6 +469,12 @@ export function createAppState() {
     profitTransferLoading,
     profitTransferError,
     statementOptions,
+    auxiliaryOptions,
+    auxiliaryChanges,
+    auxiliaryQuery,
+    auxiliaryReport,
+    auxiliaryLoading,
+    auxiliaryError,
     statementPolicyChanges,
     statementQuery,
     statementReport,

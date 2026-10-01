@@ -9,11 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import AccountingPeriod, Journal, PaymentRecord, PeriodClosing, User
+from app.core.models import AccountingPeriod, Journal, JournalLine, PaymentRecord, PeriodClosing, User
 from app.core.orm import add_model, model_data, orm_session
 from app.finance.journals import VersionInput
 from app.finance.ledger import audit, get_record, snapshot
-from app.finance.ledger_reports import LedgerReportQuery, trial_balance
+from app.finance.ledger_reports import LedgerReportQuery, trial_balance, confirmed_opening_lines
+from app.finance.auxiliary_rules import snapshot_values, selection_options
 from app.finance.opening_rules import active_opening, check_journal_opening
 from app.finance.routes import financial_entries, report_data
 from app.inventory.valuation import calculate_valuation
@@ -75,7 +76,23 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     if business['unpriced_count']:
         warnings.append('应收应付有历史无价来源；库存核价不能替代往来单价或业务对账')
     warnings.append('结账固定现有总账和业务证据；业务及损益结转草稿须单独生成、审核和过账，不自动生成法定财务报表')
+    auxiliary_lines, unassigned_count = [], 0
+    for line, journal in db.execute(select(JournalLine, Journal).join(Journal, Journal.id == JournalLine.journal_id)
+            .where(Journal.status == 'posted', Journal.journal_date <= period.end_date)
+            .order_by(Journal.id, JournalLine.position)):
+        values = snapshot_values(db, line)
+        unassigned_count += int(not values)
+        auxiliary_lines.append(dict(journal_id=journal.id, line_id=line.id, account_id=line.account_id,
+            auxiliary=values, debit=line.debit, credit=line.credit))
+    auxiliary_opening = []
+    for line in confirmed_opening_lines(db):
+        values = snapshot_values(db, line)
+        unassigned_count += int(not values)
+        auxiliary_opening.append(dict(opening_balance_id=line.opening_balance_id, line_id=line.id,
+            account_id=line.account_id, auxiliary=values, debit=line.debit, credit=line.credit))
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
+        auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
+            policies=selection_options(db)['auxiliary_policies']),
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,
         profit_transfer=transfer,
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,

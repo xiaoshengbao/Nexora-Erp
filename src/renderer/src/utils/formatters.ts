@@ -12,7 +12,8 @@ export function displayError(cause: unknown): string {
 
 export function localTime(value: string): string {
   // SQLite 的 CURRENT_TIMESTAMP 是 UTC，展示时换算成用户设备的本地时区。
-  const date = new Date(value.replace(' ', 'T') + 'Z')
+  const normalized = value.replace(' ', 'T')
+  const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : normalized + 'Z')
   return Number.isNaN(date.getTime())
     ? value
     : date.toLocaleString('zh-CN', { hour12: false })

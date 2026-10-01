@@ -25,6 +25,8 @@ from app.core.models import (
 from app.core.orm import add_model, model_data, orm_session
 from app.finance.ledger import PeriodInput
 from app.finance.opening_rules import check_journal_opening
+from app.finance.auxiliary_rules import (AuxiliaryReference, line_data, validate_references,
+    validate_line, save_snapshots, snapshot_values, selection_options)
 
 router = APIRouter(prefix="/api/v1/finance/journals")
 
@@ -51,6 +53,14 @@ class JournalLineInput(BaseModel):
     summary: str = Field(min_length=1, max_length=200)
     debit: str
     credit: str
+    auxiliary: list[AuxiliaryReference] = Field(default_factory=list, max_length=4)
+
+    @field_validator('auxiliary')
+    @classmethod
+    def unique_auxiliary(cls, values):
+        if len({item.kind for item in values}) != len(values):
+            raise ValueError('每类辅助信息最多选择一个')
+        return sorted(values, key=lambda item: item.kind)
 
     @field_validator("summary")
     @classmethod
@@ -146,7 +156,7 @@ def lines_for(db: Session, journal_id: int) -> list[JournalLine]:
 
 def snapshot(db: Session, record: Journal) -> dict:
     result = model_data(record)
-    result["lines"] = [model_data(line) for line in lines_for(db, record.id)]
+    result["lines"] = [line_data(db, line) for line in lines_for(db, record.id)]
     result["total_debit"] = (
         f'{sum(Decimal(line["debit"]) for line in result["lines"]):.2f}'
     )
@@ -211,7 +221,7 @@ def audit(
     db.flush()
 
 
-def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput]) -> None:
+def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput], *, frozen_auxiliary: list[list[dict]] | None = None) -> None:
     accounts = {
         account.id: account
         for account in db.scalars(
@@ -227,7 +237,10 @@ def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput]) -> 
         raise HTTPException(409, "分录须使用已存在且启用的科目")
     for position, line in enumerate(inputs, 1):
         account = accounts[line.account_id]
-        db.add(
+        values = (frozen_auxiliary[position - 1] if frozen_auxiliary is not None
+            else validate_references(db, account.id, record.journal_date, line.auxiliary))
+        saved = add_model(
+            db,
             JournalLine(
                 journal_id=record.id,
                 position=position,
@@ -241,6 +254,7 @@ def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput]) -> 
                 credit=line.credit,
             )
         )
+        save_snapshots(db, saved, values)
     db.flush()
 
 
@@ -249,12 +263,15 @@ def validate_for_post(db: Session, record: Journal) -> None:
         raise HTTPException(409, "凭证期间不匹配")
     lines = lines_for(db, record.id)
     # 冲销沿用已过账的科目快照，允许纠正停用科目的旧凭证。
+    frozen = record.reversal_of_id is not None or db.scalar(select(ProfitTransfer.id).where(ProfitTransfer.journal_id == record.id)) is not None
     if record.reversal_of_id is None:
         for line in lines:
             account = db.get(LedgerAccount, line.account_id)
             if account is None or not account.is_active:
                 raise HTTPException(409, "凭证科目已停用，请更正后重新提交")
             line.account_name = account.name
+            if not frozen:
+                validate_line(db, line, record.journal_date)
     if len(lines) < 2 or sum(Decimal(line.debit) for line in lines) != sum(
         Decimal(line.credit) for line in lines
     ):
@@ -276,6 +293,7 @@ def journal_options(_: dict = Depends(require("journal.create"))) -> dict:
     # 建单选项由建单权限提供，不要求额外获得维护基础资料的权限。
     with orm_session() as db:
         return {
+            **selection_options(db),
             "accounts": [
                 {**model_data(a), "is_active": bool(a.is_active)}
                 for a in db.scalars(
@@ -509,7 +527,8 @@ def reverse(
                 fields.update(
                     journal_id=record.id, debit=source.credit, credit=source.debit
                 )
-                db.add(JournalLine(**fields))
+                saved = add_model(db, JournalLine(**fields))
+                save_snapshots(db, saved, snapshot_values(db, source))
             db.flush()
             audit(db, record, None, "create", data.reason, user["id"])
             # 原凭证不改金额或状态；只有冲销凭证经过独立审核并过账后才抵销。

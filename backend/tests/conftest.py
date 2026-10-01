@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_statement_schema():
+def remove_auxiliary_schema():
     def remove(db):
+        for table in ('auxiliary_assignments', 'auxiliary_policy_changes', 'auxiliary_policies', 'auxiliary_item_changes', 'auxiliary_items'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for operation in ('view', 'configure', 'manage'):
+            code = 'auxiliary.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='finance.auxiliary'")
+    return remove
+
+
+@pytest.fixture
+def remove_statement_schema(remove_auxiliary_schema):
+    def remove(db):
+        remove_auxiliary_schema(db)
         for table in ('financial_statements', 'financial_statement_policy_changes', 'financial_statement_policies'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view', 'configure', 'archive'):

@@ -12,6 +12,7 @@ import { datePickerString, dateOutsideRange, vDateField } from '../../../utils/d
 import { localTime } from '../../../utils/formatters'
 import { statementPolicyDescription, statementGroups } from './statement-display'
 import { journalStatusLabels } from './journal-display'
+import { auxiliaryText } from './auxiliary-display'
 import StatementPolicyEditor from './StatementPolicyEditor.vue'
 import StatementReportView from './StatementReportView.vue'
 import JournalHistory from './JournalHistory.vue'
@@ -43,7 +44,7 @@ const archiveColumns = [{ key: 'range', title: '报表期间', width: '250' }, {
   { key: 'reason', title: '依据', width: '240' }, { key: 'actions', title: '操作', width: '130' }]
 const archiveRows = computed(() => archives.value.map(item => ({ ...item, range: `${item.from_date} 至 ${item.to_date}` })))
 const journalColumns = [{ key: 'position', title: '序号' }, { key: 'account_name', title: '科目快照' },
-  { key: 'summary', title: '摘要' }, { key: 'debit', title: '借方（元）' }, { key: 'credit', title: '贷方（元）' }]
+  { key: 'summary', title: '摘要' }, { key: 'auxiliary', title: '辅助快照', width: '290' }, { key: 'debit', title: '借方（元）' }, { key: 'credit', title: '贷方（元）' }]
 const modalStyle = { width: 'min(1180px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' as const }
 onMounted(() => { void loadStatementOptions() })
 // 写入成功后选项重新读取会卸载编辑器，父层负责关闭，避免旧组件的迟到事件失效。
@@ -128,7 +129,7 @@ function closeJournal(): void {
       <p v-if="journalLoading" role="status">正在读取凭证…</p><p v-if="journalError" role="alert">{{ journalError }}</p>
       <div v-if="journal" class="stack"><p>{{ journal.journal_date }} · 期间 {{ journal.period_code }} · 依据 {{ journal.reference }} · 建单人 {{ journal.created_by_name }} · 当前版本 {{ journal.version }}</p><p v-if="journal.note">备注：{{ journal.note }}</p>
         <p v-if="journal.reversal_of_id">冲销原凭证：<AppButton type="button" variant="text" :disabled="connectionLost" @click="inspectJournal(journal.reversal_of_id)">记-{{ journal.reversal_of_id }}</AppButton></p>
-        <WorkspaceTable title="当前凭证分录" :data="journal.lines" :columns="journalColumns" :min-table-width="800"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template></WorkspaceTable>
+        <WorkspaceTable title="当前凭证分录" :data="journal.lines" :columns="journalColumns" :min-table-width="1090"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
         <NCollapse><AppCollapseItem v-if="journal.business_source" name="business" title="生成时的业务来源"><BusinessSourceEvidence :source="journal.business_source.evidence" :mapping="journal.business_source.mapping" /></AppCollapseItem><AppCollapseItem v-if="journal.profit_transfer" name="transfer" title="生成时的损益结转来源"><ProfitTransferEvidence :evidence="journal.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="inspectJournal" /></AppCollapseItem></NCollapse>
         <JournalHistory :key="`${journal.id}:${journal.version}`" :load="() => loadJournalChanges(journal!.id)" />
       </div>

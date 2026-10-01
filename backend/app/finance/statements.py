@@ -25,6 +25,7 @@ from app.finance.ledger import PeriodInput, snapshot
 from app.finance.ledger_reports import confirmed_opening_lines
 from app.finance.opening_rules import active_opening
 from app.reports.routes import csv_value
+from app.finance.auxiliary_rules import snapshot_values
 
 router = APIRouter(prefix='/api/v1/finance/statements')
 ZERO = Decimal(0)
@@ -197,7 +198,9 @@ def report(db: Session, filters: QueryInput) -> dict:
         amount = Decimal(line.debit) - Decimal(line.credit)
         sums[line.account_id][0] += amount
         sums[line.account_id][1] += amount
-        opening_sources.append(dict(**model_data(line), line_code=allocations.get(line.account_id)))
+        auxiliary = snapshot_values(db, line)
+        opening_sources.append(dict(**model_data(line), line_code=allocations.get(line.account_id),
+            **({'auxiliary': auxiliary} if auxiliary else {})))
     pending = [dict(id=j.id, date=j.journal_date, status=j.status) for j in db.scalars(select(Journal)
         .where(Journal.journal_date <= filters.to_date, Journal.status.not_in(('posted', 'cancelled'))).order_by(Journal.id))]
     for line, journal in db.execute(select(JournalLine, Journal).join(Journal, Journal.id == JournalLine.journal_id)
@@ -213,10 +216,12 @@ def report(db: Session, filters: QueryInput) -> dict:
         excluded = journal.id in transfers or journal.reversal_of_id in transfers
         if journal.journal_date >= filters.from_date and not excluded:
             values[2] += amount
+        auxiliary = snapshot_values(db, line)
         sources.append(dict(line_id=line.id, journal_id=journal.id, journal_date=journal.journal_date,
             reference=journal.reference, reversal_of_id=journal.reversal_of_id, account_id=line.account_id,
             debit=line.debit, credit=line.credit, summary=line.summary, line_code=allocations.get(line.account_id),
-            excluded_from_income=excluded))
+            excluded_from_income=excluded,
+            **({'auxiliary': auxiliary} if auxiliary else {})))
     unmapped = [dict(account_id=a.id, code=a.code, name=a.name, opening=f'{sums[a.id][0]:.2f}',
         closing=f'{sums[a.id][1]:.2f}', movement=f'{sums[a.id][2]:.2f}') for a in accounts.values()
         if a.id not in allocations and any(sums[a.id])]

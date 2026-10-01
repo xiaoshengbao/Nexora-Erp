@@ -25,6 +25,8 @@ from app.finance.journals import (
     JournalInput,
 )
 from app.finance.opening_rules import active_opening, ensure_no_posted_journals
+from app.finance.auxiliary_rules import (combination, line_data, validate_references,
+    validate_line, save_snapshots, selection_options)
 
 router = APIRouter(prefix="/api/v1/finance/opening-balances")
 
@@ -40,8 +42,8 @@ class OpeningInput(ReasonInput):
 
     @model_validator(mode="after")
     def balanced(self):
-        if len({line.account_id for line in self.lines}) != len(self.lines):
-            raise ValueError("每个科目只能填写一条期初余额")
+        if len({(line.account_id, combination(line.auxiliary)) for line in self.lines}) != len(self.lines):
+            raise ValueError("相同科目及辅助组合只能填写一条期初余额")
         if sum(Decimal(line.debit) for line in self.lines) != sum(
             Decimal(line.credit) for line in self.lines
         ):
@@ -85,7 +87,7 @@ def lines_for(db: Session, record_id: int) -> list[OpeningBalanceLine]:
 
 def snapshot(db: Session, record: OpeningBalance) -> dict:
     result = model_data(record)
-    result["lines"] = [model_data(line) for line in lines_for(db, record.id)]
+    result["lines"] = [line_data(db, line) for line in lines_for(db, record.id)]
     for side in ("debit", "credit"):
         result["total_" + side] = (
             f'{sum(Decimal(line[side]) for line in result["lines"]):.2f}'
@@ -155,7 +157,9 @@ def save_lines(
         raise HTTPException(409, "期初余额须使用已存在且启用的科目")
     for position, line in enumerate(inputs, 1):
         account = accounts[line.account_id]
-        db.add(
+        values = validate_references(db, account.id, record.effective_date, line.auxiliary)
+        saved = add_model(
+            db,
             OpeningBalanceLine(
                 opening_balance_id=record.id,
                 position=position,
@@ -169,6 +173,7 @@ def save_lines(
                 credit=line.credit,
             )
         )
+        save_snapshots(db, saved, values)
     db.flush()
 
 
@@ -182,6 +187,7 @@ def validate(db: Session, record: OpeningBalance) -> None:
         if account is None or not account.is_active:
             raise HTTPException(409, "期初科目已停用，请更正后重新提交")
         line.account_name = account.name
+        validate_line(db, line, record.effective_date)
     if sum(Decimal(line.debit) for line in lines) != sum(
         Decimal(line.credit) for line in lines
     ):
@@ -229,6 +235,7 @@ def options(_: dict = Depends(require("opening_balance.create"))) -> dict:
             select(AccountingPeriod).order_by(AccountingPeriod.start_date).limit(1)
         )
         return dict(
+            **selection_options(db),
             accounts=[
                 {**model_data(a), "is_active": bool(a.is_active)}
                 for a in db.scalars(

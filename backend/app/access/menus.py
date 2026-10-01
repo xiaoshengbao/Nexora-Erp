@@ -26,6 +26,7 @@ MENU_KEYS = {
     'route:journals',
     'route:ledgerReports',
     'route:financialStatements',
+    'route:auxiliaryAccounting',
     'route:openingBalances',
     'route:accountingPeriods',
     'route:goodsReceipts',

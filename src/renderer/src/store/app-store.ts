@@ -46,6 +46,7 @@ import { createJournalActions } from './modules/journal-actions'
 import { createBusinessJournalActions } from './modules/business-journal-actions'
 import { createProfitTransferActions } from './modules/profit-transfer-actions'
 import { createStatementActions } from './modules/statement-actions'
+import { createAuxiliaryActions } from './modules/auxiliary-actions'
 import { createLedgerReportActions } from './modules/ledger-report-actions'
 import { createValuationActions } from './modules/valuation-actions'
 import { createSalesActions } from './modules/sales-actions'
@@ -213,6 +214,7 @@ function createAppStore() {
   const businessJournalActions = createBusinessJournalActions(state, perform)
   const profitTransferActions = createProfitTransferActions(state, perform)
   const statementActions = createStatementActions(state, perform)
+  const auxiliaryActions = createAuxiliaryActions(state, perform)
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
 
@@ -275,6 +277,7 @@ function createAppStore() {
     ...businessJournalActions,
     ...profitTransferActions,
     ...statementActions,
+    ...auxiliaryActions,
     ...openingBalanceActions,
     ...ledgerReportActions,
     ...valuationActions,

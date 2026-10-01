@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this company-statement delivery on 2026-10-01, starting from main commit `8486269`. Period closing, business-source journals and profit transfer are already in main; this version adds company-defined financial statements and fixed archives. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects this auxiliary-accounting delivery on 2026-10-01, starting from main commit `a2f1051`. Period closing, business-source journals, profit transfer and company statements are already in main; this version adds auxiliary assignments, account rules, split openings and grouped transfers. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -99,7 +99,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 | Production | BOM versions/cycle checks, frozen requirements, partial issues/returns/completions and accepted-goods receipt; consumed reporting requirements cannot be returned. | Targets include rejected quantities; rework, MRP, scheduling and full quality management remain. |
 | Finished-goods cost | Inventory issue price first, manual valuation when unknown; material/labor/overhead allocated by accepted quantity with rounding reconciliation. | Includes rejected consumption; reverse dependent settlements before corrections. WIP/cross-period cost remain. |
 | Operational finance | Sources produce receivables/payables and order balances; manual settlements/refunds have limits, reversals append inverse records. | Does not prove bank receipt; RMB scope, taxes/multiple currencies/subsidiary opening balances remain. |
-| Ledger foundations | Flat account structures are fixed; inclusive periods cannot overlap. Name/activation changes carry versions, reasons and transactional auditing. | Closing/reopening is provided separately; auxiliary accounting remains. |
+| Ledger foundations | Flat account structures are fixed; inclusive periods cannot overlap. Name/activation changes carry versions, reasons and transactional auditing. | Closing/reopening is provided separately; auxiliary accounting is provided separately. |
 | Period closing | Close ended periods in order, reopen in reverse order; archive balances/cost sources and lock historical valuation/allocations. | Does not generate business journals, profit transfer or statutory statements. |
 | Reports | Purchasing execution, receiving/returns, stock balances/movements and CSV. | Business summaries are not formal financial statements. Dashboard demo charts are not actual business metrics. |
 | Posted ledger reports | Trial balance, account ledgers, journal/reversal drill-down and snapshot CSV, current activity counts posted journals only, while confirmed opening balances are carried separately. | Without formal opening setup, openings only accumulate historical posted entries and do not represent business acceptance; company balance sheet and income statement are provided separately. |
@@ -107,7 +107,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 
 Formal opening setup is available before any journal is posted, with independent review/confirmation, versioned auditing and reversal before posting. It does not add current activity or generate subsidiary opening balances. See [opening balance rules (Chinese)](opening-balances.md).
 
-See [cost settlement rules (Chinese)](production-cost-settlement.md), [ledger foundations (Chinese)](ledger-foundation.md) and [manual journals (Chinese)](manual-journals.md). Manual journals support balanced entries, independent review, posting and linked reversals, with fixed posted snapshots and auditing. Business-source journal drafts are available; see [business journal rules (Chinese)](business-journals.md). Profit transfer drafts with independent review, source protection and zero-balance closing checks are available; see [profit transfer rules (Chinese)](profit-transfers.md). Cash flow, statutory statement templates, auxiliary accounting, quality/after-sales, CRM, equipment, HR, multiple organizations, MySQL and offline synchronization remain future work. Entry conditions are in the [expansion assessment (Chinese)](erp-expansion-assessment.md).
+See [cost settlement rules (Chinese)](production-cost-settlement.md), [ledger foundations (Chinese)](ledger-foundation.md) and [manual journals (Chinese)](manual-journals.md). Manual journals support balanced entries, independent review, posting and linked reversals, with fixed posted snapshots and auditing. Business-source journal drafts are available; see [business journal rules (Chinese)](business-journals.md). Profit transfer drafts with independent review, source protection and zero-balance closing checks are available; see [profit transfer rules (Chinese)](profit-transfers.md). Cash flow, statutory statement templates, quality/after-sales, CRM, equipment, HR, multiple organizations, MySQL and offline synchronization remain future work. Entry conditions are in the [expansion assessment (Chinese)](erp-expansion-assessment.md).
 
 Closing conditions, historical locks and archive boundaries are in [period closing rules (Chinese)](period-closing.md).
 
@@ -238,3 +238,5 @@ Run `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-s
 See the [official GitHub Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). Public output excludes databases, private keys, tokens and local logs. Verify merged code before updating both languages and publishing; unmerged work stays in development.
 
 Company statement configuration, archive rules and permissions are described in the [statement rules (Chinese)](financial-statements.md).
+
+Auxiliary accounting uses static ORM models for four dimensions, versioned rules, split openings and grouped transfers; see [rules and desktop permission boundaries (Chinese)](auxiliary-accounting.md). Subsidiary opening balances still require separate reconciliation.
