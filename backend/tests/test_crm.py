@@ -1,0 +1,355 @@
+"""客户关系的来源归属、历史证据、审批职责和并发转单。"""
+
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from copy import deepcopy
+import os
+import sqlite3
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import event, select
+from sqlalchemy.orm import Session
+
+from app.core.database import migrate
+from app.core.models import Base, CrmChange, CrmQuote, CrmOpportunity, SalesOrder, SalesOrderLine, Material, StockMovement, User
+from app.core.orm import orm_session
+from app.main import app
+from app.sales import crm_rules, crm_quotes
+
+B = '/api/v1'
+C = B + '/crm'
+
+
+@pytest.fixture
+def seeded(monkeypatch, tmp_path):
+    monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path/'crm.db'))
+    monkeypatch.setattr(crm_rules,'today',lambda:'2030-01-01')
+    monkeypatch.setattr(crm_quotes,'today',lambda:'2030-01-01')
+    with TestClient(app,client=('127.0.0.1',12000),raise_server_exceptions=False) as client:
+        assert client.post(B+'/setup/admin',json={'username':'admin','password':'secure-pass-123'}).status_code == 201
+        def login(name):
+            token = client.post(B+'/auth/login',json={'username':name,'password':'secure-pass-123'}).json()['token']
+            return {'Authorization':'Bearer '+token}
+        admin = login('admin')
+        for name,role in (('reviewer','admin'),('seller','seller'),('viewer','viewer')):
+            assert client.post(B+'/users',headers=admin,json={'username':name,'password':'secure-pass-123','roles':[role]}).status_code == 201
+        customer = client.post(B+'/customers',headers=admin,json={'name':'客户甲'}).json()['id']
+        other = client.post(B+'/customers',headers=admin,json={'name':'客户乙'}).json()['id']
+        materials = [client.post(B+'/materials',headers=admin,json={'sku':f'C{i}','name':f'物料{i}','unit':'件'}).json()['id'] for i in range(2)]
+        yield client,admin,login('reviewer'),login('seller'),login('viewer'),customer,other,materials
+
+
+def base_records(seed):
+    client,admin,_,_,_,customer,_,materials = seed
+    contact_input = {'customer_id':customer,'name':'王女士','phone':'100','email':'test@example.invalid'}
+    contact = client.post(C+'/contacts',headers=admin,json=contact_input)
+    assert contact.status_code == 201,contact.text
+    opportunity_input = {'customer_id':customer,'contact_id':contact.json()['id'],'title':'设备采购',
+        'owner_id':1,'estimated_amount':'100.01','expected_close_date':'2030-01-31'}
+    opportunity = client.post(C+'/opportunities',headers=admin,json=opportunity_input)
+    assert opportunity.status_code == 201,opportunity.text
+    data = {'opportunity_id':opportunity.json()['id'],'contact_id':contact.json()['id'],'reference':'Q-1',
+        'valid_until':'2030-01-31','terms':'双方确认后另行安排交货',
+        'lines':[{'material_id':mid,'quantity':'1.005','unit_price':'0.9999'} for mid in materials]}
+    return contact.json(),opportunity.json(),data
+
+
+def action(client,headers,record,command,reason='核对依据',status=200,**extra):
+    response = client.post(C+f'/quotes/{record["id"]}/{command}',headers=headers,
+        json={'version':record['version'],'reason':reason,**extra})
+    assert response.status_code == status,response.text
+    return response.json() if status != 500 else None
+
+
+def approved(seed,data):
+    client,admin,reviewer,*_ = seed
+    quote = client.post(C+'/quotes',headers=admin,json=data)
+    assert quote.status_code == 201,quote.text
+    quote = action(client,admin,quote.json(),'submit')
+    return action(client,reviewer,quote,'approve')
+
+
+def test_complete_crm_workflow_keeps_snapshot_and_does_not_post_stock(seeded):
+    client,admin,reviewer,seller,viewer,customer,other,materials = seeded
+    contact,opportunity,data = base_records(seeded)
+    assert client.get(C+'/overview',headers=viewer).status_code == 403
+    assert client.get(C+'/options',headers=seller).status_code == 200
+    quote = approved(seeded,data)
+    assert quote['total_amount'] == '2.00'
+    with orm_session(write=True) as db:
+        db.get(Material,materials[0]).name = '后续更名'
+    edited = client.put(C+f'/contacts/{contact["id"]}',headers=admin,json={
+        'customer_id':customer,'name':'新联系人名称','phone':'200','version':1,'reason':'更正资料'})
+    assert edited.status_code == 200,edited.text
+    frozen = client.get(C+f'/records/quote/{quote["id"]}',headers=admin).json()
+    assert frozen['party']['phone'] == '100'
+    assert frozen['contact_name'] == '王女士'
+    assert frozen['lines'][0]['material_name'] == '物料0'
+    converted = action(client,seller,quote,'convert',acceptance_reference='客户确认邮件编号 1',opportunity_version=opportunity['version'])
+    assert converted['status'] == 'converted'
+    order = next(row for row in client.get(B+'/sales-orders',headers=admin).json() if row['id'] == converted['sales_order_id'])
+    assert order['status'] == 'draft' and order['total_amount'] == quote['total_amount']
+    assert [row['quantity'] for row in order['lines']] == ['1.005','1.005']
+    with orm_session() as db:
+        assert list(db.scalars(select(StockMovement))) == []
+    history = client.get(C+f'/records/quote/{quote["id"]}/changes',headers=admin).json()
+    assert [row['action'] for row in history] == ['convert','approve','submit','create']
+    assert history[0]['before']['sales_order_id'] is None
+    assert history[0]['after']['sales_order_id'] == order['id']
+    assert history[0]['changed_by_name'] == 'seller'
+    # 已转单并不等于收款或出库，仍必须经过既有订单流程。
+    assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
+
+
+def test_review_excludes_every_author_even_after_edit_and_resubmission(seeded):
+    client,admin,reviewer,seller,*_ = seeded
+    _,_,data = base_records(seeded)
+    quote = client.post(C+'/quotes',headers=seller,json=data).json()
+    quote = action(client,admin,quote,'submit')
+    action(client,admin,quote,'approve',status=409)
+    action(client,seller,quote,'approve',status=403)
+    quote = action(client,reviewer,quote,'reject',reason='价格须更正')
+    quote = client.put(C+f'/quotes/{quote["id"]}',headers=admin,json={**data,
+        'version':quote['version'],'reason':'修订价格','lines':[{'material_id':data['lines'][0]['material_id'],'quantity':'2','unit_price':'3'}]}).json()
+    assert quote['status'] == 'draft' and quote['total_amount'] == '6.00'
+    quote = action(client,seller,quote,'submit')
+    action(client,admin,quote,'approve',status=409)
+    quote = action(client,reviewer,quote,'approve')
+    assert set(quote['review_blocked']) == {1,3}
+    audits = client.get(C+f'/records/quote/{quote["id"]}/changes',headers=admin).json()
+    edit = next(row for row in audits if row['action'] == 'edit')
+    assert edit['before']['total_amount'] == '2.00'
+    assert edit['after']['total_amount'] == '6.00'
+
+
+def test_invalid_links_inactive_contacts_and_disabled_owner_are_rejected(seeded):
+    client,admin,_,_,_,customer,other,_ = seeded
+    contact,opportunity,data = base_records(seeded)
+    assert client.post(C+'/opportunities',headers=admin,json={'customer_id':other,'contact_id':contact['id'],
+        'title':'错误归属','owner_id':1,'estimated_amount':'1','expected_close_date':'2030-01-31'}).status_code == 422
+    assert client.post(C+'/activities',headers=admin,json={'customer_id':other,'opportunity_id':opportunity['id'],
+        'subject':'错误归属','owner_id':1,'due_date':'2030-01-01'}).status_code == 422
+    assert client.put(C+f'/contacts/{contact["id"]}',headers=admin,json={'customer_id':other,'name':'转客户',
+        'version':1,'reason':'转移'}).status_code == 409
+    client.put(C+f'/contacts/{contact["id"]}',headers=admin,json={'customer_id':customer,'name':'王女士',
+        'is_active':False,'version':1,'reason':'离职'})
+    assert client.post(C+'/quotes',headers=admin,json=data).status_code == 422
+    with orm_session(write=True) as db:
+        db.get(User,3).is_active = 0
+    assert client.post(C+'/activities',headers=admin,json={'customer_id':customer,
+        'subject':'负责人停用','owner_id':3,'due_date':'2030-01-01'}).status_code == 422
+
+
+def test_activity_overdue_and_immutable_closure(seeded):
+    client,admin,_,seller,_,customer,*_ = seeded
+    response = client.post(C+'/activities',headers=seller,json={'customer_id':customer,'subject':'回访客户',
+        'owner_id':3,'due_date':'2029-12-31','note':'电话跟进'})
+    assert response.status_code == 201,response.text
+    activity = response.json()
+    assert activity['overdue']
+    path = C+f'/activities/{activity["id"]}'
+    completed = client.post(path+'/complete',headers=seller,json={'version':1,'reason':'已确认技术规格'}).json()
+    assert completed['status'] == 'completed' and not completed['overdue'] and completed['closed_by'] == 3
+    assert client.post(path+'/cancel',headers=admin,json={'version':2,'reason':'重写历史'}).status_code == 409
+    assert client.post(path+'/complete',headers=admin,json={'version':1,'reason':'过期版本'}).status_code == 409
+    changes = client.get(C+f'/records/activity/{activity["id"]}/changes',headers=admin).json()
+    assert len(changes) == 2 and changes[0]['before']['result'] == ''
+
+
+def test_quotes_require_approval_acceptance_both_permissions_and_current_versions(seeded):
+    client,admin,reviewer,seller,viewer,*_ = seeded
+    _,opportunity,data = base_records(seeded)
+    quote = client.post(C+'/quotes',headers=admin,json=data).json()
+    action(client,seller,quote,'convert',status=409,acceptance_reference='接受依据',opportunity_version=1)
+    quote = action(client,admin,quote,'submit')
+    action(client,seller,quote,'convert',status=409,acceptance_reference='接受依据',opportunity_version=1)
+    quote = action(client,reviewer,quote,'approve')
+    action(client,seller,quote,'convert',status=422,acceptance_reference=' ',opportunity_version=1)
+    action(client,seller,quote,'convert',status=409,acceptance_reference='接受依据',opportunity_version=2)
+    assert client.put(C+f'/quotes/{quote["id"]}',headers=admin,json={**data,'version':quote['version'],'reason':'改已批报价'}).status_code == 409
+    client.post(B+'/roles',headers=admin,json={'code':'crm_only','label':'仅能转报价','permissions':['crm.view','crm_quote.convert']})
+    client.post(B+'/users',headers=admin,json={'username':'convert_only','password':'secure-pass-123','roles':['crm_only']})
+    token = client.post(B+'/auth/login',json={'username':'convert_only','password':'secure-pass-123'}).json()['token']
+    action(client,{'Authorization':'Bearer '+token},quote,'convert',status=403,acceptance_reference='接受依据',opportunity_version=1)
+    action(client,viewer,quote,'convert',status=403,acceptance_reference='接受依据',opportunity_version=1)
+    with orm_session() as db:
+        assert list(db.scalars(select(SalesOrder))) == []
+
+
+def test_expiration_uses_server_day_at_submit_review_and_conversion(seeded,monkeypatch):
+    client,admin,reviewer,seller,*_ = seeded
+    _,_,data = base_records(seeded)
+    quote = approved(seeded,data)
+    monkeypatch.setattr(crm_quotes,'today',lambda:'2030-02-01')
+    action(client,seller,quote,'convert',status=409,acceptance_reference='已接受',opportunity_version=1)
+    assert client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-expired'}).status_code == 422
+    monkeypatch.setattr(crm_quotes,'today',lambda:'2030-01-01')
+    draft = client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-draft'}).json()
+    pending = action(client,admin,draft,'submit')
+    monkeypatch.setattr(crm_quotes,'today',lambda:'2030-02-01')
+    action(client,reviewer,pending,'approve',status=409)
+    action(client,reviewer,pending,'reject')
+
+
+def test_cancelled_order_does_not_reuse_quote_and_reopen_is_audited(seeded):
+    client,admin,_,seller,*_ = seeded
+    _,opp,data = base_records(seeded)
+    quote = approved(seeded,data)
+    converted = action(client,seller,quote,'convert',acceptance_reference='第一次接受',opportunity_version=1)
+    path = C+f'/opportunities/{opp["id"]}/reopen'
+    assert client.post(path,headers=admin,json={'version':2,'reason':'订单仍有效'}).status_code == 409
+    action(client,admin,converted,'cancel',status=409)
+    client.post(B+f'/sales-orders/{converted["sales_order_id"]}/cancel',headers=admin)
+    assert client.post(path,headers=seller,json={'version':2,'reason':'原订单取消，重谈'}).status_code == 200
+    action(client,seller,converted,'convert',status=409,acceptance_reference='再次接受',opportunity_version=3)
+    second = approved(seeded,{**data,'reference':'Q-2'})
+    action(client,seller,second,'convert',acceptance_reference='第二次接受',opportunity_version=3)
+    audits = client.get(C+f'/records/opportunity/{opp["id"]}/changes',headers=admin).json()
+    assert [row['action'] for row in audits] == ['convert','reopen','convert','create']
+
+
+def test_concurrent_conversion_of_two_quotes_cannot_duplicate_opportunity_order(seeded):
+    client,admin,_,seller,*_ = seeded
+    _,opp,data = base_records(seeded)
+    first = approved(seeded,data)
+    second = approved(seeded,{**data,'reference':'Q-2'})
+    def run(quote):
+        return client.post(C+f'/quotes/{quote["id"]}/convert',headers=seller,json={
+            'version':quote['version'],'opportunity_version':1,'acceptance_reference':'确认','reason':'转单'}).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(run,(first,second))) == [200,409]
+    with orm_session() as db:
+        assert len(list(db.scalars(select(SalesOrder)))) == 1
+        assert db.get(CrmOpportunity,opp['id']).version == 2
+
+
+def test_audit_failure_rolls_back_order_opportunity_and_quote_then_releases_lock(seeded):
+    client,admin,_,seller,*_ = seeded
+    _,opp,data = base_records(seeded)
+    quote = approved(seeded,data)
+    def fail_audit(db,*_):
+        if any(isinstance(row,CrmChange) and row.action == 'convert' for row in db.new):
+            raise RuntimeError('模拟审计写入故障')
+    event.listen(Session,'before_flush',fail_audit)
+    try:
+        action(client,seller,quote,'convert',status=500,acceptance_reference='接受',opportunity_version=1)
+    finally:
+        event.remove(Session,'before_flush',fail_audit)
+    with orm_session() as db:
+        assert db.get(CrmQuote,quote['id']).status == 'approved'
+        assert db.get(CrmOpportunity,opp['id']).stage == 'prospect'
+        assert list(db.scalars(select(SalesOrder))) == list(db.scalars(select(SalesOrderLine))) == []
+    action(client,seller,quote,'convert',acceptance_reference='接受',opportunity_version=1)
+
+
+def test_concurrent_contact_edit_rejects_stale_writer(seeded):
+    client,admin,*_ = seeded
+    contact,_,_ = base_records(seeded)
+    def run(name):
+        return client.put(C+f'/contacts/{contact["id"]}',headers=admin,json={
+            'customer_id':contact['customer_id'],'name':name,'version':1,'reason':'资料核对'}).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(run,('甲','乙'))) == [200,409]
+    assert len(client.get(C+f'/records/contact/{contact["id"]}/changes',headers=admin).json()) == 2
+
+
+def test_lost_stage_requires_cancellation_of_active_approval(seeded):
+    client,admin,*_ = seeded
+    contact,opp,data = base_records(seeded)
+    quote = approved(seeded,data)
+    edit = {'customer_id':opp['customer_id'],'contact_id':contact['id'],'title':opp['title'],'owner_id':1,
+        'stage':'lost','estimated_amount':'0','expected_close_date':'2030-01-31','version':1,'reason':'预算取消'}
+    assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 409
+    action(client,admin,quote,'cancel')
+    assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 200
+    assert client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-2'}).status_code == 409
+
+
+def test_strict_payload_boundaries_and_duplicate_reference(seeded):
+    client,admin,*_ = seeded
+    _,_,data = base_records(seeded)
+    for patch in ({'opportunity_id':True},{'status':'approved'},{'reference':' '},{'valid_until':'2030-02-30'},
+        {'lines':[{**data['lines'][0],'quantity':'0'}]}, {'lines':[{**data['lines'][0],'unit_price':'0.00001'}]},
+        {'lines':[{**data['lines'][0],'material_id':True}]}, {'lines':[data['lines'][0],data['lines'][0]]}):
+        response = client.post(C+'/quotes',headers=admin,json={**data,**patch})
+        assert response.status_code == 422,response.text
+    quote = client.post(C+'/quotes',headers=admin,json=data).json()
+    assert client.post(C+'/quotes',headers=admin,json=data).status_code == 409
+    action(client,admin,quote,'submit',status=422,reason=' ')
+    assert client.get(C+'/records/wrong/1',headers=admin).status_code == 422
+    assert client.get(C+'/records/quote/999/changes',headers=admin).status_code == 404
+
+
+@pytest.mark.parametrize('stage', ['draft', 'submitted', 'approved'])
+def test_contact_disabled_after_quote_blocks_actions_but_preserves_snapshot(seeded, stage):
+    client,admin,reviewer,seller,*_ = seeded
+    contact,opp,data = base_records(seeded)
+    quote = client.post(C+'/quotes',headers=admin,json=data).json()
+    if stage in ('submitted','approved'):
+        quote = action(client,admin,quote,'submit')
+    if stage == 'approved':
+        quote = action(client,reviewer,quote,'approve')
+    response = client.put(C+f'/contacts/{contact["id"]}',headers=admin,json={
+        'customer_id':contact['customer_id'],'name':'已离职联系人','is_active':False,'version':1,'reason':'离职'})
+    assert response.status_code == 200,response.text
+    record = client.get(C+f'/records/quote/{quote["id"]}',headers=admin).json()
+    assert not record['contact_active'] and record['party']['contact_name'] == '王女士'
+    command = {'draft':'submit','submitted':'approve','approved':'convert'}[stage]
+    actor = reviewer if stage == 'submitted' else seller
+    extra = {'acceptance_reference':'接受依据','opportunity_version':opp['version']} if stage == 'approved' else {}
+    action(client,actor,quote,command,status=422,**extra)
+    after = client.get(C+f'/records/quote/{quote["id"]}',headers=admin).json()
+    assert after == record
+    with orm_session() as db:
+        assert list(db.scalars(select(SalesOrder))) == []
+
+
+def test_duplicate_quote_edit_rolls_back_reference_lines_and_audit(seeded):
+    client,admin,*_ = seeded
+    _,_,data = base_records(seeded)
+    original = client.post(C+'/quotes',headers=admin,json=data).json()
+    second = client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-2'}).json()
+    audits = client.get(C+f'/records/quote/{second["id"]}/changes',headers=admin).json()
+    response = client.put(C+f'/quotes/{second["id"]}',headers=admin,json={**data,
+        'version':1,'reason':'模拟编号重复','lines':[{'material_id':data['lines'][0]['material_id'],'quantity':'2','unit_price':'3'}]})
+    assert response.status_code == 409,response.text
+    assert client.get(C+f'/records/quote/{second["id"]}',headers=admin).json() == second
+    assert client.get(C+f'/records/quote/{original["id"]}',headers=admin).json() == original
+    assert client.get(C+f'/records/quote/{second["id"]}/changes',headers=admin).json() == audits
+
+
+def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_crm_schema):
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        before = db.execute('SELECT * FROM customers ORDER BY id').fetchall()
+        remove_crm_schema(db)
+        db.execute('PRAGMA user_version=49')
+    migrate(); migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 50
+        assert db.execute('SELECT * FROM customers ORDER BY id').fetchall() == before
+        assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+        assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='seller' AND permission_code='crm.view'").fetchone()[0] == 1
+        assert not db.execute("SELECT 1 FROM role_permissions WHERE role_code='seller' AND permission_code='crm_quote.review'").fetchone()
+        assert len(Base.metadata.tables) == 115
+
+
+def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm_schema,monkeypatch):
+    import app.core.database as database
+    with database.connection() as db:
+        remove_crm_schema(db)
+        db.execute('PRAGMA user_version=49')
+    original = database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            db.set_authorizer(lambda operation,name,*_: sqlite3.SQLITE_DENY
+                if operation == sqlite3.SQLITE_CREATE_TABLE and name == 'crm_changes' else sqlite3.SQLITE_OK)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(Exception):
+        migrate()
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 49
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='crm_quotes'").fetchone()
+        assert not db.execute("SELECT 1 FROM permissions WHERE code='crm.view'").fetchone()

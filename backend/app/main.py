@@ -30,6 +30,8 @@ from app.inventory.inbounds import router as warehouse_inbounds_router
 from app.inventory.outbounds import router as warehouse_outbounds_router
 from app.sales.orders import router as sales_router
 from app.sales.returns import router as sales_returns_router
+from app.sales.crm import router as crm_router
+from app.sales.crm_quotes import router as crm_quotes_router
 from app.production.boms import router as production_router
 from app.production.work_orders import router as work_orders_router
 from app.production.material_issues import router as material_issues_router
@@ -95,7 +97,7 @@ for router in (
     inventory_router, stock_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
-    purchase_returns_router, sales_router, sales_returns_router,
+    purchase_returns_router, sales_router, sales_returns_router, crm_router, crm_quotes_router,
     production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router,
     finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, subledger_openings_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router,

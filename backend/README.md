@@ -11,7 +11,7 @@
 | `app/core/` | 数据库迁移、静态 SQLAlchemy ORM 模型与统一会话事务边界。 |
 | `app/purchase/` | 采购申请、采购订单、采购收货、入库单、采购退货。 |
 | `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额和台账。 |
-| `app/sales/` | 客户、销售订单、出库、销售退货。 |
+| `app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转销售草稿、销售订单、出库、销售退货。 |
 | `app/production/` | BOM、工单、领退料、报工、工单成本、完工批次结算及 MRP 日期计划。 |
 | `app/finance/` | 应收应付、订单余额、手工收付款、总账科目、会计期间、期初余额、手工及业务来源凭证、损益结转、已过账报表、公司财务报表与固定归档、辅助核算及期间结账与重开。 |
 | `app/reports/` | 采购执行、收退货、库存余额与收发存报表。 |
@@ -43,6 +43,8 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 物料、供应商和客户资料、采购申请与订单、分批收货及待入库确认、采购退货待出库确认、其他入出库、多仓库存、调拨、盘点、独立调整、库存台账与基础报表已实现。销售与生产原有单据继续使用。确认入库、出库、退货、调拨或有差异的盘点会在单个事务中生成库存流水；重复确认返回冲突。所有数据由服务端 SQLite 保存，远程客户端没有离线副本或自动同步。
 
 ## 基础资料与供货关系
+
+客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。复用现有客户主数据；提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
 物料、供应商、仓库分别通过 `/materials`、`/suppliers`、`/warehouses`（统一前缀 `/api/v1`）提供 GET 列表、POST 新增、PUT `/{id}` 修改和 DELETE `/{id}` 删除。查看要求 `inventory.view`，物料和供应商写入要求 `catalog.manage`，仓库写入要求 `warehouse.manage`。重复编码或名称冲突返回 409，记录不存在返回 404；被业务单据或库存引用的记录不能删除，默认 1 号主仓库也不能删除。修改名称会反映在引用该档案的历史查询中，当前没有档案版本快照。
 
@@ -190,7 +192,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 49 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 50 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 

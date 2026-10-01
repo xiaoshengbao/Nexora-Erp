@@ -19,6 +19,7 @@
 | `purchase/` | `PurchaseReceiptsView.vue` | 建立和确认采购入库单 |
 | `purchase/` | `PurchaseReturnsView.vue` | 处理采购退货 |
 | `sales/` | `SalesOrdersView.vue` | 建立和管理销售订单；客户资料独立维护，订单弹窗提供快捷入口并保留草稿 |
+| `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，固定报价独立审核后登记接受依据转销售草稿 |
 | `sales/` | `SalesShipmentsView.vue` | 处理销售出库 |
 | `sales/` | `SalesReturnsView.vue` | 处理销售退货 |
 | `finance/` | `ReceivablesPayablesView.vue` | 应收应付汇总及订单金额核对 |
@@ -89,3 +90,5 @@
 `finance/ProfitTransferPanel.vue` 在同一总账凭证页提供损益结转范围配置、期间预览与草稿生成；`ProfitTransferEvidence.vue` 展示逐科目清零、累计待结净额、已过账凭证及正式期初来源，详情沿用生成快照。`profit-transfer-actions.ts` 管理 Pinia 快照、迟到请求与撤权清理；配置失败保留输入，成本复选框与证据折叠复用 Naive UI 和公共封装。业务凭证来源折叠也沿用 `AppCollapseItem`，符合主线统一控件检查。
 
 `production/MaterialPlanningView.vue` 提供独立 `mrp.view` 入口及固定计划、需求编排、参数三种工作模式。`MrpEditor.vue` 安排来源日期，`MrpEvidence.vue` 展示日期净需求、来源与审计，`MrpPolicies.vue` 维护版本参数；`mrp-actions.ts` 统一 Pinia 状态、撤权清理、迟到响应和转单。日期使用既有 Naive 控件与校验指令，表格沿用公共控件。断线保留输入，来源变化后新建重算，规则见 [MRP](../../../../../docs/material-planning.md)。
+
+`sales/CustomerRelationsView.vue` 提供 `crm.view` 入口与四类列表；`CrmEditor.vue` 在页内编辑，`CrmEvidence.vue` 展示固定报价及前后变更，`CrmDate.vue` 复用现有日期校验方式。`crm-actions.ts` 保存 Pinia 表单，负责版本操作、权限清理、迟到响应和双权限转单；审批与转单使用保护焦点弹窗，失败保留依据。规则和边界见 [客户关系](../../../../../docs/customer-relations.md)。

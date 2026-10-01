@@ -185,6 +185,7 @@ export const workspaceRouteGroups = [
     icon: 'sales',
     label: '销售管理',
     routes: [
+      { key: 'customerRelations', path: '/workspace/customer-relations', label: '客户关系与报价', permission: 'crm.view', icon: 'team' },
       {
         key: 'sales',
         path: '/workspace/sales-orders',

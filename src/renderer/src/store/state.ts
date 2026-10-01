@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
 import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
 import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
@@ -96,6 +97,17 @@ import type { Screen } from './types'
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
   const mrpPlans = ref<MrpPlan[]>([])
+  const crmOptions = ref<CrmOptions | null>(null)
+  const crmOverview = ref<CrmOverview | null>(null)
+  const crmDetail = ref<{kind: CrmKind; record: CrmRecord} | null>(null)
+  const crmChanges = ref<CrmChange[]>([])
+  const crmForms = ref<CrmForms>({contact:{customer_id:0,name:'',job_title:'',phone:'',email:'',note:'',is_active:true},
+    opportunity:{customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',expected_close_date:'',note:''},
+    activity:{customer_id:0,contact_id:null,opportunity_id:null,subject:'',owner_id:0,due_date:'',note:''},
+    quote:{opportunity_id:0,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]}})
+  const crmEdit = ref<Partial<Record<CrmKind, CrmEditTarget>>>({})
+  const crmLoading = ref(false)
+  const crmError = ref('')
   const mrpOptions = ref<MrpOptions | null>(null)
   const mrpDetail = ref<MrpDetail | null>(null)
   const mrpCheck = ref<MrpCheck | null>(null)
@@ -452,6 +464,7 @@ export function createAppState() {
 
   return {
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
+    crmOptions, crmOverview, crmDetail, crmChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,
     openedRouteKeys,
     expandedGroupKey,

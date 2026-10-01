@@ -19,6 +19,7 @@ MENU_KEYS = {
     'route:boms',
     'route:catalog',
     'route:customers',
+    'route:customerRelations',
     'route:finance',
     'route:financePayments',
     'route:financeSources',

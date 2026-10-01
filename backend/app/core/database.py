@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 49:
+        if version > 50:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1630,3 +1630,62 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [('planner', 'purchase_request.' + action) for action in ('view','create','submit','cancel')])
             db.execute('PRAGMA user_version = 49')
+
+        if version < 50:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE crm_contacts (
+                id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
+                name TEXT NOT NULL, job_title TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL, note TEXT NOT NULL,
+                is_active INTEGER NOT NULL CHECK(is_active IN (0,1)), version INTEGER NOT NULL CHECK(version>0),
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE crm_opportunities (
+                id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
+                contact_id INTEGER REFERENCES crm_contacts(id), title TEXT NOT NULL,
+                owner_id INTEGER NOT NULL REFERENCES users(id),
+                stage TEXT NOT NULL CHECK(stage IN ('prospect','qualified','proposal','negotiation','won','lost')),
+                estimated_amount TEXT NOT NULL, expected_close_date TEXT NOT NULL, note TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE crm_activities (
+                id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
+                contact_id INTEGER REFERENCES crm_contacts(id), opportunity_id INTEGER REFERENCES crm_opportunities(id),
+                subject TEXT NOT NULL, owner_id INTEGER NOT NULL REFERENCES users(id), due_date TEXT NOT NULL,
+                note TEXT NOT NULL, result TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('planned','completed','cancelled')),
+                version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id),
+                closed_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, closed_at TEXT)''')
+            db.execute('''CREATE TABLE crm_quotes (
+                id INTEGER PRIMARY KEY, opportunity_id INTEGER NOT NULL REFERENCES crm_opportunities(id),
+                customer_id INTEGER NOT NULL REFERENCES customers(id), contact_id INTEGER REFERENCES crm_contacts(id),
+                reference TEXT NOT NULL UNIQUE, valid_until TEXT NOT NULL, terms TEXT NOT NULL, party_json TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','cancelled','converted')),
+                version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id),
+                submitted_by INTEGER REFERENCES users(id), reviewed_by INTEGER REFERENCES users(id),
+                converted_by INTEGER REFERENCES users(id), sales_order_id INTEGER UNIQUE REFERENCES sales_orders(id),
+                acceptance_reference TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                submitted_at TEXT, reviewed_at TEXT, converted_at TEXT,
+                CHECK((status='converted' AND sales_order_id IS NOT NULL AND acceptance_reference IS NOT NULL) OR
+                      (status!='converted' AND sales_order_id IS NULL AND acceptance_reference IS NULL)))''')
+            db.execute('''CREATE TABLE crm_quote_lines (
+                id INTEGER PRIMARY KEY, quote_id INTEGER NOT NULL REFERENCES crm_quotes(id), position INTEGER NOT NULL,
+                material_id INTEGER NOT NULL REFERENCES materials(id), sku TEXT NOT NULL,
+                material_name TEXT NOT NULL, unit TEXT NOT NULL, quantity TEXT NOT NULL, unit_price TEXT NOT NULL,
+                UNIQUE(quote_id,position), UNIQUE(quote_id,material_id))''')
+            db.execute('''CREATE TABLE crm_changes (
+                id INTEGER PRIMARY KEY, entity_kind TEXT NOT NULL CHECK(entity_kind IN ('contact','activity','opportunity','quote')),
+                entity_id INTEGER NOT NULL CHECK(entity_id>0), action TEXT NOT NULL,
+                before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX crm_changes_entity ON crm_changes(entity_kind,entity_id,id)')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('sales.crm','客户关系与报价','sales',5)")
+            operations = [('crm.view','查看客户关系及报价'), ('crm_contact.manage','维护客户联系人'),
+                ('crm_activity.manage','登记及处理客户跟进'), ('crm_opportunity.manage','维护销售商机'),
+                ('crm_quote.create','建立及修订报价'), ('crm_quote.submit','提交报价'),
+                ('crm_quote.review','独立审核报价'), ('crm_quote.cancel','取消未转单报价'),
+                ('crm_quote.convert','将报价转为销售订单')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'sales.crm')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('admin', code) for code, _ in operations] +
+                [('seller', code) for code, _ in operations if code != 'crm_quote.review'])
+            db.execute('PRAGMA user_version = 50')

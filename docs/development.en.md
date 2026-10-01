@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this MRP implementation on 2026-10-01, starting from main commit `ecbd83c`. It adds dated net requirements, fixed planning evidence, independent approval and draft purchase/work-order conversion. Database version 49 has 109 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects this customer-relations and quotation implementation on 2026-10-01, starting from main commit `6660848`. It adds customer contacts, follow-ups, opportunities, frozen quotations, independent review and sales-draft conversion. Database version 50 has 115 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -90,7 +90,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 
 | Area | Existing rules/corrections | Current boundary |
 | --- | --- | --- |
-| Master data | Material/supplier/warehouse CRUD with reference/default-warehouse deletion protection; independent customer search/create; idempotent supplier bindings. | No full CRM, quotes or purchasing selection restrictions; supplier pagination does not cover every list. |
+| Master data | Material/supplier/warehouse CRUD with reference/default-warehouse deletion protection; independent customer search/create; idempotent supplier bindings. | Customer relations and quotations are provided separately; no full marketing automation or purchasing selection restrictions; supplier pagination does not cover every list. |
 | Purchasing | Approved requests can split; draft orders reserve allowance. Accepted receiving creates pending receipts; posting adds stock/payables. Returns await warehouse shipment. | Receiving does not add stock; request approval does not yet require a different person. |
 | Sales | Partial shipments check remaining quantity/stock in one transaction; returns reference original lines/prices. | Refunds are separately recorded, not automatically paid. |
 | Warehousing | Single posting, two-sided transfers, stocktake snapshots/change checks; adjustments need independent approval and warehouse posting. | Not a general approval engine; full physical batch tracing remains future work. |
@@ -107,7 +107,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 
 Formal opening setup is available before any journal is posted, with independent review/confirmation, versioned auditing and reversal before posting. It does not add current activity or generate subsidiary opening balances. See [opening balance rules (Chinese)](opening-balances.md).
 
-See [cost settlement rules (Chinese)](production-cost-settlement.md), [ledger foundations (Chinese)](ledger-foundation.md) and [manual journals (Chinese)](manual-journals.md). Manual journals support balanced entries, independent review, posting and linked reversals, with fixed posted snapshots and auditing. Business-source journal drafts are available; see [business journal rules (Chinese)](business-journals.md). Profit transfer drafts with independent review, source protection and zero-balance closing checks are available; see [profit transfer rules (Chinese)](profit-transfers.md). Cash flow, statutory statement templates, quality/after-sales, CRM, equipment, HR, multiple organizations, MySQL and offline synchronization remain future work. Entry conditions are in the [expansion assessment (Chinese)](erp-expansion-assessment.md).
+[Customer relations and quotations (Chinese)](customer-relations.md) provide contacts, follow-ups, opportunities, independently approved frozen quotes and acceptance evidence to sales drafts, without posting stock or revenue. See [cost settlement rules (Chinese)](production-cost-settlement.md), [ledger foundations (Chinese)](ledger-foundation.md) and [manual journals (Chinese)](manual-journals.md). Manual journals support balanced entries, independent review, posting and linked reversals, with fixed posted snapshots and auditing. Business-source journal drafts are available; see [business journal rules (Chinese)](business-journals.md). Profit transfer drafts with independent review, source protection and zero-balance closing checks are available; see [profit transfer rules (Chinese)](profit-transfers.md). Cash flow, statutory statement templates, quality/after-sales, deeper CRM marketing/forecasting, equipment, HR, multiple organizations, MySQL and offline synchronization remain future work. Entry conditions are in the [expansion assessment (Chinese)](erp-expansion-assessment.md).
 
 Closing conditions, historical locks and archive boundaries are in [period closing rules (Chinese)](period-closing.md).
 

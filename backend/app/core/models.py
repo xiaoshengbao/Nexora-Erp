@@ -8,6 +8,106 @@ class Base(DeclarativeBase):
     pass
 
 
+class CrmContact(Base):
+    __tablename__ = 'crm_contacts'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    job_title: Mapped[str] = mapped_column(Text, nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class CrmOpportunity(Base):
+    __tablename__ = 'crm_opportunities'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
+    contact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_contacts.id'))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    stage: Mapped[str] = mapped_column(Text, nullable=False)
+    estimated_amount: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_close_date: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class CrmActivity(Base):
+    __tablename__ = 'crm_activities'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
+    contact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_contacts.id'))
+    opportunity_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_opportunities.id'))
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    due_date: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    result: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    closed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    closed_at: Mapped[str | None] = mapped_column(Text)
+
+
+class CrmQuote(Base):
+    __tablename__ = 'crm_quotes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opportunity_id: Mapped[int] = mapped_column(Integer, ForeignKey('crm_opportunities.id'), nullable=False)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
+    contact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_contacts.id'))
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_until: Mapped[str] = mapped_column(Text, nullable=False)
+    terms: Mapped[str] = mapped_column(Text, nullable=False)
+    party_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    submitted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    converted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    sales_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('sales_orders.id'))
+    acceptance_reference: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    submitted_at: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[str | None] = mapped_column(Text)
+    converted_at: Mapped[str | None] = mapped_column(Text)
+
+
+class CrmQuoteLine(Base):
+    __tablename__ = 'crm_quote_lines'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    quote_id: Mapped[int] = mapped_column(Integer, ForeignKey('crm_quotes.id'), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
+    sku: Mapped[str] = mapped_column(Text, nullable=False)
+    material_name: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    unit_price: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class CrmChange(Base):
+    __tablename__ = 'crm_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class MrpPolicy(Base):
     __tablename__ = 'mrp_policies'
     material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), primary_key=True)
