@@ -1,4 +1,6 @@
 import type {InventoryWarningOperations} from './inventory-warning-api'
+import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
+export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
 import type { MrpOperations } from './mrp-api'
 import type { CrmOperations } from './crm-api'
@@ -28,7 +30,6 @@ export interface PageResult<T> { items: T[]; total: number; page: number; page_s
 export interface SupplierMaterial { supplier_id: number; material_id: number }
 export interface Supplier { id: number; name: string }
 export interface Customer { id: number; name: string }
-export interface Material { id: number; sku: string; name: string; unit: string }
 export interface Warehouse { id: number; code: string; name: string }
 export type LedgerCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'cost'
 export interface LedgerAccount {
@@ -348,7 +349,7 @@ export interface StockAdjustment {
   reversed_at: string | null
   lines: ReceiptLine[]
 }
-export interface Stock extends Material { quantity: string }
+export interface Stock extends MaterialSummary { quantity: string }
 export interface InventoryValuationMovement {
   id: number
   warehouse_id: number
@@ -370,7 +371,7 @@ export interface InventoryValuationReport {
   method: 'moving_weighted_average'
   scope: 'company'
   total_amount: string | null
-  materials: (Material & { quantity: string; amount: string | null;
+  materials: (MaterialSummary & { quantity: string; amount: string | null;
     average_unit_cost: string | null })[]
   movements: InventoryValuationMovement[]
   unpriced_movement_ids: number[]
@@ -1080,7 +1081,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   resetUserPassword: { input: { userId: number; password: string }; output: void }
   suppliers: { input: undefined; output: Supplier[] }
   querySuppliers: { input: PageQuery; output: PageResult<Supplier> }
-  updateMaterial: { input: { id: number; sku: string; name: string; unit: string }; output: Material }
+  updateMaterial: { input: MaterialInput & { id: number; version: number }; output: Material }
   deleteMaterial: { input: { id: number }; output: void }
   updateSupplier: { input: { id: number; name: string }; output: Supplier }
   deleteSupplier: { input: { id: number }; output: void }
@@ -1092,8 +1093,10 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   createSupplier: { input: { name: string }; output: Supplier }
   customers: { input: undefined; output: Customer[] }
   createCustomer: { input: { name: string }; output: Customer }
+  materialCategories: { input: undefined; output: MaterialCategory[] }
   materials: { input: undefined; output: Material[] }
-  createMaterial: { input: { sku: string; name: string; unit: string }; output: Material }
+  materialDetail: { input: { id: number }; output: Material }
+  createMaterial: { input: MaterialInput; output: Material }
   warehouses: { input: undefined; output: Warehouse[] }
   otherInbounds: { input: undefined; output: OtherInbound[] }
   createOtherInbound: { input: { warehouse_id: number; reason: 'opening' | 'gift' | 'other'; note: string; reference: string; lines: { material_id: number; quantity: string }[] }; output: OtherInbound }

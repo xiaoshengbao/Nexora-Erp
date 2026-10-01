@@ -15,10 +15,25 @@ def remove_inventory_warning_schema():
     return remove
 
 
+
 @pytest.fixture
-def remove_equipment_schema(remove_inventory_warning_schema):
+def remove_material_schema(remove_inventory_warning_schema):
     def remove(db):
         remove_inventory_warning_schema(db)
+        db.execute('DROP TABLE IF EXISTS material_changes')
+        db.execute('DROP TABLE IF EXISTS material_code_sequences')
+        from app.catalog.material_rules import DETAIL_FIELDS
+        existing = {row[1] for row in db.execute('PRAGMA table_info(materials)')}
+        for field in (*DETAIL_FIELDS, 'version'):
+            if field in existing:
+                db.execute(f'ALTER TABLE materials DROP COLUMN {field}')
+    return remove
+
+
+@pytest.fixture
+def remove_equipment_schema(remove_material_schema):
+    def remove(db):
+        remove_material_schema(db)
         for table in ('maintenance_changes','maintenance_downtimes','maintenance_jobs','maintenance_plans','equipment_assets'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse'):

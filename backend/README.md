@@ -48,7 +48,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。复用现有客户主数据；提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
-物料、供应商、仓库分别通过 `/materials`、`/suppliers`、`/warehouses`（统一前缀 `/api/v1`）提供 GET 列表、POST 新增、PUT `/{id}` 修改和 DELETE `/{id}` 删除。查看要求 `inventory.view`，物料和供应商写入要求 `catalog.manage`，仓库写入要求 `warehouse.manage`。重复编码或名称冲突返回 409，记录不存在返回 404；被业务单据或库存引用的记录不能删除，默认 1 号主仓库也不能删除。修改名称会反映在引用该档案的历史查询中，当前没有档案版本快照。
+物料、供应商、仓库分别通过 `/materials`、`/suppliers`、`/warehouses`（统一前缀 `/api/v1`）提供 GET 列表、POST 新增、PUT `/{id}` 修改和 DELETE `/{id}` 删除。查看要求 `inventory.view`，物料和供应商写入要求 `catalog.manage`，仓库写入要求 `warehouse.manage`。重复编码或名称冲突返回 409，记录不存在返回 404；被业务单据或库存引用的记录不能删除，默认 1 号主仓库也不能删除。修改名称会反映在引用该档案的历史查询中；物料资料已提供编辑版本与前后审计，供应商与仓库尚无对应的档案版本快照。
 
 数据库第 28 版新增 `supplier_materials` 多对多关联表。GET `/supplier-materials` 返回供应商与物料编号；PUT `/suppliers/{supplier_id}/materials/{material_id}` 幂等绑定，DELETE 同路径解绑，写入要求 `catalog.manage`。同一物料可绑定多个供应商，供应商也可绑定多个物料；解绑不删除物料、不改动库存和采购记录。删除未被业务引用的资料会清理其绑定关系；删除失败时关系与资料一并回滚。不同规格使用不同物料编码维护，可在名称中填写规格型号。
 
@@ -106,7 +106,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 127 张静态模型表及第 53 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。接口字段与权限不变，客户端与服务端仍需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 131 张静态模型表及第 55 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。接口字段与权限不变，客户端与服务端仍需同时升级。
 
 ## 多仓库库存与调拨
 
@@ -194,7 +194,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 54 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 55 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 
@@ -241,6 +241,10 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 第 53 版新增五张静态 ORM 表，数据库共 127 张表。`app/production/equipment.py` 装配台账、日历计划、独立审核和验收、停机、耗材草稿及更正接口，输入与来源规则分别在 `equipment_inputs.py`、`equipment_rules.py`。桌面端已提供独立权限入口、三类资料编制、当前版本阶段操作、停机/耗材与审计证据；输入、事务、并发、写后故障回滚、升级及桌面边界均有测试。权限、来源隐藏、取消与计划更正边界见 [设备维护规则](../docs/equipment-maintenance.md)。
 
+## 电子生产物料档案
+
+第 54 版增加物料分类、规格、封装、品牌、制造商料号及电子参数列，新增永久子类流水与物料审计两张表，共 129 张静态 ORM 表。`app/catalog/material_rules.py` 维护固定分类、编号和审计，`routes.py` 提供分类目录、资料回读和版本编辑。并发编号、失败回滚、旧物料保留与接口兼容边界见 [物料管理规则](../docs/material-catalog.md)。客户端和服务端须同步升级，旧客户端无版本编辑会返回冲突。
+
 ## 按仓库库存预警
 
-第 54 版新增规则与修订证据两张静态 ORM 表，共 129 张。`app/inventory/warnings.py` 从已确认流水逐仓逐物料 Decimal 汇总，提供范围查询、详情与带版本阈值维护；沿用 `inventory.view`，新增 `inventory_warning.manage`。规则与审计同事务，过期版本返回 409，未配置不参与预警，停用差额返回 null，不提供推送或预测。升级与使用见 [库存预警规则](../docs/inventory-warnings.md)。
+第 55 版新增规则与修订证据两张静态 ORM 表，共 131 张。`app/inventory/warnings.py` 从已确认流水逐仓逐物料 Decimal 汇总，提供范围查询、详情与带版本阈值维护；沿用 `inventory.view`，新增 `inventory_warning.manage`。规则与审计同事务，过期版本返回 409，未配置不参与预警，停用差额返回 null，不提供推送或预测。升级与使用见 [库存预警规则](../docs/inventory-warnings.md)。

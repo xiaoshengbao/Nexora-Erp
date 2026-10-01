@@ -111,12 +111,12 @@ def test_rule_conflict_preserves_previous_evidence_and_names_at_revision(erp):
     for version in (0,1):
         api('PUT',ROOT+f'/rules/1/{erp[3]}',dict(version=version,threshold='99',enabled=True,reason='过期正文'),status=409)
     assert api('GET',ROOT+f'/rules/1/{erp[3]}')==current
-    api('PUT',f'materials/{erp[3]}',{'sku':'RENAMED','name':'改名物料','unit':'箱'})
+    api('PUT',f'materials/{erp[3]}',{'sku':'ALERT-PART','name':'改名物料','unit':'箱','version':1,'reason':'核对名称和单位'})
     later = save(erp,version=2,threshold='3',reason='核对新资料')
-    assert later['row']['sku']=='RENAMED' and later['row']['unit']=='箱'
+    assert later['row']['material_name']=='改名物料' and later['row']['unit']=='箱'
     assert later['changes'][0]['after']['sku']=='ALERT-PART'
     assert later['changes'][1]['before']==first['changes'][0]['after']
-    assert later['changes'][2]['after']['sku']=='RENAMED'
+    assert later['changes'][2]['after']['material_name']=='改名物料'
 
 
 def test_permissions_live_revocation_and_no_view_write_do_not_expose_data(erp):
@@ -188,24 +188,34 @@ def test_failure_after_audit_flush_rolls_back_rule_and_revision(erp):
     assert len(api('GET',ROOT)['rows'])==1
 
 
-def test_v53_upgrade_preserves_business_and_is_idempotent(erp,remove_inventory_warning_schema):
+def test_v54_upgrade_preserves_business_and_is_idempotent(erp,remove_inventory_warning_schema):
     inbound(erp,1,'0.125')
+    erp[1]('PUT',f'materials/{erp[3]}',dict(name='已分类物料',unit='件',version=1,category_code='EL-SR',specification='10 kΩ',brand='测试品牌'))
+    erp[1]('POST','materials',dict(name='自动编码物料',unit='件',category_code='EL-SR'),status=201)
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        material_before = db.execute('SELECT * FROM materials ORDER BY id').fetchall()
+        codes_before = db.execute('SELECT * FROM material_code_sequences ORDER BY prefix').fetchall()
+        changes_before = db.execute('SELECT * FROM material_changes ORDER BY id').fetchall()
         before = db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()
-        remove_inventory_warning_schema(db);db.execute('PRAGMA user_version=53')
+        remove_inventory_warning_schema(db);db.execute('PRAGMA user_version=54')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==54
+        assert db.execute('PRAGMA user_version').fetchone()[0]==55
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
+        assert db.execute('SELECT * FROM materials ORDER BY id').fetchall()==material_before
+        assert db.execute('SELECT * FROM material_code_sequences ORDER BY prefix').fetchall()==codes_before
+        assert db.execute('SELECT * FROM material_changes ORDER BY id').fetchall()==changes_before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='inventory_warning.manage'").fetchone()[0]==2
-    assert len(Base.metadata.tables)==129
+    assert len(Base.metadata.tables)==131
 
 
-def test_v53_failed_migration_leaves_no_partial_structure(erp,remove_inventory_warning_schema,monkeypatch):
+@pytest.mark.parametrize('old_version',[53,54])
+def test_failed_migration_leaves_no_partial_structure(erp,remove_inventory_warning_schema,remove_material_schema,monkeypatch,old_version):
     from app.core import database
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        remove_inventory_warning_schema(db);db.execute('PRAGMA user_version=53')
+        (remove_material_schema if old_version==53 else remove_inventory_warning_schema)(db)
+        db.execute(f'PRAGMA user_version={old_version}')
     original = database.connection
     @contextmanager
     def fail_structure():
@@ -217,6 +227,7 @@ def test_v53_failed_migration_leaves_no_partial_structure(erp,remove_inventory_w
         scoped.setattr(database,'connection',fail_structure)
         with pytest.raises(sqlite3.DatabaseError):migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==53
+        assert db.execute('PRAGMA user_version').fetchone()[0]==old_version
+        assert ('category_code' in {row[1] for row in db.execute('PRAGMA table_info(materials)')}) == (old_version==54)
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='inventory_warning_rules'").fetchone()
     migrate()
