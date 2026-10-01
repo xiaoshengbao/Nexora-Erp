@@ -217,6 +217,7 @@ export const workspaceRouteGroups = [
       { key: 'openingBalances', path: '/workspace/opening-balances', label: '期初余额', permission: 'opening_balance.view', icon: 'file' },
       { key: 'ledgerReports', path: '/workspace/ledger-reports', label: '总账报表', permission: 'journal.view', icon: 'chart' },
       { key: 'financialStatements', path: '/workspace/financial-statements', label: '财务报表', permission: 'financial_statement.view', icon: 'chart' },
+      { key: 'auxiliaryAccounting', path: '/workspace/auxiliary-accounting', label: '辅助核算', permission: 'auxiliary.view', icon: 'file' },
       {
         key: 'ledgerAccounts',
         path: '/workspace/ledger-accounts',

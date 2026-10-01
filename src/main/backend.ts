@@ -247,6 +247,24 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'journals': return { method: 'GET', path: '/api/v1/finance/journals' }
     case 'businessJournalSources': return { method: 'GET', path: '/api/v1/finance/business-journals' }
+    case 'auxiliaryOptions': return { method: 'GET', path: '/api/v1/finance/auxiliary/options' }
+    case 'auxiliaryChanges': return { method: 'GET', path: '/api/v1/finance/auxiliary/changes' }
+    case 'createAuxiliaryItem': {
+      const { kind, code, name, reason } = payload as ErpOperations['createAuxiliaryItem']['input']
+      return { method: 'POST', path: '/api/v1/finance/auxiliary/items', body: { kind, code, name, reason } }
+    }
+    case 'updateAuxiliaryItem': {
+      const { version, name, is_active, reason } = payload as ErpOperations['updateAuxiliaryItem']['input']
+      return { method: 'PUT', path: `/api/v1/finance/auxiliary/items/${positiveId(payload, 'id')}`, body: { version, name, is_active, reason } }
+    }
+    case 'saveAuxiliaryPolicy': {
+      const { version, start_date, required_kinds, reason } = payload as ErpOperations['saveAuxiliaryPolicy']['input']
+      return { method: 'PUT', path: `/api/v1/finance/auxiliary/policies/${positiveId(payload, 'account_id')}`, body: { version, start_date, required_kinds, reason } }
+    }
+    case 'queryAuxiliary': {
+      const { account_id, kind, from_date, to_date, entity_id } = payload as ErpOperations['queryAuxiliary']['input']
+      return { method: 'POST', path: '/api/v1/finance/auxiliary/query', body: { account_id, kind, from_date, to_date, entity_id } }
+    }
     case 'profitTransferOptions': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy' }
     case 'statementOptions': return { method: 'GET', path: '/api/v1/finance/statements/options' }
     case 'statementPolicyChanges': return { method: 'GET', path: '/api/v1/finance/statements/policy/changes' }
@@ -284,8 +302,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'PUT', path: '/api/v1/finance/business-journals/policy', body: { version, start_date, mapping, reason } }
     }
     case 'generateBusinessJournal': {
-      const { source_key, fingerprint, policy_version, reference, journal_date, reason } = payload as ErpOperations['generateBusinessJournal']['input']
-      return { method: 'POST', path: '/api/v1/finance/business-journals/generate', body: { source_key, fingerprint, policy_version, reference, journal_date, reason } }
+      const { source_key, fingerprint, policy_version, reference, journal_date, reason, auxiliary_by_role } = payload as ErpOperations['generateBusinessJournal']['input']
+      const auxiliary = auxiliary_by_role === undefined ? {} : { auxiliary_by_role: Object.fromEntries(
+        Object.entries(auxiliary_by_role).map(([role, items]) => {
+          if (!Array.isArray(items)) throw new Error('辅助信息须为列表。')
+          return [role, items.map(({ kind, id }) => ({ kind, id }))]
+        })) }
+      return { method: 'POST', path: '/api/v1/finance/business-journals/generate', body: { source_key, fingerprint, policy_version, reference, journal_date, reason, ...auxiliary } }
     }
     case 'openingBalances': return { method: 'GET', path: '/api/v1/finance/opening-balances' }
     case 'openingBalanceOptions': return { method: 'GET', path: '/api/v1/finance/opening-balances/options' }

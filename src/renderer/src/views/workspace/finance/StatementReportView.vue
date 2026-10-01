@@ -7,6 +7,7 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import { statementContributions, statementGroups } from './statement-display'
 import { journalStatusLabels } from './journal-display'
+import { auxiliaryText } from './auxiliary-display'
 
 const props = defineProps<{ report: StatementReport; archived?: boolean; canOpenJournal: boolean; offline: boolean }>()
 const emit = defineEmits<{ openJournal: [id: number] }>()
@@ -19,8 +20,8 @@ const contributionColumns = [{ key: 'code', title: '科目编码', width: '110' 
   { key: 'opening', title: '期初（元）', width: '150' }, { key: 'closing', title: '期末（元）', width: '150' }, { key: 'movement', title: '本期发生额（元）', width: '170' }]
 const sourceColumns = [{ key: 'journal_date', title: '日期', width: '120' }, { key: 'journal_id', title: '凭证', width: '100' },
   { key: 'reference', title: '依据', width: '190' }, { key: 'account', title: '科目', width: '200' }, { key: 'summary', title: '摘要', width: '190' },
-  { key: 'debit', title: '借方（元）', width: '150' }, { key: 'credit', title: '贷方（元）', width: '150' }, { key: 'scope', title: '利润表口径', width: '180' }]
-const openingColumns = [{ key: 'account', title: '科目' }, { key: 'debit', title: '借方（元）' }, { key: 'credit', title: '贷方（元）' }]
+  { key: 'auxiliary', title: '辅助快照', width: '290' }, { key: 'debit', title: '借方（元）', width: '150' }, { key: 'credit', title: '贷方（元）', width: '150' }, { key: 'scope', title: '利润表口径', width: '180' }]
+const openingColumns = [{ key: 'account', title: '科目' }, { key: 'auxiliary', title: '辅助快照', width: '290' }, { key: 'debit', title: '借方（元）' }, { key: 'credit', title: '贷方（元）' }]
 const unmappedColumns = [{ key: 'code', title: '科目编码' }, { key: 'name', title: '科目名称' }, { key: 'opening', title: '期初（元）' }, { key: 'closing', title: '期末（元）' }, { key: 'movement', title: '本期发生额（元）' }]
 const contributions = computed(() => selected.value ? statementContributions(props.report, selected.value.code) : [])
 function accountLabel(id: number): string {
@@ -65,8 +66,9 @@ async function inspect(row: { code: string; name: string; account_ids: number[] 
       <div class="statement-actions"><h3>{{ selected.name }} · 来源核对</h3><AppButton type="button" variant="secondary" @click="selected = null">收起来源</AppButton></div>
       <p>以下金额与报表来自同一快照。科目本期发生额按收入贷减借、其他借减贷列示，排除结转；资产负债取期末余额，利润取本期发生额。未结转损益按收入余额减费用余额汇总。</p>
       <WorkspaceTable title="科目贡献" :columns="contributionColumns" :data="contributions" :min-table-width="800" />
-      <WorkspaceTable v-if="report.opening_balance_id" :title="`正式期初来源 · 期初-${report.opening_balance_id}`" :columns="openingColumns" :data="openings" :min-table-width="600" />
-      <WorkspaceTable title="已过账分录来源" :columns="sourceColumns" :data="sources" :min-table-width="1380">
+      <WorkspaceTable v-if="report.opening_balance_id" :title="`正式期初来源 · 期初-${report.opening_balance_id}`" :columns="openingColumns" :data="openings" :min-table-width="890"><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
+      <WorkspaceTable title="已过账分录来源" :columns="sourceColumns" :data="sources" :min-table-width="1670">
+        <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
         <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', row.journal_id)">记-{{ row.journal_id }}</AppButton><span v-else>记-{{ row.journal_id }}</span></template>
         <template #footer><p>{{ canOpenJournal ? '点击凭证编号查看当前分录、来源证据与操作记录。' : '当前账号仅查看报表来源快照；另有凭证查看权限才可打开当前凭证。' }} 本表包含截至期末的历史分录，借贷原值未改变；本期利润只取日期范围内的损益科目。</p></template>
       </WorkspaceTable>

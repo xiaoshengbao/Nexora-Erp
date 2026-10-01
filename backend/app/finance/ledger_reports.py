@@ -109,10 +109,9 @@ def posted_lines(db: Session, filters: LedgerReportQuery):
 
 def trial_balance(db: Session, filters: LedgerReportQuery) -> tuple[list[dict], dict]:
     # 不用 SQLite 对文本金额 SUM，避免它隐式转为二进制浮点。
-    amounts: dict[int, list[Decimal]] = {
-        line.account_id: [Decimal(line.debit) - Decimal(line.credit), ZERO, ZERO]
-        for line in confirmed_opening_lines(db)
-    }
+    amounts: dict[int, list[Decimal]] = {}
+    for line in confirmed_opening_lines(db):
+        amounts.setdefault(line.account_id, [ZERO, ZERO, ZERO])[0] += Decimal(line.debit) - Decimal(line.credit)
     for line, journal, _ in posted_lines(db, filters):
         values = amounts.setdefault(line.account_id, [ZERO, ZERO, ZERO])
         debit, credit = Decimal(line.debit), Decimal(line.credit)

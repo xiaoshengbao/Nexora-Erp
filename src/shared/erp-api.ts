@@ -60,9 +60,43 @@ export interface LedgerAccountInput {
 }
 export type JournalStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted' | 'cancelled'
 export type JournalAction = 'submit' | 'approve' | 'reject' | 'post' | 'cancel'
-export interface JournalLineInput { account_id: number; summary: string; debit: string; credit: string }
+export type AuxiliaryKind = 'customer' | 'supplier' | 'department' | 'project'
+export interface AuxiliaryReference { kind: AuxiliaryKind; id: number }
+export interface AuxiliarySnapshot extends AuxiliaryReference { code: string; name: string }
+export interface AuxiliaryItem extends AuxiliarySnapshot {
+  is_active: boolean; version?: number; created_by?: number; created_at?: string
+}
+export interface AuxiliaryPolicy {
+  account_id: number; start_date: string; required_kinds: AuxiliaryKind[]; version: number
+  changed_by?: number; created_at?: string
+}
+export interface AuxiliarySelectionOptions { auxiliary_items: AuxiliaryItem[]; auxiliary_policies: AuxiliaryPolicy[] }
+export interface AuxiliaryOptions extends AuxiliarySelectionOptions {
+  kinds: Record<AuxiliaryKind, string>; accounts: LedgerAccount[]; periods: AccountingPeriod[]
+}
+export interface AuxiliaryItemInput { kind: 'department' | 'project'; code: string; name: string; reason: string }
+export interface AuxiliaryItemUpdate { id: number; version: number; name: string; is_active: boolean; reason: string }
+export interface AuxiliaryPolicyInput { account_id: number; version: number; start_date: string; required_kinds: AuxiliaryKind[]; reason: string }
+export interface AuxiliaryQuery { account_id: number; kind: AuxiliaryKind; from_date: string; to_date: string; entity_id: number | null }
+export interface AuxiliaryEntry {
+  journal_id: number | null; opening_balance_id: number | null; line_id: number; position: number
+  reference: string; date: string; source: string; summary: string; debit: string; credit: string
+  auxiliary: AuxiliarySnapshot[]; opening_contribution: boolean; reversal_of_id?: number | null
+}
+export interface AuxiliaryReport {
+  filters: AuxiliaryQuery; account: LedgerAccount; currency: 'CNY'; generated_at: string; csv: string; warnings: string[]
+  columns: { key: string; title: string }[]
+  rows: { entity_id: number; code: string; name: string; opening_debit: string; opening_credit: string; debit: string; credit: string; closing_debit: string; closing_credit: string; entries: AuxiliaryEntry[] }[]
+  totals: { opening_net: string; debit: string; credit: string; closing_net: string }
+}
+export interface AuxiliaryChange {
+  id: number; category: 'item' | 'policy'; target_id: number; before: AuxiliaryItem | AuxiliaryPolicy | null
+  after: AuxiliaryItem | AuxiliaryPolicy; reason: string; changed_by: number; changed_by_name: string; created_at: string
+}
+export interface JournalLineInput { account_id: number; summary: string; debit: string; credit: string; auxiliary?: AuxiliaryReference[] }
 export interface JournalInput { reference: string; journal_date: string; note: string; reason: string; lines: JournalLineInput[] }
 export interface JournalLine extends JournalLineInput {
+  auxiliary?: AuxiliarySnapshot[]
   id: number; journal_id: number; position: number; account_code: string; account_name: string
   category: LedgerCategory; normal_balance: 'debit' | 'credit'
 }
@@ -81,6 +115,7 @@ export interface ProfitTransferPolicy {
   changed_by?: number; created_at?: string
 }
 export interface ProfitTransferBalance {
+  auxiliary?: AuxiliarySnapshot[]
   account_id: number; code: string; name: string; category: LedgerCategory; balance: string; debit: string; credit: string
 }
 export interface ProfitTransferExcludedCost { account_id: number; code: string; name: string; balance: string }
@@ -88,10 +123,11 @@ export interface ProfitTransferEvidence {
   period_id: number; start_date: string; end_date: string; policy_version: number; target_account_id: number | null
   cost_account_ids: number[]; fingerprint: string; currency: 'CNY'; time_basis: 'UTC'
   rows: ProfitTransferBalance[]; lines: Pick<JournalLineInput, 'account_id' | 'debit' | 'credit'>[]
+  line_auxiliary?: AuxiliarySnapshot[][]
   net_profit: string; blockers: string[]; excluded_cost_accounts: ProfitTransferExcludedCost[]
   target_account: LedgerAccount | null
-  sources: { journal_id: number; line_id: number; account_id: number; journal_date: string; reference: string; reversal_of_id: number | null; debit: string; credit: string }[]
-  opening_sources: { line_id: number; opening_balance_id: number; account_id: number; debit: string; credit: string }[]
+  sources: { journal_id: number; line_id: number; account_id: number; journal_date: string; reference: string; reversal_of_id: number | null; debit: string; credit: string; auxiliary?: AuxiliarySnapshot[] }[]
+  opening_sources: { line_id: number; opening_balance_id: number; account_id: number; debit: string; credit: string; auxiliary?: AuxiliarySnapshot[] }[]
 }
 export interface ProfitTransferPreview {
   period: AccountingPeriod; policy_version: number; evidence: ProfitTransferEvidence; fingerprint: string
@@ -112,6 +148,7 @@ export interface StatementOptions {
   policy: StatementPolicy; accounts: LedgerAccount[]; periods: AccountingPeriod[]; groups: Record<StatementGroup, string>
 }
 export interface StatementSource {
+  auxiliary?: AuxiliarySnapshot[]
   line_id: number; journal_id: number; journal_date: string; reference: string; reversal_of_id: number | null
   account_id: number; debit: string; credit: string; summary: string; line_code: string | null; excluded_from_income: boolean
 }
@@ -125,7 +162,7 @@ export interface StatementReport {
   income_rows: (StatementLine & { opening: string; amount: string; account_ids: number[] })[]
   contributions: StatementContribution[]; sources: StatementSource[]
   account_snapshots: LedgerAccount[]
-  opening_sources: { id: number; opening_balance_id: number; account_id: number; debit: string; credit: string; line_code: string | null }[]
+  opening_sources: { id: number; opening_balance_id: number; account_id: number; debit: string; credit: string; line_code: string | null; auxiliary?: AuxiliarySnapshot[] }[]
   opening_balance_id: number | null; periods: AccountingPeriod[]
   pending: { id: number; date: string; status: JournalStatus }[]
   unmapped: { account_id: number; code: string; name: string; opening: string; closing: string; movement: string }[]
@@ -151,11 +188,12 @@ export interface BusinessJournalEvidence {
   records: Record<string, string | number | null>[]
 }
 export interface BusinessJournalCandidate extends BusinessJournalEvidence {
+  auxiliary_defaults?: AuxiliaryReference[]
   policy_version: number; journal_id: number | null; journal_status: JournalStatus | null
   minimum_date: string; can_generate: boolean; no_amount: boolean
 }
-export interface BusinessJournalOptions { policy: BusinessJournalPolicy; roles: Record<BusinessJournalRole, string>; accounts: LedgerAccount[] }
-export interface BusinessJournalGenerateInput { source_key: string; fingerprint: string; policy_version: number; reference: string; journal_date: string; reason: string }
+export interface BusinessJournalOptions extends Partial<AuxiliarySelectionOptions> { policy: BusinessJournalPolicy; roles: Record<BusinessJournalRole, string>; accounts: LedgerAccount[] }
+export interface BusinessJournalGenerateInput { source_key: string; fingerprint: string; policy_version: number; reference: string; journal_date: string; reason: string; auxiliary_by_role?: Partial<Record<BusinessJournalRole, AuxiliaryReference[]>> }
 export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' }
 export type OpeningBalanceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'confirmed' | 'cancelled' | 'reversed'
 export type OpeningBalanceAction = 'submit' | 'approve' | 'reject' | 'confirm' | 'cancel' | 'reverse'
@@ -1031,6 +1069,12 @@ export interface ErpOperations {
   ledgerAccounts: { input: undefined; output: LedgerAccount[] }
   journals: { input: undefined; output: Journal[] }
   businessJournalSources: { input: undefined; output: BusinessJournalCandidate[] }
+  auxiliaryOptions: { input: undefined; output: AuxiliaryOptions }
+  auxiliaryChanges: { input: undefined; output: AuxiliaryChange[] }
+  createAuxiliaryItem: { input: AuxiliaryItemInput; output: AuxiliaryItem }
+  updateAuxiliaryItem: { input: AuxiliaryItemUpdate; output: AuxiliaryItem }
+  saveAuxiliaryPolicy: { input: AuxiliaryPolicyInput; output: AuxiliaryPolicy }
+  queryAuxiliary: { input: AuxiliaryQuery; output: AuxiliaryReport }
   businessJournalOptions: { input: undefined; output: BusinessJournalOptions }
   businessJournalPolicyChanges: { input: undefined; output: FinanceMetadataChange<BusinessJournalPolicy>[] }
   saveBusinessJournalPolicy: { input: BusinessJournalPolicy & { reason: string }; output: BusinessJournalPolicy }
@@ -1048,7 +1092,7 @@ export interface ErpOperations {
   saveProfitTransferPolicy: { input: ProfitTransferPolicy & { reason: string }; output: ProfitTransferPolicy }
   generateProfitTransfer: { input: ProfitTransferGenerateInput; output: Journal }
   openingBalances: { input: undefined; output: OpeningBalance[] }
-  openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } }
+  openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions> }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }
   updateOpeningBalance: { input: OpeningBalanceInput & { id: number; version: number }; output: OpeningBalance }
   changeOpeningBalanceStatus: { input: { id: number; version: number; action: OpeningBalanceAction; reason: string }; output: OpeningBalance }
@@ -1056,7 +1100,7 @@ export interface ErpOperations {
   journalDetail: { input: { id: number }; output: Journal }
   ledgerReportOptions: { input: undefined; output: LedgerAccount[] }
   queryLedgerReport: { input: LedgerReportQuery; output: LedgerReportResult }
-  journalOptions: { input: undefined; output: { accounts: LedgerAccount[]; periods: AccountingPeriod[] } }
+  journalOptions: { input: undefined; output: { accounts: LedgerAccount[]; periods: AccountingPeriod[] } & Partial<AuxiliarySelectionOptions> }
   createJournal: { input: JournalInput; output: Journal }
   updateJournal: { input: JournalInput & { id: number; version: number }; output: Journal }
   changeJournalStatus: { input: { id: number; action: JournalAction; version: number; reason: string }; output: Journal }

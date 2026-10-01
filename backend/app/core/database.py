@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 46:
+        if version > 47:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1489,3 +1489,53 @@ def migrate() -> None:
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, code) for role in ('admin', 'finance') for code, _ in operations])
             db.execute('PRAGMA user_version = 46')
+
+        if version < 47:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 保留旧行编号和全部快照，只移除每科目一行的约束；新辅助表在重建后创建。
+            db.execute('''CREATE TABLE opening_balance_lines_v47 (
+                id INTEGER PRIMARY KEY, opening_balance_id INTEGER NOT NULL REFERENCES opening_balances(id),
+                position INTEGER NOT NULL, account_id INTEGER NOT NULL REFERENCES ledger_accounts(id),
+                account_code TEXT NOT NULL, account_name TEXT NOT NULL, category TEXT NOT NULL,
+                normal_balance TEXT NOT NULL, summary TEXT NOT NULL, debit TEXT NOT NULL, credit TEXT NOT NULL,
+                UNIQUE(opening_balance_id,position))''')
+            db.execute('INSERT INTO opening_balance_lines_v47 SELECT * FROM opening_balance_lines')
+            db.execute('DROP TABLE opening_balance_lines')
+            db.execute('ALTER TABLE opening_balance_lines_v47 RENAME TO opening_balance_lines')
+            db.execute('''CREATE TABLE auxiliary_items (
+                id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('department','project')),
+                code TEXT NOT NULL, name TEXT NOT NULL, is_active INTEGER NOT NULL CHECK(is_active IN (0,1)),
+                version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(kind,code))''')
+            db.execute('''CREATE TABLE auxiliary_item_changes (
+                id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES auxiliary_items(id),
+                before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE auxiliary_policies (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL UNIQUE REFERENCES ledger_accounts(id),
+                start_date TEXT NOT NULL, required_kinds_json TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE auxiliary_policy_changes (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES ledger_accounts(id),
+                before_json TEXT NOT NULL, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE auxiliary_assignments (
+                id INTEGER PRIMARY KEY,
+                journal_line_id INTEGER REFERENCES journal_lines(id) ON DELETE CASCADE,
+                opening_line_id INTEGER REFERENCES opening_balance_lines(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK(kind IN ('customer','supplier','department','project')),
+                customer_id INTEGER REFERENCES customers(id), supplier_id INTEGER REFERENCES suppliers(id),
+                item_id INTEGER REFERENCES auxiliary_items(id), code_snapshot TEXT NOT NULL, name_snapshot TEXT NOT NULL,
+                CHECK((journal_line_id IS NOT NULL)+(opening_line_id IS NOT NULL)=1),
+                CHECK((kind='customer' AND customer_id IS NOT NULL AND supplier_id IS NULL AND item_id IS NULL) OR
+                      (kind='supplier' AND supplier_id IS NOT NULL AND customer_id IS NULL AND item_id IS NULL) OR
+                      (kind IN ('department','project') AND item_id IS NOT NULL AND customer_id IS NULL AND supplier_id IS NULL)),
+                UNIQUE(journal_line_id,kind), UNIQUE(opening_line_id,kind))''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.auxiliary','辅助核算','finance',57)")
+            operations = [('auxiliary.view','查看辅助核算与变更记录'),
+                ('auxiliary.configure','配置科目辅助核算规则'), ('auxiliary.manage','维护部门与项目辅助档案')]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.auxiliary')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, code) for role in ('admin', 'finance') for code, _ in operations])
+            db.execute('PRAGMA user_version = 47')

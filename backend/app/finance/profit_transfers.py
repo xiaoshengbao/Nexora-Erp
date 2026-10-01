@@ -22,6 +22,7 @@ from app.finance.journals import JournalInput, JournalLineInput, ReasonInput, au
 from app.finance.ledger import PeriodInput, get_record, snapshot
 from app.finance.ledger_reports import confirmed_opening_lines
 from app.finance.opening_rules import check_journal_opening
+from app.finance.auxiliary_rules import snapshot_values, combination
 
 router = APIRouter(prefix='/api/v1/finance/profit-transfers')
 ZERO = Decimal(0)
@@ -73,30 +74,42 @@ def balances(db: Session, period: AccountingPeriod, policy: dict, exclude_journa
     selected = {identifier for identifier, item in accounts.items() if item.category in ('income', 'expense')}
     selected.update(policy['cost_account_ids'])
     nets = {identifier: ZERO for identifier in accounts}
+    auxiliary_nets, auxiliary_snapshots = {}, {}
+
+    def accumulate(line):
+        values = snapshot_values(db, line)
+        key = (line.account_id, combination(values))
+        nets[line.account_id] += Decimal(line.debit) - Decimal(line.credit)
+        auxiliary_nets[key] = auxiliary_nets.get(key, ZERO) + Decimal(line.debit) - Decimal(line.credit)
+        auxiliary_snapshots.setdefault(key[1], values)
+        # 没有辅助信息的旧来源保持原指纹，避免升级改写既有已过账结转。
+        return {'auxiliary': values} if values else {}
+
     opening_sources, sources = [], []
     for line in confirmed_opening_lines(db):
-        nets[line.account_id] += Decimal(line.debit) - Decimal(line.credit)
+        auxiliary = accumulate(line)
         if line.account_id in selected:
             opening_sources.append(dict(line_id=line.id, opening_balance_id=line.opening_balance_id,
-                account_id=line.account_id, debit=line.debit, credit=line.credit))
+                account_id=line.account_id, debit=line.debit, credit=line.credit, **auxiliary))
     for line, journal in db.execute(select(JournalLine, Journal)
             .join(Journal, Journal.id == JournalLine.journal_id)
             .where(Journal.status == 'posted', Journal.journal_date <= period.end_date)
             .order_by(Journal.journal_date, Journal.id, JournalLine.position)):
         if journal.id == exclude_journal_id:
             continue
-        nets[line.account_id] += Decimal(line.debit) - Decimal(line.credit)
+        auxiliary = accumulate(line)
         if line.account_id in selected:
             sources.append(dict(journal_id=journal.id, line_id=line.id, account_id=line.account_id,
                 journal_date=journal.journal_date, reference=journal.reference,
-                reversal_of_id=journal.reversal_of_id, debit=line.debit, credit=line.credit))
-    rows, lines, blockers = [], [], []
-    for identifier in sorted(selected, key=lambda item: accounts[item].code if item in accounts else str(item)):
-        account = accounts.get(identifier)
-        if account is None:
-            blockers.append(f'科目 #{identifier} 不存在')
+                reversal_of_id=journal.reversal_of_id, debit=line.debit, credit=line.credit, **auxiliary))
+    rows, lines, frozen, blockers = [], [], [], []
+    blockers.extend(f'科目 #{identifier} 不存在' for identifier in selected if identifier not in accounts)
+    profit_by_auxiliary = {}
+    for (identifier, key), net in sorted(auxiliary_nets.items(), key=lambda item: (accounts[item[0][0]].code, item[0][1])):
+        if identifier not in selected:
             continue
-        net = nets[identifier]
+        account = accounts[identifier]
+        profit_by_auxiliary[key] = profit_by_auxiliary.get(key, ZERO) - net
         if not net:
             continue
         if not account.is_active:
@@ -104,9 +117,11 @@ def balances(db: Session, period: AccountingPeriod, policy: dict, exclude_journa
         if abs(net) >= Decimal('1000000000000'):
             blockers.append(f'科目 {account.code} 余额超出单条凭证金额范围')
         row = dict(account_id=identifier, code=account.code, name=account.name, category=account.category,
-            balance=f'{net:.2f}', debit=f'{max(-net, ZERO):.2f}', credit=f'{max(net, ZERO):.2f}')
+            balance=f'{net:.2f}', debit=f'{max(-net, ZERO):.2f}', credit=f'{max(net, ZERO):.2f}',
+            auxiliary=auxiliary_snapshots[key])
         rows.append(row)
-        lines.append({key: row[key] for key in ('account_id', 'debit', 'credit')})
+        lines.append({field: row[field] for field in ('account_id', 'debit', 'credit')})
+        frozen.append(auxiliary_snapshots[key])
     # 转入科目以借方为正；盈利转贷方，亏损转借方；净额为零时仍清空各损益科目。
     net_profit = -sum((nets.get(identifier, ZERO) for identifier in selected), ZERO)
     target = accounts.get(policy['target_account_id'])
@@ -114,8 +129,14 @@ def balances(db: Session, period: AccountingPeriod, policy: dict, exclude_journa
         blockers.append('本年利润须配置启用、贷方方向的权益科目')
     if abs(net_profit) >= Decimal('1000000000000'):
         blockers.append('结转净额超出单条凭证金额范围')
-    if net_profit and target:
-        lines.append(dict(account_id=target.id, debit=f'{max(-net_profit, ZERO):.2f}', credit=f'{max(net_profit, ZERO):.2f}'))
+    for key, profit in sorted(profit_by_auxiliary.items()):
+        if abs(profit) >= Decimal('1000000000000'):
+            blockers.append('辅助组合结转净额超出单条凭证金额范围')
+        if profit and target:
+            lines.append(dict(account_id=target.id, debit=f'{max(-profit, ZERO):.2f}', credit=f'{max(profit, ZERO):.2f}'))
+            frozen.append(auxiliary_snapshots[key])
+    if len(lines) > 100:
+        blockers.append('辅助组合超过单张凭证 100 条分录上限，须先核对并减少组合范围')
     economic = dict(period_id=period.id, start_date=period.start_date, end_date=period.end_date,
         policy_version=policy['version'], target_account_id=policy['target_account_id'],
         cost_account_ids=policy['cost_account_ids'], opening_sources=opening_sources, sources=sources)
@@ -123,7 +144,7 @@ def balances(db: Session, period: AccountingPeriod, policy: dict, exclude_journa
     excluded = [dict(account_id=item.id, code=item.code, name=item.name, balance=f'{nets[item.id]:.2f}')
         for item in accounts.values() if item.category == 'cost' and item.id not in selected and nets[item.id]]
     return dict(**economic, fingerprint=fingerprint, currency='CNY', time_basis='UTC', rows=rows,
-        lines=lines, net_profit=f'{net_profit:.2f}', blockers=blockers, excluded_cost_accounts=excluded,
+        lines=lines, line_auxiliary=frozen, net_profit=f'{net_profit:.2f}', blockers=blockers, excluded_cost_accounts=excluded,
         target_account=({**model_data(target), 'is_active': bool(target.is_active)} if target else None))
 
 
@@ -246,7 +267,8 @@ def generate(data: GenerateInput, user: dict = Depends(require('profit_transfer.
             evidence = result['evidence']
             record = add_model(db, Journal(reference=data.reference, journal_date=period.end_date,
                 period_id=period.id, note=data.reason, status='draft', version=1, created_by=user['id']))
-            save_lines(db, record, [JournalLineInput(**line, summary=f'{period.code} · 损益结转') for line in evidence['lines']])
+            save_lines(db, record, [JournalLineInput(**line, summary=f'{period.code} · 损益结转') for line in evidence['lines']],
+                frozen_auxiliary=evidence['line_auxiliary'])
             add_model(db, ProfitTransfer(journal_id=record.id, period_id=period.id, active_period_id=period.id,
                 evidence_json=encoded(evidence), policy_json=encoded(policy)))
             audit(db, record, None, 'create', data.reason, user['id'])

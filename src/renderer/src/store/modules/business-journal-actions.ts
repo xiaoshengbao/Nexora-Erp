@@ -54,5 +54,7 @@ export function createBusinessJournalActions(state: AppState, perform: (action: 
     saveBusinessJournalPolicy: (input: BusinessJournalPolicy & { reason: string }) => write('business_journal.configure',
       () => window.nexora!.callApi('saveBusinessJournalPolicy', { version: input.version, start_date: input.start_date, mapping: { ...input.mapping }, reason: input.reason }), '业务科目配置已保存，已生成凭证仍保留原配置快照。'),
     generateBusinessJournal: (input: BusinessJournalGenerateInput) => write('business_journal.generate',
-      () => window.nexora!.callApi('generateBusinessJournal', { ...input }), '业务凭证草稿已生成，请在凭证列表提交并由另一账号审核。') }
+      () => window.nexora!.callApi('generateBusinessJournal', { ...input,
+        ...(input.auxiliary_by_role ? { auxiliary_by_role: Object.fromEntries(Object.entries(input.auxiliary_by_role)
+          .map(([role, values]) => [role, values?.map(({ kind, id }) => ({ kind, id }))])) } : {}) }), '业务凭证草稿已生成，请在凭证列表提交并由另一账号审核。') }
 }

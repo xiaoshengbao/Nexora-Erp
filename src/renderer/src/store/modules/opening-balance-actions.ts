@@ -27,7 +27,7 @@ export function createOpeningBalanceActions(state: AppState, perform: (action: (
     state.openingBalanceOptions.value = options
     state.openingBalanceForm.value = item ? {
       id: item.id, version: item.version, reference: item.reference, effective_date: item.effective_date, note: item.note,
-      reason: '', lines: item.lines.map(({ account_id, summary, debit, credit }) => ({ account_id, summary, debit, credit }))
+      reason: '', lines: item.lines.map(({ account_id, summary, debit, credit, auxiliary }) => ({ account_id, summary, debit, credit, ...(auxiliary ? { auxiliary: auxiliary.map(({ kind, id }) => ({ kind, id })) } : {}) }))
     } : { ...emptyForm(), effective_date: options.period?.start_date ?? '',
       lines: [1,2].map(() => ({ account_id: 0, summary: '', debit: '0', credit: '0' })) }
     return true
@@ -39,7 +39,7 @@ export function createOpeningBalanceActions(state: AppState, perform: (action: (
     await perform(async () => {
       const { id, version, reference, effective_date, note, reason, lines } = state.openingBalanceForm.value
       const input = { reference, effective_date, note, reason,
-        lines: lines.map(({ account_id, summary, debit, credit }) => ({ account_id, summary, debit, credit })) }
+        lines: lines.map(({ account_id, summary, debit, credit, auxiliary }) => ({ account_id, summary, debit, credit, ...(auxiliary ? { auxiliary: auxiliary.map(({ kind, id }) => ({ kind, id })) } : {}) })) }
       if (id === null) await window.nexora!.callApi('createOpeningBalance', input)
       else await window.nexora!.callApi('updateOpeningBalance', { ...input, id, version })
       if (ticket === sessionTicket && can('opening_balance.create')) {

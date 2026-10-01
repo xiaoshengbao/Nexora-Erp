@@ -8,6 +8,64 @@ class Base(DeclarativeBase):
     pass
 
 
+class AuxiliaryItem(Base):
+    __tablename__ = 'auxiliary_items'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class AuxiliaryItemChange(Base):
+    __tablename__ = 'auxiliary_item_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey('auxiliary_items.id'), nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class AuxiliaryPolicy(Base):
+    __tablename__ = 'auxiliary_policies'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey('ledger_accounts.id'), nullable=False, unique=True)
+    start_date: Mapped[str] = mapped_column(Text, nullable=False)
+    required_kinds_json: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class AuxiliaryPolicyChange(Base):
+    __tablename__ = 'auxiliary_policy_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey('ledger_accounts.id'), nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class AuxiliaryAssignment(Base):
+    __tablename__ = 'auxiliary_assignments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    journal_line_id: Mapped[int | None] = mapped_column(ForeignKey('journal_lines.id', ondelete='CASCADE'))
+    opening_line_id: Mapped[int | None] = mapped_column(ForeignKey('opening_balance_lines.id', ondelete='CASCADE'))
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey('customers.id'))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey('suppliers.id'))
+    item_id: Mapped[int | None] = mapped_column(ForeignKey('auxiliary_items.id'))
+    code_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    name_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class LedgerAccount(Base):
     __tablename__ = 'ledger_accounts'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

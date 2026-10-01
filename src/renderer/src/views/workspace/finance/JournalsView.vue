@@ -8,7 +8,7 @@ import { NDatePicker } from 'naive-ui'
 import { datePickerString, vDateField } from '../../../utils/date-field'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
 import { NCollapse } from 'naive-ui'
@@ -22,6 +22,8 @@ import BusinessJournalPanel from './BusinessJournalPanel.vue'
 import BusinessSourceEvidence from './BusinessSourceEvidence.vue'
 import ProfitTransferPanel from './ProfitTransferPanel.vue'
 import ProfitTransferEvidence from './ProfitTransferEvidence.vue'
+import AuxiliarySelector from './AuxiliarySelector.vue'
+import { auxiliaryText } from './auxiliary-display'
 import { journalActionLabels, journalStatusLabels, journalTotals } from './journal-display'
 import './ledger-metadata.css'
 import './journals.css'
@@ -50,6 +52,9 @@ const command = ref<{ record: Journal; action: JournalAction | 'reverse' } | nul
 const reason = ref('')
 const reverseReference = ref('')
 const reverseDate = ref('')
+watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
+  showForm.value = false; detailId.value = null; command.value = null; showBusiness.value = false; showProfit.value = false
+}, { flush: 'sync' })
 const rows = computed(() =>
   journals.value.filter(
     (item) =>
@@ -74,6 +79,7 @@ const lineColumns = [
   { key: 'position', title: '序号' },
   { key: 'account', title: '科目快照' },
   { key: 'summary', title: '摘要' },
+  { key: 'auxiliary', title: '辅助快照' },
   { key: 'debit', title: '借方（元）' },
   { key: 'credit', title: '贷方（元）' }
 ]
@@ -81,6 +87,7 @@ const editColumns = [
   { key: 'position', title: '序号', width: '70' },
   { key: 'account_id', title: '科目', width: '230' },
   { key: 'summary', title: '摘要', width: '260' },
+  { key: 'auxiliary', title: '辅助信息', width: '290' },
   { key: 'debit', title: '借方（元）', width: '160' },
   { key: 'credit', title: '贷方（元）', width: '160' },
   { key: 'actions', title: '操作', width: '90' }
@@ -299,7 +306,7 @@ async function confirm(): Promise<void> {
           title="凭证分录"
           :columns="editColumns"
           :data="form.lines"
-          :min-table-width="970"
+          :min-table-width="1260"
         >
           <template #cell-position="{ row }">{{ lineNumber(row) }}</template>
           <template #cell-account_id="{ row }"
@@ -324,6 +331,9 @@ async function confirm(): Promise<void> {
               maxlength="200"
               :disabled="busy"
           /></template>
+          <template #cell-auxiliary="{ row }"><AuxiliarySelector v-model="row.auxiliary"
+            :items="journalOptions.auxiliary_items" :policy="journalOptions.auxiliary_policies?.find(item => item.account_id === row.account_id)"
+            :date="form.journal_date" :disabled="busy || connectionLost" :label-prefix="`第 ${lineNumber(row)} 行`" /></template>
           <template #cell-debit="{ row }"
             ><AppInput
               v-model="row.debit"
@@ -480,7 +490,7 @@ async function confirm(): Promise<void> {
           :min-table-width="800"
           ><template #cell-account="{ row }"
             >{{ row.account_code }} · {{ row.account_name }}</template
-          ></WorkspaceTable
+          ><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable
         >
         <NCollapse v-if="detail.business_source"><AppCollapseItem name="business" :title="`生成时的业务来源与科目配置（版本 ${detail.business_source.policy_version}）`"><BusinessSourceEvidence :source="detail.business_source.evidence" :mapping="detail.business_source.mapping" /></AppCollapseItem></NCollapse>
         <NCollapse v-if="detail.profit_transfer"><AppCollapseItem name="profit" title="生成时的损益余额、凭证来源与结转范围"><ProfitTransferEvidence :evidence="detail.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="id => { detailId = id }" /></AppCollapseItem></NCollapse>

@@ -10,5 +10,7 @@ export const openingActionLabels: Record<OpeningBalanceAction | 'create' | 'upda
 export function openingTotals(lines: JournalLineInput[]) {
   if (lines.length === 0) return { debit: '0.00', credit: '0.00', balanced: true }
   const result = journalTotals(lines)
-  return { ...result, balanced: result.balanced && new Set(lines.map(line => line.account_id)).size === lines.length }
+  const keys = lines.map(line => JSON.stringify([line.account_id,
+    (line.auxiliary ?? []).map(item => [item.kind, item.id]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]))
+  return { ...result, balanced: result.balanced && new Set(keys).size === lines.length }
 }

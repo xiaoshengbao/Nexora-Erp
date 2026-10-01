@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 from app.access.security import require
 from app.core.models import (BusinessJournalPolicy, BusinessJournalPolicyChange,
     BusinessJournalSource, Journal, LedgerAccount, User)
+from app.core.models import SalesOrder, PurchaseOrder
 from app.core.orm import add_model, model_data, orm_session
 from app.core.period_lock import ensure_date_unlocked
 from app.finance.business_sources import ROLE_LABELS, business_sources, encoded
 from app.finance.journals import (JournalInput, JournalLineInput, ReasonInput, audit,
     period_for, save_lines, view)
 from app.finance.ledger import PeriodInput
+from app.finance.auxiliary_rules import AuxiliaryReference, selection_options
 
 router = APIRouter(prefix='/api/v1/finance/business-journals')
 
@@ -43,6 +45,15 @@ class GenerateInput(ReasonInput):
     policy_version: int = Field(gt=0, strict=True)
     reference: str = Field(min_length=1, max_length=80)
     journal_date: str
+    auxiliary_by_role: dict[str, list[AuxiliaryReference]] = Field(default_factory=dict, max_length=len(ROLE_LABELS))
+
+    @field_validator('auxiliary_by_role')
+    @classmethod
+    def auxiliary_roles(cls, values):
+        if any(role not in ROLE_LABELS or len(items) > 4 or len({item.kind for item in items}) != len(items)
+                for role, items in values.items()):
+            raise ValueError('辅助配置须使用支持的业务用途，每类最多选择一个')
+        return values
 
     _reference = field_validator('reference')(JournalInput.nonblank_reference.__func__)
     _date = field_validator('journal_date')(PeriodInput.valid_date.__func__)
@@ -77,6 +88,28 @@ def minimum_date(db: Session, source: dict) -> str:
     return max(dates)
 
 
+def inferred_partners(db: Session, source: dict) -> list[AuxiliaryReference]:
+    pairs = {(item['kind'], item['party_id']) for item in source['business']}
+    if source['source_type'] == 'payment_record':
+        record = source['records'][0]
+        order = db.get(SalesOrder if record['kind'] == 'receivable' else PurchaseOrder, record['order_id'])
+        if order:
+            pairs.add((record['kind'], order.customer_id if record['kind'] == 'receivable' else order.supplier_id))
+    if len(pairs) > 1:
+        raise HTTPException(409, '业务来源包含不同往来对象，不能合并辅助分录')
+    return [AuxiliaryReference(kind='customer' if kind == 'receivable' else 'supplier', id=identifier)
+        for kind, identifier in pairs]
+
+
+def source_auxiliary(db: Session, source: dict, role: str, selections: dict) -> list[AuxiliaryReference]:
+    defaults = {item.kind: item for item in inferred_partners(db, source)}
+    for item in selections.get(role, []):
+        if item.kind in ('customer', 'supplier') and (item.kind not in defaults or defaults[item.kind].id != item.id):
+            raise HTTPException(409, '辅助往来对象须与真实业务来源一致')
+        defaults[item.kind] = item
+    return list(defaults.values())
+
+
 def source_rows(db: Session) -> list[dict]:
     policy = policy_data(db.get(BusinessJournalPolicy, 1))
     bindings = active_bindings(db)
@@ -95,6 +128,7 @@ def source_rows(db: Session) -> list[dict]:
                 blockers.append(f'{ROLE_LABELS[role]}未配置启用科目')
         binding = bindings.get(item['key'])
         row.update(policy_version=policy['version'], blockers=blockers,
+            auxiliary_defaults=[item.model_dump() for item in inferred_partners(db, item)],
             journal_id=binding[1].id if binding else None,
             journal_status=binding[1].status if binding else None,
             minimum_date=minimum_date(db, item),
@@ -113,7 +147,7 @@ def list_sources(_: dict = Depends(require('business_journal.view'))) -> list[di
 @router.get('/policy')
 def get_policy(_: dict = Depends(require('business_journal.view'))) -> dict:
     with orm_session() as db:
-        return dict(policy=policy_data(db.get(BusinessJournalPolicy, 1)), roles=ROLE_LABELS,
+        return dict(**selection_options(db), policy=policy_data(db.get(BusinessJournalPolicy, 1)), roles=ROLE_LABELS,
             accounts=[{**model_data(item), 'is_active': bool(item.is_active)}
                 for item in db.scalars(select(LedgerAccount).order_by(LedgerAccount.code))])
 
@@ -187,6 +221,8 @@ def generate(data: GenerateInput, user: dict = Depends(require('business_journal
                 raise HTTPException(409, '首次生成按业务发生日期入账；重建不得早于已过账冲销日期')
             period = period_for(db, data.journal_date)
             mapping = json.loads(policy.mapping_json)
+            if set(data.auxiliary_by_role) - set(source['roles']):
+                raise HTTPException(409, '不能为当前来源未生成的业务用途填写辅助信息')
             lines = []
             for role, amount in source['roles'].items():
                 account_id = mapping.get(role)
@@ -194,6 +230,7 @@ def generate(data: GenerateInput, user: dict = Depends(require('business_journal
                     raise HTTPException(409, f'{ROLE_LABELS[role]}尚未配置科目')
                 positive = not amount.startswith('-')
                 lines.append(JournalLineInput(account_id=account_id,
+                    auxiliary=source_auxiliary(db, source, role, data.auxiliary_by_role),
                     summary=f"{source['label']} #{source['source_id']} · {ROLE_LABELS[role]}",
                     debit=amount if positive else '0', credit=amount[1:] if not positive else '0'))
             record = add_model(db, Journal(reference=data.reference, journal_date=data.journal_date,

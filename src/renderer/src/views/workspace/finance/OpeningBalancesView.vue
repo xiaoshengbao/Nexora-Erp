@@ -20,6 +20,8 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { displayError } from '../../../utils/formatters'
 import OpeningHistory from './OpeningHistory.vue'
+import AuxiliarySelector from './AuxiliarySelector.vue'
+import { auxiliaryText } from './auxiliary-display'
 import { openingActionLabels, openingStatusLabels, openingTotals } from './opening-display'
 import './ledger-metadata.css'
 import './journals.css'
@@ -75,6 +77,7 @@ const lines = [
   { key: 'position', title: '序号', width: '70' },
   { key: 'account', title: '科目快照', width: '230' },
   { key: 'summary', title: '余额依据', width: '260' },
+  { key: 'auxiliary', title: '辅助快照', width: '290' },
   { key: 'debit', title: '借方（元）', width: '160' },
   { key: 'credit', title: '贷方（元）', width: '160' }
 ]
@@ -82,6 +85,7 @@ const editColumns = [
   { key: 'position', title: '序号', width: '70' },
   { key: 'account_id', title: '科目', width: '230' },
   { key: 'summary', title: '余额依据', width: '260' },
+  { key: 'auxiliary', title: '辅助信息', width: '290' },
   { key: 'debit', title: '借方（元）', width: '160' },
   { key: 'credit', title: '贷方（元）', width: '160' },
   { key: 'actions', title: '操作', width: '90' }
@@ -295,7 +299,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
           title="科目期初余额"
           :columns="editColumns"
           :data="form.lines"
-          :min-table-width="970"
+          :min-table-width="1260"
         >
           <template #cell-position="{ row }">{{ number(row) }}</template>
           <template #cell-account_id="{ row }"
@@ -320,6 +324,9 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
               maxlength="200"
               :disabled="busy"
           /></template>
+          <template #cell-auxiliary="{ row }"><AuxiliarySelector v-model="row.auxiliary"
+            :items="options.auxiliary_items" :policy="options.auxiliary_policies?.find(item => item.account_id === row.account_id)"
+            :date="form.effective_date" :disabled="busy || connectionLost" :label-prefix="`第 ${number(row)} 行`" /></template>
           <template #cell-debit="{ row }"
             ><AppInput
               v-model="row.debit"
@@ -442,7 +449,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
           :min-table-width="880"
           ><template #cell-account="{ row }"
             >{{ row.account_code }} · {{ row.account_name }}</template
-          ><template #empty>此方案为全部科目零余额。</template></WorkspaceTable
+          ><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template><template #empty>此方案为全部科目零余额。</template></WorkspaceTable
         ><OpeningHistory
           :key="`${detail.id}:${detail.version}`"
           :load="() => loadOpeningBalanceChanges(detail!.id)"
