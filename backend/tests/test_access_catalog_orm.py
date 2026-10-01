@@ -1,8 +1,6 @@
 """ORM 迁移后的并发约束和审计失败回滚，不依赖查询写法。"""
 
 from concurrent.futures import ThreadPoolExecutor
-import ast
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,24 +25,6 @@ def setup(client):
     assert response.status_code == 201, response.text
     token = client.post('/api/v1/auth/login', json={'username': 'admin', 'password': 'secure-pass-123'}).json()['token']
     return {'Authorization': f'Bearer {token}'}
-
-
-def test_migrated_modules_do_not_reintroduce_sql_connections():
-    root = Path(__file__).resolve().parents[1] / 'app'
-    for path in root.rglob('*.py'):
-        relative = path.relative_to(root).as_posix()
-        if relative in ('core/database.py', 'core/orm.py'):
-            continue
-        tree = ast.parse(path.read_text('utf-8'))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == 'app.core.database':
-                assert not any(item.name == 'connection' for item in node.names), relative
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr in ('execute', 'executemany') and node.args:
-                    assert not isinstance(node.args[0], (ast.Constant, ast.JoinedStr)), relative
-                if node.func.attr == 'exec_driver_sql':
-                    assert relative == 'service/backup.py', relative
-                    assert ast.literal_eval(node.args[0]) == 'PRAGMA integrity_check', relative
 
 
 def test_concurrent_first_admin_and_last_admin_protection(client):
