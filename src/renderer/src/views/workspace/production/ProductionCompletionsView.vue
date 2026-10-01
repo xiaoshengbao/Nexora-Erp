@@ -196,6 +196,7 @@ const filteredRecords = computed(() =>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
+        <RouterLink v-if="item.status === 'posted' && !item.reversal_id && Number(item.rejected_quantity) > 0 && can('quality.view')" to="/workspace/production-quality">处理不合格品</RouterLink>
         <div class="form-actions">
           <AppButton
             v-if="item.status === 'inspected' && can('production_completion.post')"

@@ -110,6 +110,27 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'qualityOverview': return { method:'GET', path:'/api/v1/production-quality' }
+    case 'qualityDetail': return { method:'GET', path:`/api/v1/production-quality/dispositions/${positiveId(payload,'id')}` }
+    case 'saveQualityDisposition': {
+      const source = payload as Record<string, unknown>
+      if (!source || typeof source !== 'object' || !['scrap','rework'].includes(String(source.kind))
+        || !['absorb','expense','carry'].includes(String(source.loss_treatment))) throw new Error('处置方式或成本处理无效')
+      if (!Array.isArray(source.materials) || source.materials.length > 100) throw new Error('返工材料明细无效')
+      const body: Record<string, unknown> = Object.fromEntries(['reference','kind','quantity','loss_treatment','defect','action_note','reason'].map(key=>[key,source[key]]))
+      body.completion_id = positiveId(source,'completion_id')
+      body.warehouse_id = source.warehouse_id == null ? null : positiveId(source,'warehouse_id')
+      body.materials = source.materials.map(row=>({material_id:positiveId(row,'material_id'),quantity:row.quantity}))
+      const edit = source.id !== undefined
+      if (edit) body.version = positiveId(source,'version')
+      return {method:edit?'PUT':'POST',path:`/api/v1/production-quality/dispositions${edit?'/'+positiveId(source,'id'):''}`,body}
+    }
+    case 'changeQualityDisposition': {
+      const source = payload as ErpOperations['changeQualityDisposition']['input']
+      if (!source || !['submit','approve','reject','post','cancel','reverse'].includes(source.action)) throw new Error('不允许的质量处置操作')
+      return {method:'POST',path:`/api/v1/production-quality/dispositions/${positiveId(source,'id')}/${source.action}`,
+        body:{version:positiveId(source,'version'),reason:source.reason}}
+    }
     case 'crmOptions': return { method: 'GET', path: '/api/v1/crm/options' }
     case 'crmOverview': return { method: 'GET', path: '/api/v1/crm/overview' }
     case 'crmDetail':

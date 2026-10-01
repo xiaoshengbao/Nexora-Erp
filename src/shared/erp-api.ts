@@ -1,6 +1,7 @@
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
 import type { MrpOperations } from './mrp-api'
 import type { CrmOperations } from './crm-api'
+import type { QualityOperations, QualityTreatment, QualityKind, ReworkCostSource } from './quality-api'
 // 桌面端与本地服务共用的数据契约；渲染进程不能自行指定请求地址。
 // 账号资料与登录名分开，工号可为空；非空工号由服务端保证唯一。
 export interface UserProfile { full_name: string; employee_no: string; phone: string }
@@ -658,6 +659,9 @@ export interface WorkOrder {
   completed_at: string | null
   cancelled_at: string | null
   lines: WorkOrderLine[]
+  rework_disposition_id: number | null
+  rework_completion_id: number | null
+  rework_reference: string | null
 }
 export interface MaterialIssueLine {
   id: number
@@ -780,6 +784,9 @@ export interface ProductionCostOrder {
   known_material_amount: string
   labor_amount: string
   overhead_amount: string
+  rework_amount: string | null
+  rework_source: ReworkCostSource | null
+  unpriced_rework: boolean
   total_amount: string | null
   unpriced_issue_count: number
   settlement_id: number | null
@@ -805,6 +812,7 @@ export interface ProductionCostSettlement {
   material_amount: string
   labor_amount: string
   overhead_amount: string
+  rework_amount: string
   total_amount: string
   accepted_quantity: string
   created_by: number
@@ -816,6 +824,9 @@ export interface ProductionCostSettlement {
   reversed_by_name: string | null
   reversed_at: string | null
   allocations: { settlement_id: number; completion_id: number; movement_id: number; quantity: string; amount: string }[]
+  quality_allocations: {settlement_id:number; disposition_id:number; quantity:string; amount:string; kind:QualityKind;
+    loss_treatment:QualityTreatment; reference:string; completion_id:number; rework_order_id:number | null}[]
+  rework_sources: {settlement_id:number; disposition_id:number; origin_settlement_id:number; amount:string}[]
   material_sources: Omit<ProductionMaterialSource, 'work_order_id' | 'material_issue_id'>[]
   charges: { id: number; kind: 'labor' | 'overhead'; amount: string; reference: string; created_by: number; created_at: string }[]
 }
@@ -1041,7 +1052,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends MrpOperations, CrmOperations {
+export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

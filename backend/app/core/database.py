@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 50:
+        if version > 51:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1689,3 +1689,47 @@ def migrate() -> None:
                 [('admin', code) for code, _ in operations] +
                 [('seller', code) for code, _ in operations if code != 'crm_quote.review'])
             db.execute('PRAGMA user_version = 50')
+
+        if version < 51:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute("ALTER TABLE production_cost_settlements ADD COLUMN rework_amount TEXT NOT NULL DEFAULT '0.00'")
+            db.execute('''CREATE TABLE quality_dispositions (
+                id INTEGER PRIMARY KEY, completion_id INTEGER NOT NULL REFERENCES production_completions(id),
+                reference TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('scrap','rework')),
+                quantity TEXT NOT NULL, loss_treatment TEXT NOT NULL CHECK(loss_treatment IN ('absorb','expense','carry')),
+                defect TEXT NOT NULL, action_note TEXT NOT NULL, warehouse_id INTEGER REFERENCES warehouses(id),
+                materials_json TEXT NOT NULL, source_json TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','cancelled','posted','reversed')),
+                version INTEGER NOT NULL CHECK(version>0), rework_order_id INTEGER UNIQUE REFERENCES work_orders(id),
+                created_by INTEGER NOT NULL REFERENCES users(id), submitted_by INTEGER REFERENCES users(id),
+                reviewed_by INTEGER REFERENCES users(id), posted_by INTEGER REFERENCES users(id), reversed_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, submitted_at TEXT, reviewed_at TEXT, posted_at TEXT, reversed_at TEXT,
+                CHECK((kind='scrap' AND loss_treatment IN ('absorb','expense') AND warehouse_id IS NULL AND rework_order_id IS NULL)
+                   OR (kind='rework' AND loss_treatment='carry' AND warehouse_id IS NOT NULL)))''')
+            db.execute('CREATE INDEX quality_dispositions_completion ON quality_dispositions(completion_id,status)')
+            db.execute('''CREATE TABLE quality_disposition_changes (
+                id INTEGER PRIMARY KEY, disposition_id INTEGER NOT NULL REFERENCES quality_dispositions(id),
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE quality_cost_allocations (
+                settlement_id INTEGER NOT NULL REFERENCES production_cost_settlements(id),
+                disposition_id INTEGER NOT NULL REFERENCES quality_dispositions(id), quantity TEXT NOT NULL,
+                amount TEXT NOT NULL, kind TEXT NOT NULL, loss_treatment TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(settlement_id,disposition_id))''')
+            db.execute('''CREATE TABLE production_rework_sources (
+                settlement_id INTEGER NOT NULL REFERENCES production_cost_settlements(id),
+                disposition_id INTEGER NOT NULL REFERENCES quality_dispositions(id),
+                origin_settlement_id INTEGER NOT NULL REFERENCES production_cost_settlements(id), amount TEXT NOT NULL,
+                PRIMARY KEY(settlement_id,disposition_id))''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('production.quality','不合格品处置与返工','production',6)")
+            operations = [('quality.' + action, label) for action, label in (
+                ('view','查看不合格品及处置证据'), ('create','建立及修订不合格品处置'),
+                ('submit','提交不合格品处置'), ('review','独立审核不合格品处置'),
+                ('post','确认报废或建立返工工单'), ('cancel','取消未确认处置'), ('reverse','更正已确认处置'))]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'production.quality')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('admin', code) for code, _ in operations] +
+                [('planner', 'quality.' + action) for action in ('view','create','submit','cancel')] +
+                [('warehouse', 'quality.view'), ('warehouse', 'quality.post'), ('finance', 'quality.view'), ('finance', 'quality.review')])
+            db.execute('PRAGMA user_version = 51')

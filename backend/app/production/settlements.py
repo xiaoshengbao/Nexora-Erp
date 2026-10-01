@@ -1,4 +1,4 @@
-"""完工成本结算：ORM 保存来源快照并按合格数量分摊，冲销保留历史。"""
+"""完工成本结算：ORM 保存合格、损失及返工来源快照，冲销保留历史。"""
 
 from decimal import Decimal
 
@@ -8,16 +8,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.period_lock import ensure_movement_unlocked
+from app.core.period_lock import ensure_movement_unlocked, ensure_date_unlocked
 from app.core.models import (User, Material, WorkOrder, WorkOrderLine, MaterialIssue,
     MaterialIssueLine, MaterialReturn, ProductionCompletion, ProductionCompletionReversal,
     StockMovement, ProductionCostEntry, ProductionCostSettlement, ProductionSettlementReversal,
     ProductionCostAllocation, ProductionSettlementSource, ProductionSettlementDependency,
-    ProductionSettlementCharge)
+    ProductionSettlementCharge, QualityCostAllocation, ProductionReworkSource, QualityDisposition)
 from app.core.orm import orm_session, model_data
 from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import ensure_unsettled
 from app.production.costs import CostReversalInput, cost_report, money
+from app.production.quality_rules import settlement_dispositions
 
 router = APIRouter(prefix='/api/v1/production-costs/settlements')
 
@@ -61,6 +62,14 @@ def settlement_data(session: Session, settlement_id: int) -> dict:
         'reversed_at': reversal.created_at if reversal is not None else None,
         'reversed_by_name': session.get(User, reversal.created_by).username if reversal is not None else None,
         'allocations': [model_data(row) for row in allocations], 'material_sources': sources,
+        'quality_allocations': [dict(**model_data(row), reference=reference, completion_id=completion_id,
+            rework_order_id=order_id) for row, reference, completion_id, order_id in session.execute(
+                select(QualityCostAllocation, QualityDisposition.reference, QualityDisposition.completion_id,
+                    QualityDisposition.rework_order_id).join(QualityDisposition,
+                    QualityDisposition.id == QualityCostAllocation.disposition_id)
+                .where(QualityCostAllocation.settlement_id == settlement_id).order_by(QualityDisposition.id))],
+        'rework_sources': [model_data(row) for row in session.scalars(select(ProductionReworkSource)
+            .where(ProductionReworkSource.settlement_id == settlement_id))],
         'charges': [{key: getattr(row, key) for key in ('id', 'kind', 'amount', 'reference', 'created_by', 'created_at')}
                     for row in charges]}
 
@@ -92,10 +101,11 @@ def settle_cost(payload: SettlementInput,
                 MaterialIssue.work_order_id == order.id, MaterialReturn.status == 'draft').limit(1))
         if any(value is not None for value in (pending, pending_issue, pending_return)):
             raise HTTPException(409, '须先取消或处理工单未确认的领料、退料和报工草稿')
+        dispositions = settlement_dispositions(session, order.id)
         report = cost_report(session)
         summary = next(item for item in report['orders'] if item['work_order_id'] == order.id)
         if summary['total_amount'] is None:
-            raise HTTPException(409, '工单尚有未核价净领料，不能结算')
+            raise HTTPException(409, '工单尚有未核价净领料或原返工来源尚未结算，不能结算')
         completions = session.execute(select(ProductionCompletion, StockMovement.id)
             .join(StockMovement, (StockMovement.source_type == 'production_completion') &
                 (StockMovement.source_id == ProductionCompletion.id) & (StockMovement.source_line_id == ProductionCompletion.id))
@@ -106,8 +116,12 @@ def settle_cost(payload: SettlementInput,
         accepted = sum((Decimal(row.accepted_quantity) for row, _ in completions), Decimal(0))
         for _, movement_id in completions:
             ensure_movement_unlocked(session, movement_id)
-        if accepted <= 0:
-            raise HTTPException(409, '没有合格完工入库，不能将成本分摊到成品')
+        absorbed = sum((Decimal(row.quantity) for row in dispositions if row.loss_treatment == 'absorb'), Decimal(0))
+        external = [row for row in dispositions if row.loss_treatment != 'absorb']
+        external_quantity = sum((Decimal(row.quantity) for row in external), Decimal(0))
+        reported = accepted + absorbed + external_quantity
+        if reported <= 0 or (accepted <= 0 and absorbed > 0):
+            raise HTTPException(409, '没有合格成品可以承担正常报废成本，须按审批依据更正为独立损失或返工')
         if session.scalar(select(ProductionCostSettlement.id).where(
             ProductionCostSettlement.work_order_id == order.id, ProductionCostSettlement.reference == payload.reference)) is not None:
             raise HTTPException(409, '同一工单不能重复使用结算依据编号')
@@ -115,20 +129,39 @@ def settle_cost(payload: SettlementInput,
         settlement = ProductionCostSettlement(work_order_id=order.id, reference=payload.reference,
             note=payload.note.strip(), material_amount=summary['known_material_amount'],
             labor_amount=summary['labor_amount'], overhead_amount=summary['overhead_amount'],
+            rework_amount=summary['rework_amount'],
             total_amount=summary['total_amount'], accepted_quantity=str(accepted), created_by=user['id'])
         session.add(settlement)
         session.flush()
         cumulative_quantity = Decimal(0)
         allocated = Decimal(0)
+        accepted_pool = Decimal(money(Decimal(settlement.total_amount) * (accepted + absorbed) / reported))
         for completion, movement_id in completions:
             quantity = Decimal(completion.accepted_quantity)
             cumulative_quantity += quantity
-            cumulative_amount = Decimal(money(Decimal(settlement.total_amount) * cumulative_quantity / accepted))
+            cumulative_amount = Decimal(money(accepted_pool * cumulative_quantity / accepted))
             # 累计分摊处理尾分，所有批次精确相加到结算总额。
             session.add(ProductionCostAllocation(settlement_id=settlement.id, completion_id=completion.id,
                 movement_id=movement_id, quantity=str(quantity), amount=money(cumulative_amount - allocated)))
             allocated = cumulative_amount
+        # 合格品先承担已批准的正常报废，剩余成本按独立损失与返工数量累计分摊到分。
+        external_pool = Decimal(settlement.total_amount) - accepted_pool
+        cumulative_quantity, allocated = Decimal(0), Decimal(0)
+        for disposition in dispositions:
+            amount = Decimal(0)
+            if disposition.loss_treatment != 'absorb':
+                cumulative_quantity += Decimal(disposition.quantity)
+                cumulative_amount = Decimal(money(external_pool * cumulative_quantity / external_quantity))
+                amount, allocated = cumulative_amount - allocated, cumulative_amount
+            session.add(QualityCostAllocation(settlement_id=settlement.id, disposition_id=disposition.id,
+                quantity=disposition.quantity, amount=money(amount), kind=disposition.kind,
+                loss_treatment=disposition.loss_treatment))
         dependencies: set[tuple[str, int]] = set()
+        if summary['rework_source'] is not None:
+            origin = summary['rework_source']
+            dependencies.add(('settlement', origin['origin_settlement_id']))
+            session.add(ProductionReworkSource(settlement_id=settlement.id, disposition_id=origin['disposition_id'],
+                origin_settlement_id=origin['origin_settlement_id'], amount=origin['amount']))
         for source in report['material_sources']:
             if source['work_order_id'] != order.id:
                 continue
@@ -154,6 +187,8 @@ def reverse_settlement(settlement_id: int, payload: CostReversalInput,
             raise HTTPException(409, '此成本结算已冲销')
         for allocation in settlement['allocations']:
             ensure_movement_unlocked(session, allocation['movement_id'])
+        for allocation in settlement['quality_allocations']:
+            ensure_date_unlocked(session, session.get(QualityDisposition, allocation['disposition_id']).posted_at)
         if session.scalar(select(ProductionSettlementDependency.settlement_id).where(
             ProductionSettlementDependency.kind == 'settlement', ProductionSettlementDependency.source_id == settlement_id,
             ~select(ProductionSettlementReversal.id).where(

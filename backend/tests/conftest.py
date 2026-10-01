@@ -4,8 +4,25 @@ import pytest
 
 
 @pytest.fixture
-def remove_crm_schema():
+def remove_quality_schema():
     def remove(db):
+        for table in ('production_rework_sources','quality_cost_allocations','quality_disposition_changes','quality_dispositions'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        if any(row[1] == 'rework_amount' for row in db.execute('PRAGMA table_info(production_cost_settlements)')):
+            db.execute('ALTER TABLE production_cost_settlements DROP COLUMN rework_amount')
+        for action in ('view','create','submit','review','post','cancel','reverse'):
+            code = 'quality.' + action
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='production.quality'")
+    return remove
+
+
+@pytest.fixture
+def remove_crm_schema(remove_quality_schema):
+    def remove(db):
+        remove_quality_schema(db)
         for table in ('crm_changes','crm_quote_lines','crm_quotes','crm_activities','crm_opportunities','crm_contacts'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for code in ('crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage',

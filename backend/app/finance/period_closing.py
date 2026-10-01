@@ -73,6 +73,14 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         block('negative_inventory', '截至期末库存数量为负，请核对库存流水', negative)
     entries = [item for item in financial_entries(db) if item['posted_at'][:10] <= period.end_date]
     business = report_data(entries)
+    from app.core.models import QualityDisposition, QualityCostAllocation, ProductionSettlementReversal
+    quality_records = list(db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
+        QualityDisposition.posted_at < period.end_date + ' 24:00:00').order_by(QualityDisposition.id)))
+    unallocated_quality = [record.id for record in quality_records if db.scalar(select(QualityCostAllocation.settlement_id).where(
+        QualityCostAllocation.disposition_id == record.id, ~select(ProductionSettlementReversal.id).where(
+            ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists())) is None]
+    if unallocated_quality:
+        block('unsettled_quality', '已确认不合格品处置尚未固定原工单成本，须先核对并结算', unallocated_quality)
     if business['unpriced_count']:
         warnings.append('应收应付有历史无价来源；库存核价不能替代往来单价或业务对账')
     warnings.append('结账固定现有总账和业务证据；业务及损益结转草稿须单独生成、审核和过账，不自动生成法定财务报表')
@@ -97,6 +105,8 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
         subledger=subledger_evidence,
+        quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(
+            select(QualityCostAllocation).where(QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
             policies=selection_options(db)['auxiliary_policies']),
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,
