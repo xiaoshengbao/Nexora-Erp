@@ -186,6 +186,7 @@ export const workspaceRouteGroups = [
     label: '销售管理',
     routes: [
       { key: 'customerRelations', path: '/workspace/customer-relations', label: '客户关系与报价', permission: 'crm.view', icon: 'team' },
+      { key: 'afterSales', path: '/workspace/after-sales', label: '售后退换修', permission: 'after_sales.view', icon: 'history' },
       {
         key: 'sales',
         path: '/workspace/sales-orders',

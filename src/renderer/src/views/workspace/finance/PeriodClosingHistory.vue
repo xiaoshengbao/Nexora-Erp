@@ -9,6 +9,7 @@ import type { PeriodClosingRecord } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { financialSource, localTime } from '../../../utils/formatters'
+import { afterSalesKind, afterSalesStatus } from '../sales/after-sales-display'
 
 const { periodClosingHistory: records } = storeToRefs(usePiniaAppStore())
 const selected = ref<PeriodClosingRecord | null>(null)
@@ -67,7 +68,17 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
           <template #cell-action="{ row }">{{ row.action === 'settlement' ? '收付款' : row.action === 'refund' ? '退款' : '冲销' }}</template>
         </WorkspaceTable>
         <p>已过账凭证编号：{{ evidence.posted_journal_ids.length ? evidence.posted_journal_ids.join('、') : '无' }}</p>
-      </div></AppCollapseItem></NCollapse>
+      </div></AppCollapseItem>
+      <AppCollapseItem v-if="evidence.after_sales" name="after-sales" title="售后方案与客户物品保管快照">
+        <div v-for="item in evidence.after_sales" :key="item.case.id" class="stack">
+          <h3>{{ item.case.reference }} · {{ afterSalesKind[item.case.kind] }} · {{ afterSalesStatus[item.case.status] }}</h3>
+          <p>{{ item.source.customer_name }} · {{ item.source.sku }} {{ item.source.material_name }} · 办理数量 {{ item.case.quantity }} {{ item.source.unit }}；期末客户物品保管 {{ item.custody_quantity }} {{ item.source.unit }}。</p>
+          <p>方案：{{ item.case.solution }}；客户同意依据：{{ item.case.customer_acceptance }}。</p>
+          <p v-if="item.case.kind === 'repair'">收费选择：{{ item.case.charge_mode === 'charge' ? `服务费 ${item.case.fee_amount} 元` : '免费' }}。客户物品不计入公司库存。</p>
+          <p v-for="event in item.custody" :key="event.id">{{ localTime(event.created_at) }} · {{ event.action === 'receive' ? '接收' : '交还' }} {{ event.quantity }} {{ item.source.unit }} · {{ event.created_by_name }} · {{ event.evidence }}</p>
+        </div>
+        <p v-if="!evidence.after_sales.length" class="muted">截至本期期末没有售后记录。</p>
+      </AppCollapseItem></NCollapse>
     </template>
   </div>
 </template>

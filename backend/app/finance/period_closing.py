@@ -18,6 +18,7 @@ from app.finance.auxiliary_rules import snapshot_values, selection_options
 from app.finance.opening_rules import active_opening, check_journal_opening
 from app.finance.routes import financial_entries, report_data
 from app.inventory.valuation import calculate_valuation
+from app.sales.after_sales_rules import archive_cases
 
 router = APIRouter(prefix='/api/v1/finance/accounting-periods')
 
@@ -105,6 +106,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
         subledger=subledger_evidence,
+        after_sales=archive_cases(db, period.end_date),
         quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(
             select(QualityCostAllocation).where(QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,

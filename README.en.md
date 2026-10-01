@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this production quality and rework implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this after-sales implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -44,7 +44,8 @@ Snapshot: **2026-10-01, this production quality and rework implementation**. Wor
 | Full financial accounting | Planned | Cash flow, statutory templates, taxes, multiple currencies and bank reconciliation. |
 | [Customer relations and quotations](docs/customer-relations.md) | Basic flow implemented | Shared customer master, follow-up tasks, opportunities, fixed quotations, independent approval and acceptance evidence to sales drafts; marketing, forecasts, attachments and notification scheduling remain. |
 | [Production quality and rework](docs/quality-rework.md) | Basic flow implemented | Partial scrap/rework dispositions, independent review, source-cost carry-in, reinspection and audited correction. |
-| Business expansion | Planned | Finite-capacity scheduling, full quality/after-sales, deeper CRM, equipment, HR and multiple organizations. |
+| [After-sales (Chinese)](docs/after-sales.md) | Basic flow implemented | Original-shipment cases, independent review, return/exchange drafts, repair custody, inspection, handover and explicit fees/corrections. |
+| Business expansion | Planned | Finite-capacity scheduling, full quality, advanced after-sales, deeper CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.

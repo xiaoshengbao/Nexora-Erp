@@ -290,6 +290,8 @@ def post_sales_return(return_id: int, user: dict = Depends(require("sales_return
             sale_return["shipment_id"],
             [(line["shipment_line_id"], Decimal(line["quantity"])) for line in lines],
         )
+        from app.sales.after_sales_rules import ensure_return_available
+        ensure_return_available(db, return_id, lines)
         for line in lines:
             # 原出库保留负向流水；退回的实物作为新来源入所选仓库。
             add_model(
@@ -339,6 +341,8 @@ def reverse_sales_return(
     return_id: int, payload: SalesReturnReverseInput, user: dict = Depends(require("sales_return.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        from app.sales.after_sales_rules import ensure_return_reversible
+        ensure_return_reversible(db, return_id)
         # 写锁内一次性核对退回仓的当前库存；不足时不能生成半套冲销流水。
         row = (
             db.execute(

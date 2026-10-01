@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
 import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
+import type { AfterSalesOverview, AfterSalesEvidence, AfterSalesDraft } from '../../../shared/after-sales-api'
 import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
 import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
@@ -98,6 +99,13 @@ import type { Screen } from './types'
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
   const qualityOverview = ref<QualityOverview | null>(null)
+  const afterSalesOverview=ref<AfterSalesOverview|null>(null)
+  const afterSalesDetail=ref<AfterSalesEvidence|null>(null)
+  const afterSalesLoading=ref(false), afterSalesError=ref('')
+  const afterSalesEdit=ref<{id:number;version:number}|null>(null)
+  const afterSalesForm=ref<AfterSalesDraft>({shipment_line_id:0,reference:'',kind:'return',quantity:'1',
+    complaint:'',solution:'',charge_mode:'none',fee_amount:'0',customer_acceptance:'',warehouse_id:1,
+    replacement_material_id:null,replacement_quantity:null,replacement_unit_price:null,parts:[],reason:''})
   const qualityDetail = ref<QualityEvidence | null>(null)
   const qualityLoading = ref(false)
   const qualityError = ref('')
@@ -472,6 +480,7 @@ export function createAppState() {
 
   return {
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
+    afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmDetail, crmChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,

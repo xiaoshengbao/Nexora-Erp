@@ -22,6 +22,7 @@
 | `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，固定报价独立审核后登记接受依据转销售草稿 |
 | `sales/` | `SalesShipmentsView.vue` | 处理销售出库 |
 | `sales/` | `SalesReturnsView.vue` | 处理销售退货 |
+| `sales/` | `AfterSalesView.vue`、`AfterSalesEditor.vue`、`AfterSalesEvidence.vue` | 售后来源、内联编制、独立审批、退换修办理与保管/收费证据；状态及操作使用 `after-sales-actions.ts` |
 | `finance/` | `ReceivablesPayablesView.vue` | 应收应付汇总及订单金额核对 |
 | `finance/` | `PaymentRecordsView.vue` | 独立查询、登记收付款及冲销，保留审计记录 |
 | `finance/` | `LedgerReportsView.vue` | 已过账科目明细、试算平衡、CSV 和凭证下钻 |

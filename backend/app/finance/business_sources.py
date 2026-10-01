@@ -20,6 +20,7 @@ ROLE_LABELS = {
     'work_in_progress': '生产在制成本', 'labor_accrual': '人工费用对方',
     'overhead_accrual': '制造费用对方', 'inventory_offset': '其他库存变动对方',
     'quality_loss': '不合格品独立报废损失',
+    'repair_income': '售后维修服务收入',
 }
 SOURCE_LABELS = {
     'receipt': '采购入库', 'receipt_reversal': '采购入库冲销',
@@ -36,6 +37,7 @@ SOURCE_LABELS = {
     'payment_record': '收付款登记',
     'subledger_payment': '分户期初收付款',
     'quality_loss': '不合格品报废损失',
+    'after_sales_repair': '售后维修服务费', 'after_sales_repair_reversal': '售后维修服务费更正',
 }
 
 
@@ -122,9 +124,15 @@ def business_sources(db: Session) -> dict[str, dict]:
             else:
                 trade += Decimal(entry['amount'])
         if item['business']:
-            if not item['movements']:
+            if kind.startswith('after_sales_repair'):
+                # 服务费来自已检验交还的维修单，不虚构公司商品出库。
+                add('receivable', trade)
+                add('repair_income', -trade)
+            elif not item['movements']:
                 item['blockers'].append('往来来源缺少对应库存流水，不能仅按订单金额生成')
-            if kind.startswith(('shipment', 'sales_return')):
+            if kind.startswith('after_sales_repair'):
+                pass
+            elif kind.startswith(('shipment', 'sales_return')):
                 add('receivable', trade)
                 add('income', -trade)
                 add('sales_cost', -inventory)

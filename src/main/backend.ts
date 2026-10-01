@@ -110,6 +110,30 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'afterSalesOverview': return {method:'GET',path:'/api/v1/after-sales'}
+    case 'afterSalesDetail': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}`}
+    case 'saveAfterSalesCase': {
+      const source=payload as Record<string,unknown>
+      if(!source || typeof source!=='object' || !['return','exchange','repair'].includes(String(source.kind))
+        || !['none','free','charge'].includes(String(source.charge_mode)))throw new Error('售后方式或收费选择无效')
+      if(!Array.isArray(source.parts) || source.parts.length>100)throw new Error('维修耗材明细无效')
+      const body:Record<string,unknown>=Object.fromEntries(['reference','kind','quantity','complaint','solution',
+        'charge_mode','fee_amount','customer_acceptance','replacement_quantity','replacement_unit_price','reason'].map(key=>[key,source[key]]))
+      body.shipment_line_id=positiveId(source,'shipment_line_id')
+      body.warehouse_id=source.warehouse_id==null?null:positiveId(source,'warehouse_id')
+      body.replacement_material_id=source.replacement_material_id==null?null:positiveId(source,'replacement_material_id')
+      body.parts=source.parts.map(row=>({material_id:positiveId(row,'material_id'),quantity:row.quantity}))
+      const edit=source.id!==undefined
+      if(edit)body.version=positiveId(source,'version')
+      return {method:edit?'PUT':'POST',path:`/api/v1/after-sales/cases${edit?'/'+positiveId(source,'id'):''}`,body}
+    }
+    case 'changeAfterSalesCase': {
+      const source=payload as ErpOperations['changeAfterSalesCase']['input']
+      if(!source || !['submit','approve','reject','process','receive','inspect','close','cancel','reverse'].includes(source.action))throw new Error('售后操作无效')
+      if(source.inspection_result!=null && !['pass','fail'].includes(source.inspection_result))throw new Error('维修检验结果无效')
+      return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/${source.action}`,
+        body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence,inspection_result:source.inspection_result??null}}
+    }
     case 'qualityOverview': return { method:'GET', path:'/api/v1/production-quality' }
     case 'qualityDetail': return { method:'GET', path:`/api/v1/production-quality/dispositions/${positiveId(payload,'id')}` }
     case 'saveQualityDisposition': {

@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 51:
+        if version > 52:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1733,3 +1733,48 @@ def migrate() -> None:
                 [('planner', 'quality.' + action) for action in ('view','create','submit','cancel')] +
                 [('warehouse', 'quality.view'), ('warehouse', 'quality.post'), ('finance', 'quality.view'), ('finance', 'quality.review')])
             db.execute('PRAGMA user_version = 51')
+
+        if version < 52:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE after_sales_cases (
+                id INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE,
+                shipment_line_id INTEGER NOT NULL REFERENCES shipment_lines(id),
+                kind TEXT NOT NULL CHECK(kind IN ('return','exchange','repair')), quantity TEXT NOT NULL,
+                complaint TEXT NOT NULL, solution TEXT NOT NULL, source_json TEXT NOT NULL,
+                charge_mode TEXT NOT NULL CHECK(charge_mode IN ('none','free','charge')),
+                fee_amount TEXT NOT NULL, customer_acceptance TEXT NOT NULL,
+                warehouse_id INTEGER REFERENCES warehouses(id),
+                replacement_material_id INTEGER REFERENCES materials(id), replacement_quantity TEXT, replacement_unit_price TEXT,
+                parts_json TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','processing','received','repaired','closed','cancelled','reversed')),
+                version INTEGER NOT NULL CHECK(version>0),
+                sales_return_id INTEGER UNIQUE REFERENCES sales_returns(id),
+                replacement_order_id INTEGER UNIQUE REFERENCES sales_orders(id),
+                parts_outbound_id INTEGER UNIQUE REFERENCES warehouse_outbounds(id),
+                created_by INTEGER NOT NULL REFERENCES users(id), submitted_by INTEGER REFERENCES users(id),
+                reviewed_by INTEGER REFERENCES users(id), closed_by INTEGER REFERENCES users(id), reversed_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, submitted_at TEXT, reviewed_at TEXT, closed_at TEXT, reversed_at TEXT)''')
+            db.execute('CREATE INDEX after_sales_source ON after_sales_cases(shipment_line_id,status)')
+            db.execute('''CREATE TABLE after_sales_changes (
+                id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES after_sales_cases(id),
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                evidence TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE after_sales_custody (
+                id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES after_sales_cases(id),
+                action TEXT NOT NULL CHECK(action IN ('receive','return')), quantity TEXT NOT NULL,
+                evidence TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('sales.after_sales','售后退换修','sales',6)")
+            operations = [('after_sales.' + action, label) for action, label in (
+                ('view','查看售后及保管证据'), ('create','编制及修订售后申请'), ('submit','提交售后申请'),
+                ('review','独立审核售后方案'), ('process','办理退货或换货'), ('receive','登记客户维修品及耗材草稿'),
+                ('inspect','维修检验'), ('close','办理交付并结案'), ('cancel','取消未完成售后'), ('reverse','更正已结案售后'))]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'sales.after_sales')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('admin', code) for code, _ in operations] +
+                [('seller', 'after_sales.' + action) for action in ('view','create','submit','process','close','cancel')] +
+                [('warehouse', 'after_sales.' + action) for action in ('view','receive','inspect','close')] +
+                [('finance', 'after_sales.view'), ('finance', 'after_sales.review')])
+            db.execute('PRAGMA user_version = 52')

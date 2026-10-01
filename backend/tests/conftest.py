@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_quality_schema():
+def remove_after_sales_schema():
     def remove(db):
+        for table in ('after_sales_custody','after_sales_changes','after_sales_cases'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for action in ('view','create','submit','review','process','receive','inspect','close','cancel','reverse'):
+            code='after_sales.'+action
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?',(code,))
+            db.execute('DELETE FROM permissions WHERE code=?',(code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='sales.after_sales'")
+    return remove
+
+
+@pytest.fixture
+def remove_quality_schema(remove_after_sales_schema):
+    def remove(db):
+        remove_after_sales_schema(db)
         for table in ('production_rework_sources','quality_cost_allocations','quality_disposition_changes','quality_dispositions'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         if any(row[1] == 'rework_amount' for row in db.execute('PRAGMA table_info(production_cost_settlements)')):
