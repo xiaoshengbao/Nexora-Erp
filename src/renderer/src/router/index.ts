@@ -7,6 +7,7 @@ import type { WorkspaceRouteKey } from './workspace-routes.ts'
 // 路由键与页面组件在一处对应，新增业务页面时类型检查会要求补齐组件。
 const workspaceRouteComponents = {
   customerRelations: () => import('../views/workspace/sales/CustomerRelationsView.vue'),
+  afterSales: () => import('../views/workspace/sales/AfterSalesView.vue'),
   home: () => import('../views/workspace/home/HomeDashboardView.vue'),
   otherInbounds: () => import('../views/workspace/warehouse/OtherInboundsView.vue'),
   warehouseOutbounds: () => import('../views/workspace/warehouse/WarehouseOutboundsView.vue'),

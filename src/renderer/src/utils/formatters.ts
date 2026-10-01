@@ -89,7 +89,8 @@ export function financialSource(item: FinancialEntry): string {
     receipt: '采购入库',
     receipt_reversal: '采购入库冲销',
     purchase_return: '采购退货',
-    purchase_return_reversal: '采购退货冲销'
+    purchase_return_reversal: '采购退货冲销',
+    after_sales_repair: '售后维修服务费', after_sales_repair_reversal: '售后维修服务费更正'
   }
   return `${names[item.source_type]} #${item.source_id}`
 }

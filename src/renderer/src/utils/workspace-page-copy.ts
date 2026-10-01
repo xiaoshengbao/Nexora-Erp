@@ -12,6 +12,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   inventoryReports: '按仓库、物料和日期查询库存报表，支持导出当前结果。',
   sales: '查看客户订单、交付进度与销售明细，确认后按单办理出库。',
   salesReturns: '按原出库明细办理客户退货，确认后更新库存与应收来源。',
+  afterSales: '关联原出库办理退货、换货或维修；方案独立审核，客户物品保管与公司库存分开，交付与收费保留证据。',
   shipments: '按销售订单分批出库，确认后扣减库存并记录应收来源。',
   warehouses: '默认主仓库以及已被业务单据引用的仓库不能删除。',
   catalog: '请按规格建立独立物料编码，同一规格无需为不同供应商重复建档。',

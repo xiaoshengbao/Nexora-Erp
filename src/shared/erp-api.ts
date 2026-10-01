@@ -2,6 +2,7 @@ import type { MenuIconKey, MenuIconSetting } from './menu-icons'
 import type { MrpOperations } from './mrp-api'
 import type { CrmOperations } from './crm-api'
 import type { QualityOperations, QualityTreatment, QualityKind, ReworkCostSource } from './quality-api'
+import type { AfterSalesOperations } from './after-sales-api'
 // 桌面端与本地服务共用的数据契约；渲染进程不能自行指定请求地址。
 // 账号资料与登录名分开，工号可为空；非空工号由服务端保证唯一。
 export interface UserProfile { full_name: string; employee_no: string; phone: string }
@@ -43,6 +44,7 @@ export interface PeriodClosingCheck {
   movement_count: number; business_unpriced_count: number
 }
 export interface PeriodClosingEvidence {
+  after_sales?: import('./after-sales-api').AfterSalesArchive[]
   subledger?: { opening: SubledgerOpening; rows: SubledgerBalanceRow[] } | null
   period: AccountingPeriod; currency: 'CNY'; time_basis: 'UTC'; opening_balance_id: number | null
   ledger: { rows: Record<string, string>[]; totals: LedgerReportTotals }
@@ -536,7 +538,7 @@ export interface FinancialEntry {
   kind: 'receivable' | 'payable'
   party_id: number
   party_name: string
-  source_type: 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'receipt' | 'receipt_reversal' | 'purchase_return' | 'purchase_return_reversal'
+  source_type: 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'receipt' | 'receipt_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'after_sales_repair' | 'after_sales_repair_reversal'
   source_id: number
   source_line_id: number
   order_id: number | null
@@ -1052,7 +1054,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations {
+export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

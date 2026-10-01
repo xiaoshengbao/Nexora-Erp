@@ -376,6 +376,8 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
 @router.post("/sales-orders/{order_id}/confirm")
 def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order.confirm"))) -> dict:
     with orm_session(write=True) as db:
+        from app.sales.after_sales_rules import ensure_replacement_available
+        ensure_replacement_available(db, order_id)
         row = (
             db.execute(select(SalesOrder.status).select_from(SalesOrder).where((SalesOrder.id == order_id)))
             .mappings()
@@ -457,6 +459,10 @@ def create_shipment(payload: ShipmentInput, user: dict = Depends(require("shipme
 @router.post("/shipments/{shipment_id}/post")
 def post_shipment(shipment_id: int, user: dict = Depends(require("shipment.post"))) -> dict:
     with orm_session(write=True) as db:
+        from app.sales.after_sales_rules import ensure_replacement_available
+        linked_shipment = db.get(Shipment, shipment_id)
+        if linked_shipment:
+            ensure_replacement_available(db, linked_shipment.sales_order_id)
         # 写锁覆盖订单剩余量、仓库余额和库存流水，阻止并发出库超量或负库存。
         shipment = (
             db.execute(
@@ -528,6 +534,8 @@ def reverse_shipment(
     shipment_id: int, payload: ShipmentReverseInput, user: dict = Depends(require("shipment.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        from app.sales.after_sales_rules import ensure_shipment_reversible
+        ensure_shipment_reversible(db, shipment_id)
         # 有效销售退货依赖原出库，先处理退货再冲销出库，防止重复入库。
         shipment = (
             db.execute(

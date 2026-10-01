@@ -984,6 +984,65 @@ class SalesReturnLine(Base):
     shipment_line_id: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
+class AfterSalesCase(Base):
+    __tablename__ = "after_sales_cases"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    shipment_line_id: Mapped[int] = mapped_column(Integer, ForeignKey("shipment_lines.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    complaint: Mapped[str] = mapped_column(Text, nullable=False)
+    solution: Mapped[str] = mapped_column(Text, nullable=False)
+    source_json: Mapped[str] = mapped_column(Text, nullable=False)
+    charge_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    fee_amount: Mapped[str] = mapped_column(Text, nullable=False)
+    customer_acceptance: Mapped[str] = mapped_column(Text, nullable=False)
+    warehouse_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouses.id"))
+    replacement_material_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("materials.id"))
+    replacement_quantity: Mapped[str | None] = mapped_column(Text)
+    replacement_unit_price: Mapped[str | None] = mapped_column(Text)
+    parts_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    sales_return_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sales_returns.id"), unique=True)
+    replacement_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sales_orders.id"), unique=True)
+    parts_outbound_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_outbounds.id"), unique=True)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    submitted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    closed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    reversed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    submitted_at: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[str | None] = mapped_column(Text)
+    reversed_at: Mapped[str | None] = mapped_column(Text)
+
+
+class AfterSalesChange(Base):
+    __tablename__ = "after_sales_changes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("after_sales_cases.id"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+class AfterSalesCustody(Base):
+    __tablename__ = "after_sales_custody"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("after_sales_cases.id"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class Customer(Base):
     __tablename__ = 'customers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

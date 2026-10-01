@@ -170,6 +170,8 @@ def financial_entries(db: Session) -> list[dict]:
                 for row in sales_sources(db, returned=returned, reversed=reversed))
             result.extend(entry(row, 'payable', purchase_type, sign)
                 for row in purchase_sources(db, returned=returned, reversed=reversed))
+    from app.sales.after_sales_rules import repair_financial_entries
+    result.extend(repair_financial_entries(db))
     users = dict(db.execute(select(User.id, User.username)).all())
     for item in result:
         item['posted_by_name'] = users.get(item['posted_by'])
