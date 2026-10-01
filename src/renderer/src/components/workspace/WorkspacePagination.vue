@@ -24,7 +24,8 @@ function resize(size: number): void {
     <span class="pagination-total" role="status"
       >共 <strong>{{ total }}</strong> 条</span
     >
-    <div class="pagination-controls">
+    <!-- 空列表保留总数，隐藏无可翻阅页面的操作控件。 -->
+    <div v-if="total > 0" class="pagination-controls">
       <label class="pagination-size"
         >每页<WorkspaceSelect
           :model-value="pageSize"
@@ -71,11 +72,11 @@ function resize(size: number): void {
 </template>
 
 <style scoped>
-/* 总数从搜索区移到底部；小屏允许换行，但保持每组控件居中对齐。 */
+/* 总数紧邻分页并整体靠右；小屏允许换行，避免左右分散导致关联不清。 */
 .workspace-pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 16px;
   padding-top: 16px;
@@ -126,6 +127,10 @@ function resize(size: number): void {
   color: #dce8f5;
 }
 @media (max-width: 650px) {
+  .workspace-pagination {
+    justify-content: flex-start;
+    gap: 12px;
+  }
   .pagination-controls {
     justify-content: flex-start;
   }
