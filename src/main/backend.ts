@@ -110,6 +110,41 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'mrpOptions': return { method: 'GET', path: '/api/v1/production/mrp/options' }
+    case 'mrpPlans': return { method: 'GET', path: '/api/v1/production/mrp/plans' }
+    case 'mrpDetail': return { method: 'GET', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}` }
+    case 'mrpCheck': return { method: 'GET', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}/check` }
+    case 'mrpChanges': return { method: 'GET', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}/changes` }
+    case 'mrpPolicyChanges': return { method: 'GET', path: `/api/v1/production/mrp/policies/${positiveId(payload, 'id')}/changes` }
+    case 'saveMrpPolicy': {
+      const { version, supply_mode, lead_time_days, safety_stock, minimum_quantity, multiple_quantity, reason } = payload as ErpOperations['saveMrpPolicy']['input']
+      if (!Number.isSafeInteger(version) || version < 0 || !Number.isSafeInteger(lead_time_days)
+        || lead_time_days < 0 || lead_time_days > 365 || !['auto','buy','make'].includes(supply_mode)) throw new Error('计划参数无效')
+      return { method: 'PUT', path: `/api/v1/production/mrp/policies/${positiveId(payload, 'id')}`,
+        body: { version, supply_mode, lead_time_days, safety_stock, minimum_quantity, multiple_quantity, reason } }
+    }
+    case 'createMrpPlan': {
+      const { reference, start_date, demand_dates, supply_dates, manual_demands, reason } = payload as ErpOperations['createMrpPlan']['input']
+      if (!Array.isArray(demand_dates) || demand_dates.length > 2000 || !Array.isArray(supply_dates) || supply_dates.length > 2000
+        || !Array.isArray(manual_demands) || manual_demands.length > 500) throw new Error('计划来源明细无效')
+      return { method: 'POST', path: '/api/v1/production/mrp/plans', body: { reference, start_date, reason,
+        demand_dates: demand_dates.map(({ key, due_date }) => ({ key, due_date })),
+        supply_dates: supply_dates.map(({ key, due_date }) => ({ key, due_date })),
+        manual_demands: manual_demands.map(row => ({ material_id: positiveId(row, 'material_id'),
+          quantity: row.quantity, due_date: row.due_date, reference: row.reference })) } }
+    }
+    case 'changeMrpStatus': {
+      const { action: command, reason } = payload as ErpOperations['changeMrpStatus']['input']
+      if (!['submit','approve','reject','cancel'].includes(command)) throw new Error('不允许的计划状态操作')
+      return { method: 'POST', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}/${command}`,
+        body: { version: positiveId(payload, 'version'), reason } }
+    }
+    case 'convertMrpSuggestion': {
+      const { suggestion_key, warehouse_id, reference, reason } = payload as ErpOperations['convertMrpSuggestion']['input']
+      return { method: 'POST', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}/convert`,
+        body: { version: positiveId(payload, 'version'), suggestion_key,
+          warehouse_id: warehouse_id == null ? null : positiveId(payload, 'warehouse_id'), reference, reason } }
+    }
     case 'bootstrap': return { method: 'POST', path: '/api/v1/setup/admin', body: payload }
     case 'login': return { method: 'POST', path: '/api/v1/auth/login', body: payload }
     case 'logout': return { method: 'POST', path: '/api/v1/auth/logout' }

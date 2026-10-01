@@ -5,6 +5,25 @@ import type {
 } from '../../../shared/erp-api'
 
 // 格式化只依赖输入数据，页面和测试可直接复用。
+export const movementTypeLabels: Record<string, string> = {
+  receipt: '采购入库', receipt_reversal: '采购入库冲销',
+  other_inbound: '其他入库', other_inbound_reversal: '其他入库冲销',
+  other_outbound: '其他出库', other_outbound_reversal: '其他出库冲销',
+  shipment: '销售出库', shipment_reversal: '销售出库冲销',
+  purchase_return: '采购退货', purchase_return_reversal: '采购退货冲销',
+  sales_return: '销售退货', sales_return_reversal: '销售退货冲销',
+  transfer_in: '调拨入库', transfer_out: '调拨出库',
+  transfer_reversal_in: '调拨入库冲销', transfer_reversal_out: '调拨出库冲销',
+  adjustment: '库存调整', adjustment_reversal: '库存调整冲销',
+  stocktake: '盘点', stocktake_reversal: '盘点冲销',
+  material_issue: '生产领料', material_return: '生产退料',
+  production_completion: '生产完工', production_completion_reversal: '生产完工冲销'
+}
+
+export function movementTypeLabel(sourceType: string): string {
+  return movementTypeLabels[sourceType] ?? '未识别的库存来源'
+}
+
 export function displayError(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : '操作失败'
   return message.replace(/^Error invoking remote method '[^']+': Error: /, '')

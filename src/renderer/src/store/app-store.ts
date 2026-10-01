@@ -48,6 +48,7 @@ import { createProfitTransferActions } from './modules/profit-transfer-actions'
 import { createStatementActions } from './modules/statement-actions'
 import { createAuxiliaryActions } from './modules/auxiliary-actions'
 import { createSubledgerActions } from './modules/subledger-actions'
+import { createMrpActions } from './modules/mrp-actions'
 import { createLedgerReportActions } from './modules/ledger-report-actions'
 import { createValuationActions } from './modules/valuation-actions'
 import { createSalesActions } from './modules/sales-actions'
@@ -217,6 +218,7 @@ function createAppStore() {
   const statementActions = createStatementActions(state, perform)
   const auxiliaryActions = createAuxiliaryActions(state, perform)
   const subledgerActions = createSubledgerActions(state, perform)
+  const mrpActions = createMrpActions(state, perform)
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
 
@@ -281,6 +283,7 @@ function createAppStore() {
     ...statementActions,
     ...auxiliaryActions,
     ...subledgerActions,
+    ...mrpActions,
     ...openingBalanceActions,
     ...ledgerReportActions,
     ...valuationActions,

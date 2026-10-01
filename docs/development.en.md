@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this historical subsidiary-opening delivery on 2026-10-01, starting from main commit `2d49241`. This version adds per-document reconciliation by complete auxiliary combination, independent approval and subsequent settlement sources. Database version 48 has 104 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects this MRP implementation on 2026-10-01, starting from main commit `ecbd83c`. It adds dated net requirements, fixed planning evidence, independent approval and draft purchase/work-order conversion. Database version 49 has 109 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -96,7 +96,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 | Warehousing | Single posting, two-sided transfers, stocktake snapshots/change checks; adjustments need independent approval and warehouse posting. | Not a general approval engine; full physical batch tracing remains future work. |
 | Reversals | Preserve originals, append inverse movements/amount sources and reasons; check stock, dependent returns and duplicate correction. | Rules differ by document; deleting history/overwriting balances is not correction. |
 | Valuation | Company-level material moving average; returns/transfers use source costs; eligible unknown inputs can be manually valued with revision history. | Revisions may change open-period costs; historical valuation and allocation are locked through the last closed period. Variances and formal COGS journals remain. |
-| Production | BOM versions/cycle checks, frozen requirements, partial issues/returns/completions and accepted-goods receipt; consumed reporting requirements cannot be returned. | Targets include rejected quantities; rework, MRP, scheduling and full quality management remain. |
+| Production | BOM versions/cycle checks, frozen requirements, partial issues/returns/completions and accepted-goods receipt; consumed reporting requirements cannot be returned. | Targets include rejected quantities; [MRP quantity/date planning (Chinese)](material-planning.md) is available; rework, finite-capacity scheduling and full quality management remain. |
 | Finished-goods cost | Inventory issue price first, manual valuation when unknown; material/labor/overhead allocated by accepted quantity with rounding reconciliation. | Includes rejected consumption; reverse dependent settlements before corrections. WIP/cross-period cost remain. |
 | Operational finance | Sources produce receivables/payables and order balances; manual settlements/refunds have limits and inverse reversals; historical subsidiary openings reconcile by complete combination before independent activation and settlements. | Does not prove bank receipt; RMB scope, taxes/multiple currencies/bank reconciliation remain. |
 | Ledger foundations | Flat account structures are fixed; inclusive periods cannot overlap. Name/activation changes carry versions, reasons and transactional auditing. | Closing/reopening is provided separately; auxiliary accounting is provided separately. |

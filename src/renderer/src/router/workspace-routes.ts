@@ -310,7 +310,8 @@ export const workspaceRouteGroups = [
         label: '生产成本',
         permission: 'production_cost.view',
         icon: 'file'
-      }
+      },
+      { key: 'materialPlanning', path: '/workspace/material-planning', label: '物料需求计划', permission: 'mrp.view', icon: 'file' }
     ]
   },
   {
