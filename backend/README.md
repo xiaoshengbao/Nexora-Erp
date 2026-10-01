@@ -10,7 +10,7 @@
 | `app/catalog/` | 供应商与物料基础资料。 |
 | `app/core/` | 数据库迁移、静态 SQLAlchemy ORM 模型与统一会话事务边界。 |
 | `app/purchase/` | 采购申请、采购订单、采购收货、入库单、采购退货。 |
-| `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额和台账。 |
+| `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额、台账和按仓库预警。 |
 | `app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转销售草稿、销售订单、出库、销售退货与售后退换修。 |
 | `app/production/` | BOM、工单、领退料、报工、工单成本、完工批次结算、不合格品处置与返工、MRP 日期计划及设备维护接口。 |
 | `app/finance/` | 应收应付、订单余额、手工收付款、总账科目、会计期间、期初余额、手工及业务来源凭证、损益结转、已过账报表、公司财务报表与固定归档、辅助核算及期间结账与重开。 |
@@ -194,7 +194,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 53 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 54 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 
@@ -240,3 +240,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 ## 设备维护
 
 第 53 版新增五张静态 ORM 表，数据库共 127 张表。`app/production/equipment.py` 装配台账、日历计划、独立审核和验收、停机、耗材草稿及更正接口，输入与来源规则分别在 `equipment_inputs.py`、`equipment_rules.py`。桌面端已提供独立权限入口、三类资料编制、当前版本阶段操作、停机/耗材与审计证据；输入、事务、并发、写后故障回滚、升级及桌面边界均有测试。权限、来源隐藏、取消与计划更正边界见 [设备维护规则](../docs/equipment-maintenance.md)。
+
+## 按仓库库存预警
+
+第 54 版新增规则与修订证据两张静态 ORM 表，共 129 张。`app/inventory/warnings.py` 从已确认流水逐仓逐物料 Decimal 汇总，提供范围查询、详情与带版本阈值维护；沿用 `inventory.view`，新增 `inventory_warning.manage`。规则与审计同事务，过期版本返回 409，未配置不参与预警，停用差额返回 null，不提供推送或预测。升级与使用见 [库存预警规则](../docs/inventory-warnings.md)。

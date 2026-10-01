@@ -1,3 +1,5 @@
+import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
+import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import type { BackendHealth } from '../shared/desktop-api'
 import type { ErpOperations } from '../shared/erp-api'
 import {validateDashboardResult} from '../shared/dashboard-api.ts'
@@ -117,6 +119,24 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return {method:'POST', path:'/api/v1/dashboard/query', body:{period}}
     }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'inventoryWarnings': {
+      if(payload!==undefined && (!payload || typeof payload!=='object' || Array.isArray(payload)))throw new Error('预警查询范围无效')
+      const source=payload as {warehouseId?:unknown}|undefined
+      const warehouse=source?.warehouseId
+      return {method:'GET',path:'/api/v1/inventory/warnings'+(warehouse===undefined?'':`?warehouse_id=${positiveId({id:warehouse},'id')}`)}
+    }
+    case 'inventoryWarningDetail':
+    case 'saveInventoryWarning': {
+      const warehouse=positiveId(payload,'warehouse_id'),material=positiveId(payload,'material_id')
+      const path=`/api/v1/inventory/warnings/rules/${warehouse}/${material}`
+      if(action==='inventoryWarningDetail')return {method:'GET',path}
+      const source=payload as Record<string,unknown>
+      if(typeof source.version!=='number' || !Number.isSafeInteger(source.version) || source.version<0)throw new Error('预警版本无效')
+      if(typeof source.threshold!=='string' || !warningThresholdValid(source.threshold))throw new Error('预警阈值须为非负精确文本，最多三位小数且不超过一百万')
+      if(typeof source.enabled!=='boolean')throw new Error('预警启停选择无效')
+      if(typeof source.reason!=='string' || !source.reason.trim() || source.reason.trim().length>200)throw new Error('请填写预警修订原因，最多200字')
+      return {method:'PUT',path,body:{version:source.version,threshold:source.threshold,enabled:source.enabled,reason:source.reason.trim()}}
+    }
     case 'equipmentOverview': return {method:'GET',path:'/api/v1/equipment/overview'}
     case 'equipmentDetail': return {method:'GET',path:`/api/v1/equipment/assets/${positiveId(payload,'id')}`}
     case 'maintenancePlanDetail': return {method:'GET',path:`/api/v1/equipment/plans/${positiveId(payload,'id')}`}
@@ -740,6 +760,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
+  validateInventoryWarningResult(action,data)
   validateEquipmentResult(action,data)
   return data
 }

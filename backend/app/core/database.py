@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 53:
+        if version > 54:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1868,3 +1868,14 @@ def migrate() -> None:
                 [('planner', 'equipment.' + action) for action in ('view','manage','create','submit','execute','cancel')] +
                 [('warehouse', 'equipment.view'), ('warehouse', 'equipment.execute')])
             db.execute('PRAGMA user_version = 53')
+
+        if version < 54:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE inventory_warning_rules (id INTEGER PRIMARY KEY, warehouse_id INTEGER NOT NULL REFERENCES warehouses(id), material_id INTEGER NOT NULL REFERENCES materials(id), threshold TEXT NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(warehouse_id,material_id))')
+            db.execute('CREATE TABLE inventory_warning_changes (id INTEGER PRIMARY KEY, rule_id INTEGER NOT NULL REFERENCES inventory_warning_rules(id), before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
+            db.execute('CREATE INDEX inventory_warning_history ON inventory_warning_changes(rule_id,id)')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('warehouse.warnings','库存预警','warehouse',9)")
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('inventory_warning.manage','维护库存预警阈值','warehouse.warnings')")
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)', [('admin','inventory_warning.manage'),('warehouse','inventory_warning.manage')])
+            db.execute('PRAGMA user_version = 54')

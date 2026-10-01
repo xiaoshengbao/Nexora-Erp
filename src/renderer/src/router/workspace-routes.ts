@@ -59,6 +59,13 @@ export const workspaceRouteGroups = [
         icon: 'stack'
       },
       {
+        key: 'inventoryWarnings',
+        path: '/workspace/inventory-warnings',
+        label: '库存预警',
+        permission: 'inventory.view',
+        icon: 'stack'
+      },
+      {
         key: 'inventoryLedger',
         path: '/workspace/inventory-ledger',
         label: '库存台账',
