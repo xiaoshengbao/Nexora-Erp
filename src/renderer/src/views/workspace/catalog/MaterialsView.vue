@@ -8,6 +8,7 @@ import { storeToRefs } from 'pinia'
 import { NModal, NPopconfirm } from 'naive-ui'
 import type { Material } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { usePiniaAppStore } from '../../../store/app-store'
 import './catalog.css'
 
@@ -26,6 +27,8 @@ const filtered = computed(() =>
       .includes(query.value.trim().toLowerCase())
   )
 )
+// 总数按搜索结果计算；分页仅影响本页展示，不裁剪共享物料资料。
+const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, query)
 // 物料页只声明列和业务单元格，统一由公共组件创建 vxe 表格。
 const columns = [
   { key: 'sku', title: '物料编码' },
@@ -67,7 +70,9 @@ function supplierNames(id: number): string {
       :show-title="false"
       title="物料列表"
       :columns="columns"
-      :data="filtered"
+      :data="rows"
+      :pagination="{ page, pageSize, total }"
+      @page-change="changePage"
       :min-table-width="680"
     >
       <template #actions>
@@ -84,7 +89,6 @@ function supplierNames(id: number): string {
         <label class="catalog-search"
           >搜索物料<AppInput v-model="query" placeholder="输入名称或编码搜索"
         /></label>
-        <span class="muted">共 {{ materials.length }} 条</span>
       </template>
       <template #beforeTable>
         <NModal

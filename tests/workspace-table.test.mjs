@@ -79,14 +79,23 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
   assert.match(actionsOnly, /新增/)
   assert.doesNotMatch(actionsOnly, /workspace-table-toolbar/)
 
-  // 页脚总数使用筛选后的服务端总数；空页仍显示分页并禁用前后翻页。
+  // 页脚总数使用筛选后的总数；空页保留总数并隐藏无效的分页操作。
   const paged = await render({ pagination: { page: 2, pageSize: 20, total: 45 } })
   assert.match(paged, /共 <strong[^>]*>45<\/strong> 条/)
   assert.match(paged, /aria-current="page"/)
   assert.ok(paged.indexOf('workspace-pagination') > paged.indexOf('workspace-vxe-table'))
+  assert.ok(paged.indexOf('pagination-total') < paged.indexOf('pagination-controls'))
+  // 已有分页列表继续保留首末页边界和加载期间的禁用行为。
+  const firstPage = await render({ pagination: { page: 1, pageSize: 20, total: 45 } })
+  assert.match(firstPage, /disabled[^>]*aria-label="上一页"/)
+  const lastPage = await render({ pagination: { page: 3, pageSize: 20, total: 45 } })
+  assert.match(lastPage, /disabled[^>]*aria-label="下一页"/)
+  const loadingPage = await render({ loading: true, pagination: { page: 2, pageSize: 20, total: 45 } })
+  assert.match(loadingPage, /disabled[^>]*aria-label="上一页"/)
+  assert.match(loadingPage, /disabled[^>]*aria-label="下一页"/)
   const zero = await render({ pagination: { page: 1, pageSize: 20, total: 0 } })
-  assert.match(zero, /disabled[^>]*aria-label="上一页"/)
-  assert.match(zero, /disabled[^>]*aria-label="下一页"/)
+  assert.match(zero, /共 <strong[^>]*>0<\/strong> 条/)
+  assert.doesNotMatch(zero, /pagination-controls|aria-label="上一页"|aria-label="下一页"|aria-label="第 1 页"/)
 
   const empty = await render({ data: [] })
   assert.match(empty, /没有匹配的资料/)

@@ -9,7 +9,7 @@
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库及冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
-| `catalog/` | `MaterialsView.vue` | 物料列表、搜索、增删改及关联供应商展示；沿用 `/workspace/catalog` 地址 |
+| `catalog/` | `MaterialsView.vue` | 物料列表、搜索、本地分页、增删改及关联供应商展示；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `CustomersView.vue` | 客户搜索与新增；销售查看权限可浏览，客户管理权限可新增 |
 | `catalog/` | `WarehousesView.vue` | 仓库增删改查，默认主仓库禁止删除 |
@@ -57,6 +57,8 @@
 日期输入直接使用 Naive UI `NDatePicker`，不额外封装日期组件。统一设置 `to="body"`、`type="date"`、`format="yyyy-MM-dd"` 和 `value-format="yyyy-MM-dd"`，通过 `formatted-value` 读写已有字符串字段，清空时使用 `utils/date-field.ts` 的 `datePickerString` 转回空字符串。`vDateField` 指令补回原生必填与手输日期的有效性、上下限校验；日历可选范围通过 `dateOutsideRange` 和 `is-date-disabled` 设置，按设备本地日期比较，避免时区使边界偏移。主题在根 `NConfigProvider` 中统一设置。控件替换不改变服务端校验、会计期间规则或 API 数据协议。
 
 工作台中的表格统一由 `components/workspace/WorkspaceTable.vue` 封装的 vxe-table 渲染。页面传入 `columns`、`data` 和可选的最小宽度，通过 `cell-<列键>` 插槽填写业务单元格；标题、筛选、操作、表前说明、空状态和页脚分别使用 `heading`、`filters`、`actions`、`beforeTable`、`empty`、`footer` 插槽。表格超出可视宽度时，底部提供始终可见的横向滚动条；查询失败可用 `error` 和 `errorActions` 显示失败原因与重试入口。采购与库存报表也使用同一组件，CSV 继续基于相同的服务端查询结果。列表新增入口以按钮打开 Naive UI 弹窗，保存失败保留草稿；复杂单据的确认、冲销仍保留原有操作流程。职务仍沿用现有角色与操作权限数据，内置角色只读；授权树由 `components/workspace/PermissionTreePicker.vue` 提供。权限目录在系统管理下使用单独路由，避免职务列表下方再展开很长的名称维护区域。权限目录可独立重试读取服务端数据，其他业务列表加载失败时不会使目录一直空白。
+
+公共分页栏把筛选后总条数与分页控件集中放在表格底部右侧，窄窗允许换行；总数为 0 时仅保留“共 0 条”。物料页使用 `useLocalPagination` 对已经加载的名单分页，默认每页 20 条，可选 10/20/50/100 条；搜索或切换每页条数回到首页，删除导致末页越界时自动回退。完整物料名单仍保存在 Pinia 中供业务选项使用，此处不改变服务端查询方式。
 
 应用业务状态和主题状态由 Pinia 管理。`store/app-store.ts` 的 `useAppStore()` 保留页面现有的响应式 `ref` 取值接口；应用启动与监听器清理由根组件负责。
 
