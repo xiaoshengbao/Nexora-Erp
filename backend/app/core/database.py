@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 48:
+        if version > 49:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1584,3 +1584,49 @@ def migrate() -> None:
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, code) for role in ('admin','finance') for code, _ in operations])
             db.execute('PRAGMA user_version = 48')
+
+        if version < 49:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE mrp_policies (
+                material_id INTEGER PRIMARY KEY REFERENCES materials(id),
+                supply_mode TEXT NOT NULL CHECK(supply_mode IN ('auto','buy','make')),
+                lead_time_days INTEGER NOT NULL CHECK(lead_time_days BETWEEN 0 AND 365),
+                safety_stock TEXT NOT NULL, minimum_quantity TEXT NOT NULL, multiple_quantity TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK(version>0), changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE mrp_policy_changes (
+                id INTEGER PRIMARY KEY, material_id INTEGER NOT NULL REFERENCES materials(id),
+                before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE mrp_plans (
+                id INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE, input_json TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','cancelled')),
+                version INTEGER NOT NULL CHECK(version>0), created_by INTEGER NOT NULL REFERENCES users(id),
+                submitted_by INTEGER REFERENCES users(id), reviewed_by INTEGER REFERENCES users(id),
+                cancelled_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                submitted_at TEXT, reviewed_at TEXT, cancelled_at TEXT)''')
+            db.execute('''CREATE TABLE mrp_plan_changes (
+                id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES mrp_plans(id),
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE mrp_conversions (
+                id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES mrp_plans(id), suggestion_key TEXT NOT NULL,
+                purchase_request_id INTEGER UNIQUE REFERENCES purchase_requests(id),
+                work_order_id INTEGER UNIQUE REFERENCES work_orders(id), due_date TEXT NOT NULL,
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(plan_id,suggestion_key),
+                CHECK((purchase_request_id IS NOT NULL)+(work_order_id IS NOT NULL)=1))''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('production.mrp','物料需求计划','production',5)")
+            operations = [('mrp.' + action, label) for action, label in (
+                ('view','查看物料计划与来源'), ('configure','维护物料计划参数'), ('create','计算物料需求计划'),
+                ('submit','提交物料需求计划'), ('review','独立审核物料需求计划'),
+                ('cancel','取消物料需求计划'), ('convert','将物料计划转为申请或工单'))]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'production.mrp')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('admin', code) for code, _ in operations] +
+                [('planner', code) for code, _ in operations if code != 'mrp.review'] + [('finance','mrp.view')])
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('planner', 'purchase_request.' + action) for action in ('view','create','submit','cancel')])
+            db.execute('PRAGMA user_version = 49')

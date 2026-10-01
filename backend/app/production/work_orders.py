@@ -201,56 +201,60 @@ def list_work_orders(_: dict = Depends(require("production.view"))) -> list[dict
         return [work_order_data(db, order_id) for order_id in ids]
 
 
+def create_work_order_in_session(db: Session, payload: WorkOrderInput, user: dict) -> dict:
+    bom = (
+        db.execute(
+            select(Bom.status, Bom.base_quantity).select_from(Bom).where((Bom.id == payload.bom_id))
+        )
+        .mappings()
+        .first()
+    )
+    if not bom:
+        raise HTTPException(422, "BOM 不存在")
+    if bom["status"] != "active":
+        raise HTTPException(409, "只有启用中的 BOM 可用于新工单")
+    require_warehouse(db, payload.warehouse_id)
+    requirements = []
+    for line in db.execute(
+        select(BomLine.component_material_id, BomLine.quantity)
+        .select_from(BomLine)
+        .where((BomLine.bom_id == payload.bom_id))
+    ).mappings():
+        # 需求按库存的三位精度向上取整，防止比例换算后低估领料量。
+        needed = (
+            payload.target_quantity * Decimal(line["quantity"]) / Decimal(bom["base_quantity"])
+        ).quantize(Decimal("0.001"), rounding=ROUND_CEILING)
+        if needed > 1_000_000:
+            raise HTTPException(422, "工单组件需求超过一百万，请拆分工单")
+        requirements.append((line["component_material_id"], str(needed)))
+    if not requirements:
+        raise HTTPException(409, "BOM 没有组件，无法创建工单")
+    cursor = add_model(
+        db,
+        WorkOrder(
+            bom_id=payload.bom_id,
+            warehouse_id=payload.warehouse_id,
+            target_quantity=str(payload.target_quantity),
+            reference=payload.reference.strip(),
+            note=payload.note.strip(),
+            created_by=user["id"],
+        ),
+    )
+    db.add_all(
+        [
+            WorkOrderLine(
+                work_order_id=cursor.id, component_material_id=material_id, required_quantity=quantity
+            )
+            for material_id, quantity in requirements
+        ]
+    )
+    return work_order_data(db, cursor.id)
+
+
 @router.post("/work-orders", status_code=201)
 def create_work_order(payload: WorkOrderInput, user: dict = Depends(require("work_order.create"))) -> dict:
     with orm_session(write=True) as db:
-        bom = (
-            db.execute(
-                select(Bom.status, Bom.base_quantity).select_from(Bom).where((Bom.id == payload.bom_id))
-            )
-            .mappings()
-            .first()
-        )
-        if not bom:
-            raise HTTPException(422, "BOM 不存在")
-        if bom["status"] != "active":
-            raise HTTPException(409, "只有启用中的 BOM 可用于新工单")
-        require_warehouse(db, payload.warehouse_id)
-        requirements = []
-        for line in db.execute(
-            select(BomLine.component_material_id, BomLine.quantity)
-            .select_from(BomLine)
-            .where((BomLine.bom_id == payload.bom_id))
-        ).mappings():
-            # 需求按库存的三位精度向上取整，防止比例换算后低估领料量。
-            needed = (
-                payload.target_quantity * Decimal(line["quantity"]) / Decimal(bom["base_quantity"])
-            ).quantize(Decimal("0.001"), rounding=ROUND_CEILING)
-            if needed > 1_000_000:
-                raise HTTPException(422, "工单组件需求超过一百万，请拆分工单")
-            requirements.append((line["component_material_id"], str(needed)))
-        if not requirements:
-            raise HTTPException(409, "BOM 没有组件，无法创建工单")
-        cursor = add_model(
-            db,
-            WorkOrder(
-                bom_id=payload.bom_id,
-                warehouse_id=payload.warehouse_id,
-                target_quantity=str(payload.target_quantity),
-                reference=payload.reference.strip(),
-                note=payload.note.strip(),
-                created_by=user["id"],
-            ),
-        )
-        db.add_all(
-            [
-                WorkOrderLine(
-                    work_order_id=cursor.id, component_material_id=material_id, required_quantity=quantity
-                )
-                for material_id, quantity in requirements
-            ]
-        )
-        return work_order_data(db, cursor.id)
+        return create_work_order_in_session(db, payload, user)
 
 
 @router.post("/work-orders/{order_id}/release")

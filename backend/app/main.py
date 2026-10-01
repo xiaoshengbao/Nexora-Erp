@@ -37,6 +37,7 @@ from app.production.material_returns import router as material_returns_router
 from app.production.completions import router as production_completions_router
 from app.production.costs import router as production_costs_router
 from app.production.settlements import router as production_settlements_router
+from app.production.mrp import router as mrp_router
 from app.finance.routes import router as finance_router
 from app.finance.ledger import router as finance_ledger_router
 from app.finance.journals import router as journals_router
@@ -96,7 +97,7 @@ for router in (
     purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, sales_router, sales_returns_router,
     production_router, work_orders_router, material_issues_router,
-    material_returns_router, production_completions_router, production_costs_router, production_settlements_router,
+    material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router,
     finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, subledger_openings_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router,
 ):
     app.include_router(router)

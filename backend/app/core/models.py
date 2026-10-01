@@ -8,6 +8,74 @@ class Base(DeclarativeBase):
     pass
 
 
+class MrpPolicy(Base):
+    __tablename__ = 'mrp_policies'
+    material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), primary_key=True)
+    supply_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    safety_stock: Mapped[str] = mapped_column(Text, nullable=False)
+    minimum_quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    multiple_quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MrpPolicyChange(Base):
+    __tablename__ = 'mrp_policy_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MrpPlan(Base):
+    __tablename__ = 'mrp_plans'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    input_json: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    submitted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    cancelled_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    submitted_at: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+
+
+class MrpPlanChange(Base):
+    __tablename__ = 'mrp_plan_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey('mrp_plans.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MrpConversion(Base):
+    __tablename__ = 'mrp_conversions'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey('mrp_plans.id'), nullable=False)
+    suggestion_key: Mapped[str] = mapped_column(Text, nullable=False)
+    purchase_request_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('purchase_requests.id'))
+    work_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('work_orders.id'))
+    due_date: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class AuxiliaryItem(Base):
     __tablename__ = 'auxiliary_items'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

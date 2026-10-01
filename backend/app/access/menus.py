@@ -42,6 +42,7 @@ MENU_KEYS = {
     'route:permissionCatalog',
     'route:productionCompletions',
     'route:productionCosts',
+    'route:materialPlanning',
     'route:purchase',
     'route:purchaseReports',
     'route:purchaseRequests',

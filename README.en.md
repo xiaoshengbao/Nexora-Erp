@@ -15,7 +15,7 @@ The project is in an **internal trial phase for one company, multiple warehouses
 | Purchasing | Request approval and split orders, orders, partial receiving, warehouse-confirmed receipts, returns awaiting shipment confirmation, and reversals. |
 | Warehousing | Multi-warehouse stock, other inbounds/outbounds, transfers, stocktakes, independently approved adjustments, source movements and stock ledgers. |
 | Sales | Orders, partial shipments, linked returns and reversals; confirmation checks remaining order quantities and stock. |
-| Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts. |
+| Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion. |
 | Cost and operational finance | Moving-average valuation, manual valuation of unknown costs, material/labor/overhead collection, finished-goods cost allocation, receivable/payable sources, manual payments and reversals. |
 | General ledger | Accounts, periods, independently reviewed/confirmed opening balances, independently reviewed/posted/reversed manual and business-source journals, posted account ledgers and trial balance; ordered closing, reverse-order reopening and archived balances/cost evidence. |
 | Reports and operations | Basic purchasing/inventory reports and CSV; LAN discovery, certificate fingerprint trust, OS services, backup/restore and upgrade backups. |
@@ -42,7 +42,7 @@ Snapshot: **2026-10-01, this auxiliary-accounting delivery**. Work in progress i
 | Auxiliary accounting | Implemented | Customer/supplier/department/project dimensions, required account rules, split openings, grouped transfers, balances, sources, auditing and CSV. |
 | [Historical subsidiary openings](docs/subledger-openings.md) | Implemented | Per-document imports reconcile by complete auxiliary combination to confirmed ledger openings, with independent review, settlement/refund/reversal records, journal sources, auditing and CSV. |
 | Full financial accounting | Planned | Cash flow, statutory templates, taxes, multiple currencies and bank reconciliation. |
-| Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
+| Business expansion | Planned | Finite-capacity scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.

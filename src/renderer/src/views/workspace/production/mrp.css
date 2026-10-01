@@ -1,0 +1,14 @@
+.mrp-workspace { min-width: 0; }
+.mrp-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.mrp-toolbar h2, .mrp-toolbar h3 { margin: 0; margin-right: auto; }
+.mrp-editor { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.mrp-editor > button { align-self: flex-start; }
+.mrp-panel { padding: 24px; }
+.mrp-panel h3, .mrp-panel h4 { margin-top: 24px; margin-bottom: 12px; }
+.mrp-panel li { margin-block: 8px; }
+.mrp-line { display: block; margin-top: 5px; }
+.mrp-workspace { font-variant-numeric: tabular-nums; }
+.mrp-facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; }
+.mrp-facts dd { margin: 0; overflow-wrap: anywhere; }
+.mrp-fingerprint { overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .mrp-panel { padding: 18px; } }

@@ -10,6 +10,7 @@ import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
+import { movementTypeLabels, movementTypeLabel } from '../../../utils/formatters'
 
 const store = usePiniaAppStore()
 const { busy, connectionLost, error, warehouses, materials, ledgerQuery, ledgerResult } = storeToRefs(store)
@@ -25,21 +26,7 @@ const groupColumns = [
   { key: 'warehouse_name', title: '仓库' }, { key: 'material', title: '物料' },
   { key: 'opening', title: '期初' }, { key: 'closing', title: '期末' }
 ]
-const sourceLabels: Record<string, string> = {
-  receipt: '采购入库', receipt_reversal: '采购入库冲销',
-  other_inbound: '其他入库', other_inbound_reversal: '其他入库冲销',
-  other_outbound: '其他出库', other_outbound_reversal: '其他出库冲销',
-  shipment: '销售出库', shipment_reversal: '销售出库冲销',
-  purchase_return: '采购退货', purchase_return_reversal: '采购退货冲销',
-  sales_return: '销售退货', sales_return_reversal: '销售退货冲销',
-  transfer_in: '调拨入库', transfer_out: '调拨出库',
-  transfer_reversal_in: '调拨入库冲销', transfer_reversal_out: '调拨出库冲销',
-  adjustment: '库存调整', adjustment_reversal: '库存调整冲销',
-  stocktake: '盘点', stocktake_reversal: '盘点冲销',
-  material_issue: '生产领料', material_return: '生产退料',
-  production_completion: '生产完工', production_completion_reversal: '生产完工冲销'
-}
-const sourceOptions = Object.entries(sourceLabels)
+const sourceOptions = Object.entries(movementTypeLabels)
 // 查询失败时隐藏上次筛选的结果，避免把旧流水误读为本次查询结果。
 async function runLedgerQuery(): Promise<void> {
   ledgerError.value = ''
@@ -136,7 +123,7 @@ onMounted(() => { void runLedgerQuery() })
       <template #cell-warehouse="{ row: item }">{{ item.warehouse_name }}</template>
       <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
       <template #cell-source="{ row: item }"
-        >{{ sourceLabels[item.source_type] ?? item.source_type }} #{{ item.source_id
+        >{{ movementTypeLabel(item.source_type) }} #{{ item.source_id
         }}<small>明细 #{{ item.source_line_id }}</small></template
       >
       <template #cell-quantity="{ row: item }"

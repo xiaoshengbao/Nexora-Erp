@@ -4,8 +4,24 @@ import pytest
 
 
 @pytest.fixture
-def remove_subledger_schema():
+def remove_mrp_schema():
     def remove(db):
+        for table in ('mrp_conversions','mrp_plan_changes','mrp_plans','mrp_policy_changes','mrp_policies'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for operation in ('view','configure','create','submit','review','cancel','convert'):
+            code = 'mrp.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='production.mrp'")
+        db.execute("DELETE FROM role_permissions WHERE role_code='planner' AND permission_code LIKE 'purchase_request.%'")
+    return remove
+
+
+@pytest.fixture
+def remove_subledger_schema(remove_mrp_schema):
+    def remove(db):
+        remove_mrp_schema(db)
         for table in ('subledger_payments', 'subledger_opening_changes', 'subledger_opening_lines', 'subledger_openings'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view', 'create', 'submit', 'review', 'confirm', 'cancel', 'reverse'):

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.access.security import require
+from app.production.mrp_rules import protect_request
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Material,
@@ -156,27 +157,29 @@ def list_purchase_requests(_: dict = Depends(require("purchase_request.view"))) 
         return [request_data(db, request_id) for request_id in ids]
 
 
+def create_purchase_request_in_session(db: Session, payload: PurchaseRequestInput, user: dict) -> dict:
+    validate_lines(db, payload)
+    cursor = add_model(
+        db,
+        PurchaseRequest(
+            reference=payload.reference.strip(), note=payload.note.strip(), created_by=user["id"]
+        ),
+    )
+    db.add_all(
+        [
+            PurchaseRequestLine(
+                purchase_request_id=cursor.id, material_id=line.material_id, quantity=str(line.quantity)
+            )
+            for line in payload.lines
+        ]
+    )
+    return request_data(db, cursor.id)
+
+
 @router.post("/purchase-requests", status_code=201)
-def create_purchase_request(
-    payload: PurchaseRequestInput, user: dict = Depends(require("purchase_request.create"))
-) -> dict:
+def create_purchase_request(payload: PurchaseRequestInput, user: dict = Depends(require("purchase_request.create"))) -> dict:
     with orm_session(write=True) as db:
-        validate_lines(db, payload)
-        cursor = add_model(
-            db,
-            PurchaseRequest(
-                reference=payload.reference.strip(), note=payload.note.strip(), created_by=user["id"]
-            ),
-        )
-        db.add_all(
-            [
-                PurchaseRequestLine(
-                    purchase_request_id=cursor.id, material_id=line.material_id, quantity=str(line.quantity)
-                )
-                for line in payload.lines
-            ]
-        )
-        return request_data(db, cursor.id)
+        return create_purchase_request_in_session(db, payload, user)
 
 
 @router.put("/purchase-requests/{request_id}")
@@ -184,6 +187,7 @@ def update_purchase_request(
     request_id: int, payload: PurchaseRequestInput, _: dict = Depends(require("purchase_request.create"))
 ) -> dict:
     with orm_session(write=True) as db:
+        protect_request(db, request_id)
         row = (
             db.execute(
                 select(PurchaseRequest.status)

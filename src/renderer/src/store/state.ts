@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
 import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
   Bom,
@@ -94,6 +95,15 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  const mrpPlans = ref<MrpPlan[]>([])
+  const mrpOptions = ref<MrpOptions | null>(null)
+  const mrpDetail = ref<MrpDetail | null>(null)
+  const mrpCheck = ref<MrpCheck | null>(null)
+  const mrpChanges = ref<MrpChange<MrpPlan>[]>([])
+  const mrpPolicyChanges = ref<MrpChange<MrpPolicy>[]>([])
+  const mrpForm = ref<MrpPlanInput>({ reference: '', start_date: '', reason: '', demand_dates: [], supply_dates: [], manual_demands: [] })
+  const mrpLoading = ref(false)
+  const mrpError = ref('')
   const screen = ref<Screen>('loading')
   const openedRouteKeys = ref<WorkspaceRouteKey[]>([])
   // 日常默认全部收起，点击分类时最多展开一个。
@@ -441,6 +451,7 @@ export function createAppState() {
   )
 
   return {
+    mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     screen,
     openedRouteKeys,
     expandedGroupKey,
