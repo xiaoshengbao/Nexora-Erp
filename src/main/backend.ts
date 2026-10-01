@@ -1,5 +1,6 @@
 import type { BackendHealth } from '../shared/desktop-api'
 import type { ErpOperations } from '../shared/erp-api'
+import {validateDashboardResult} from '../shared/dashboard-api.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -109,6 +110,11 @@ function permissionCode(payload: unknown): string {
 function operation(action: keyof ErpOperations, payload: unknown): { method: string; path: string; body?: unknown } {
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
+    case 'dashboard': {
+      const period = payload && typeof payload === 'object' ? (payload as Record<string,unknown>).period : undefined
+      if (period !== '7d' && period !== '30d') throw new Error('首页统计范围无效')
+      return {method:'POST', path:'/api/v1/dashboard/query', body:{period}}
+    }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
     case 'afterSalesOverview': return {method:'GET',path:'/api/v1/after-sales'}
     case 'afterSalesDetail': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}`}
@@ -688,6 +694,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     return data.user
   }
   if (action === 'logout' || action === 'changePassword') sessionToken = null
+  if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   return data
 }
 

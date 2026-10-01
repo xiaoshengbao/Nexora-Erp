@@ -18,13 +18,13 @@ The project is in an **internal trial phase for one company, multiple warehouses
 | Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion. |
 | Cost and operational finance | Moving-average valuation, manual valuation of unknown costs, material/labor/overhead collection, finished-goods cost allocation, receivable/payable sources, manual payments and reversals. |
 | General ledger | Accounts, periods, independently reviewed/confirmed opening balances, independently reviewed/posted/reversed manual and business-source journals, posted account ledgers and trial balance; ordered closing, reverse-order reopening and archived balances/cost evidence. |
-| Reports and operations | Basic purchasing/inventory reports and CSV; LAN discovery, certificate fingerprint trust, OS services, backup/restore and upgrade backups. |
+| Reports and operations | Basic purchasing/inventory reports and CSV; [live home statistics (Chinese)](docs/home-statistics.md) show authorized business net amounts, trends and current pending documents/stock; LAN discovery, certificate fingerprint trust, OS services, backup/restore and upgrade backups. |
 
 Stock and financial changes retain sources, operators and correction records. Confirmation and movements commit together. Unknown prices remain unknown instead of becoming zero. Manual payments and basic inspection do not prove bank settlement or physical verification.
 
 ## Development progress
 
-Snapshot: **2026-10-01, this after-sales implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this home statistics implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |

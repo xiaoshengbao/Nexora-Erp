@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
 import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
 import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
 import type { AfterSalesOverview, AfterSalesEvidence, AfterSalesDraft } from '../../../shared/after-sales-api'
@@ -98,6 +99,9 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  const dashboardResult = ref<DashboardResult|null>(null)
+  const dashboardPeriod = ref<DashboardPeriod>('7d')
+  const dashboardLoading = ref(false), dashboardError = ref('')
   const qualityOverview = ref<QualityOverview | null>(null)
   const afterSalesOverview=ref<AfterSalesOverview|null>(null)
   const afterSalesDetail=ref<AfterSalesEvidence|null>(null)
@@ -479,6 +483,7 @@ export function createAppState() {
   )
 
   return {
+    dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,

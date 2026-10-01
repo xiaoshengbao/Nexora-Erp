@@ -3,6 +3,7 @@ import type { MrpOperations } from './mrp-api'
 import type { CrmOperations } from './crm-api'
 import type { QualityOperations, QualityTreatment, QualityKind, ReworkCostSource } from './quality-api'
 import type { AfterSalesOperations } from './after-sales-api'
+import type { DashboardOperations } from './dashboard-api'
 // 桌面端与本地服务共用的数据契约；渲染进程不能自行指定请求地址。
 // 账号资料与登录名分开，工号可为空；非空工号由服务端保证唯一。
 export interface UserProfile { full_name: string; employee_no: string; phone: string }
@@ -1054,7 +1055,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations {
+export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

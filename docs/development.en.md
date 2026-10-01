@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this after-sales implementation on 2026-10-01, starting from main commit `4cb9edd`. It adds original-shipment cases, independent review, repair custody and explicit fee corrections. Database version 52 has 122 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects this home statistics implementation on 2026-10-01, starting from main commit `4c7e0eb`. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 52 still has 122 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 

@@ -54,6 +54,7 @@ from app.finance.statements import router as statements_router
 from app.finance.auxiliary import router as auxiliary_router
 from app.finance.subledger_openings import router as subledger_openings_router
 from app.reports.routes import router as reports_router
+from app.reports.dashboard import router as dashboard_router
 from app.service.routes import router as service_router
 
 
@@ -102,6 +103,6 @@ for router in (
     purchase_returns_router, sales_router, sales_returns_router, crm_router, crm_quotes_router, after_sales_router,
     production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router, quality_router,
-    finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, subledger_openings_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router,
+    finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, subledger_openings_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router, dashboard_router,
 ):
     app.include_router(router)
