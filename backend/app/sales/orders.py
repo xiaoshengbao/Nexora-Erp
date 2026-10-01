@@ -328,47 +328,50 @@ def list_sales_orders(_: dict = Depends(require("sales.view"))) -> list[dict]:
         return [sales_order_data(db, order_id) for order_id in ids]
 
 
-@router.post("/sales-orders", status_code=201)
-def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("sales_order.create"))) -> dict:
+def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id: int) -> dict:
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张销售订单不能重复选择同一物料")
-    with orm_session(write=True) as db:
+    if (
+        not db.execute(
+            select(literal(1)).select_from(Customer).where((Customer.id == payload.customer_id))
+        )
+        .mappings()
+        .first()
+    ):
+        raise HTTPException(422, "客户不存在")
+    for line in payload.lines:
         if (
             not db.execute(
-                select(literal(1)).select_from(Customer).where((Customer.id == payload.customer_id))
+                select(literal(1)).select_from(Material).where((Material.id == line.material_id))
             )
             .mappings()
             .first()
         ):
-            raise HTTPException(422, "客户不存在")
-        for line in payload.lines:
-            if (
-                not db.execute(
-                    select(literal(1)).select_from(Material).where((Material.id == line.material_id))
-                )
-                .mappings()
-                .first()
-            ):
-                raise HTTPException(422, "物料不存在")
-        cursor = add_model(
-            db,
-            SalesOrder(
-                customer_id=payload.customer_id, reference=payload.reference.strip(), created_by=user["id"]
-            ),
-        )
-        db.add_all(
-            [
-                SalesOrderLine(
-                    sales_order_id=cursor.id,
-                    material_id=line.material_id,
-                    quantity=str(line.quantity),
-                    unit_price=str(line.unit_price),
-                )
-                for line in payload.lines
-            ]
-        )
-        return sales_order_data(db, cursor.id)
+            raise HTTPException(422, "物料不存在")
+    cursor = add_model(
+        db,
+        SalesOrder(
+            customer_id=payload.customer_id, reference=payload.reference.strip(), created_by=user_id
+        ),
+    )
+    db.add_all(
+        [
+            SalesOrderLine(
+                sales_order_id=cursor.id,
+                material_id=line.material_id,
+                quantity=str(line.quantity),
+                unit_price=str(line.unit_price),
+            )
+            for line in payload.lines
+        ]
+    )
+    return sales_order_data(db, cursor.id)
 
+
+@router.post("/sales-orders", status_code=201)
+def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("sales_order.create"))) -> dict:
+    with orm_session(write=True) as db:
+        return create_sales_order_in_session(db, payload, user["id"])
 
 @router.post("/sales-orders/{order_id}/confirm")
 def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order.confirm"))) -> dict:

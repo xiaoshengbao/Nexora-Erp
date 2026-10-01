@@ -74,7 +74,7 @@
 | `backend/app/core/` | SQLAlchemy ORM 模型、会话事务与数据库迁移等全局基础能力。 |
 | `backend/app/purchase/` | 采购订单、入库单及采购退货。 |
 | `backend/app/inventory/` | 仓库、调拨、盘点、库存余额与流水。 |
-| `backend/app/sales/` | 客户、销售订单、出库与销售退货。 |
+| `backend/app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转单、销售订单、出库与销售退货。 |
 | `backend/app/production/` | BOM、工单、领退料、报工、工单成本与 MRP 日期计划。 |
 | `backend/app/finance/` | 应收应付来源、订单余额、手工收付款、总账基础资料、正式及历史分户期初、手工及业务来源凭证、损益结转、已过账报表、公司财务报表与固定归档、辅助核算及期间结账与重开。 |
 | `backend/app/service/` | 服务状态、局域网发现、系统服务、备份恢复。 |

@@ -110,6 +110,51 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'crmOptions': return { method: 'GET', path: '/api/v1/crm/options' }
+    case 'crmOverview': return { method: 'GET', path: '/api/v1/crm/overview' }
+    case 'crmDetail':
+    case 'crmChanges': {
+      const { kind } = payload as ErpOperations['crmDetail']['input']
+      if (!['contact','activity','opportunity','quote'].includes(kind)) throw new Error('客户关系类型无效')
+      return { method: 'GET', path: `/api/v1/crm/records/${kind}/${positiveId(payload,'id')}${action==='crmChanges' ? '/changes' : ''}` }
+    }
+    case 'saveCrmContact':
+    case 'saveCrmOpportunity':
+    case 'createCrmActivity':
+    case 'saveCrmQuote': {
+      const source = payload as Record<string, unknown>
+      const fields = action==='saveCrmContact' ? ['customer_id','name','job_title','phone','email','note','is_active']
+        : action==='saveCrmOpportunity' ? ['customer_id','contact_id','title','owner_id','stage','estimated_amount','expected_close_date','note']
+        : action==='createCrmActivity' ? ['customer_id','contact_id','opportunity_id','subject','owner_id','due_date','note']
+        : ['opportunity_id','contact_id','reference','valid_until','terms']
+      const body: Record<string, unknown> = Object.fromEntries(fields.map(key=>[key,source[key]]))
+      for (const field of ['customer_id','owner_id','opportunity_id','contact_id']) {
+        if (fields.includes(field) && (source[field] != null || ['customer_id','owner_id'].includes(field))) body[field]=positiveId(payload,field)
+      }
+      if (action==='saveCrmQuote') {
+        if (!Array.isArray(source.lines) || source.lines.length < 1 || source.lines.length > 100) throw new Error('报价明细无效')
+        body.lines = source.lines.map(row=>({ material_id: positiveId(row,'material_id'), quantity: row.quantity, unit_price: row.unit_price }))
+      }
+      const resource = action==='saveCrmContact' ? 'contacts' : action==='saveCrmOpportunity' ? 'opportunities' : action==='createCrmActivity' ? 'activities' : 'quotes'
+      const edit = action !== 'createCrmActivity' && source.id !== undefined
+      if (edit) { body.version = positiveId(payload,'version'); body.reason = source.reason }
+      return { method: edit ? 'PUT' : 'POST', path: `/api/v1/crm/${resource}${edit ? '/'+positiveId(payload,'id') : ''}`, body }
+    }
+    case 'closeCrmActivity':
+    case 'changeCrmQuote':
+    case 'reopenCrmOpportunity':
+    case 'convertCrmQuote': {
+      const source = payload as Record<string, unknown>
+      const command = action==='reopenCrmOpportunity' ? 'reopen' : action==='convertCrmQuote' ? 'convert' : source.action
+      const allowed = action==='closeCrmActivity' ? ['complete','cancel'] : action==='changeCrmQuote' ? ['submit','approve','reject','cancel'] : ['reopen','convert']
+      if (typeof command !== 'string' || !allowed.includes(command)) throw new Error('不允许的客户关系操作')
+      const body: Record<string, unknown> = { version: positiveId(payload,'version'), reason: source.reason }
+      if (action==='convertCrmQuote') {
+        body.opportunity_version=positiveId(payload,'opportunity_version');body.acceptance_reference=source.acceptance_reference
+      }
+      const resource = action==='closeCrmActivity' ? 'activities' : action==='reopenCrmOpportunity' ? 'opportunities' : 'quotes'
+      return { method:'POST',path:`/api/v1/crm/${resource}/${positiveId(payload,'id')}/${command}`,body }
+    }
     case 'mrpOptions': return { method: 'GET', path: '/api/v1/production/mrp/options' }
     case 'mrpPlans': return { method: 'GET', path: '/api/v1/production/mrp/plans' }
     case 'mrpDetail': return { method: 'GET', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}` }

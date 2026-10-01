@@ -1,0 +1,70 @@
+/** 客户关系、固定报价和审计的受限通信协议。 */
+export type CrmKind = 'contact' | 'activity' | 'opportunity' | 'quote'
+export type CrmStage = 'prospect' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
+export type CrmQuoteStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'converted'
+export type CrmQuoteAction = 'submit' | 'approve' | 'reject' | 'cancel'
+export interface CrmVersion { version: number; reason: string }
+interface CrmBase {
+  id: number; customer_id: number; customer_name: string; contact_name: string
+  version: number; created_by: number; created_by_name: string; created_at: string
+}
+export interface CrmContactInput {
+  customer_id: number; name: string; job_title: string; phone: string; email: string; note: string; is_active: boolean
+}
+export interface CrmContact extends CrmBase, Omit<CrmContactInput, 'is_active'> { is_active: number }
+export interface CrmOpportunityInput {
+  customer_id: number; contact_id: number | null; title: string; owner_id: number
+  stage: Exclude<CrmStage, 'won'>; estimated_amount: string; expected_close_date: string; note: string
+}
+export interface CrmOpportunity extends CrmBase, Omit<CrmOpportunityInput,'stage'> {
+  stage: CrmStage; owner_name: string; orders: { quote_id: number; sales_order_id: number; status: string }[]
+}
+export interface CrmActivityInput {
+  customer_id: number; contact_id: number | null; opportunity_id: number | null; subject: string
+  owner_id: number; due_date: string; note: string
+}
+export interface CrmActivity extends CrmBase, CrmActivityInput {
+  status: 'planned' | 'completed' | 'cancelled'; result: string; owner_name: string
+  overdue: boolean; closed_by: number | null; closed_at: string | null
+}
+export interface CrmQuoteLineInput { material_id: number; quantity: string; unit_price: string }
+export interface CrmQuoteInput {
+  opportunity_id: number; contact_id: number | null; reference: string; valid_until: string; terms: string; lines: CrmQuoteLineInput[]
+}
+export interface CrmQuote extends CrmBase, CrmQuoteInput {
+  status: CrmQuoteStatus; currency: 'CNY'; total_amount: string; expired: boolean; contact_active: boolean; review_blocked: number[]
+  opportunity_title: string; opportunity_version: number; opportunity_stage: CrmStage; sales_order_id: number | null; sales_order_status: string | null
+  acceptance_reference: string | null; submitted_by: number | null; reviewed_by: number | null; converted_by: number | null
+  submitted_at: string | null; reviewed_at: string | null; converted_at: string | null
+  party: { customer_name: string; contact_name: string; phone: string; email: string }
+  lines: (CrmQuoteLineInput & { id: number; position: number; quote_id: number; sku: string; material_name: string; unit: string; line_total: string })[]
+}
+export type CrmRecord = CrmContact | CrmActivity | CrmOpportunity | CrmQuote
+export interface CrmOverview { contacts: CrmContact[]; activities: CrmActivity[]; opportunities: CrmOpportunity[]; quotes: CrmQuote[] }
+export interface CrmOptions {
+  customers: {id: number; name: string}[]; materials: {id: number; sku: string; name: string; unit: string}[]
+  owners: {id: number; name: string}[]
+}
+export interface CrmChange {
+  id: number; entity_kind: CrmKind; entity_id: number; action: string; reason: string
+  changed_by: number; changed_by_name: string; created_at: string
+  before: Record<string, unknown> | null; after: Record<string, unknown>
+}
+export interface CrmForms {
+  contact: CrmContactInput; activity: CrmActivityInput; opportunity: CrmOpportunityInput; quote: CrmQuoteInput
+}
+export interface CrmEditTarget {kind: CrmKind; id: number; version: number; reason: string}
+export interface CrmOperations {
+  crmOptions: {input: undefined; output: CrmOptions}
+  crmOverview: {input: undefined; output: CrmOverview}
+  crmDetail: {input: {kind: CrmKind; id: number}; output: CrmRecord}
+  crmChanges: {input: {kind: CrmKind; id: number}; output: CrmChange[]}
+  saveCrmContact: {input: CrmContactInput & Partial<CrmVersion> & {id?: number}; output: CrmContact}
+  saveCrmOpportunity: {input: CrmOpportunityInput & Partial<CrmVersion> & {id?: number}; output: CrmOpportunity}
+  createCrmActivity: {input: CrmActivityInput; output: CrmActivity}
+  saveCrmQuote: {input: CrmQuoteInput & Partial<CrmVersion> & {id?: number}; output: CrmQuote}
+  closeCrmActivity: {input: CrmVersion & {id: number; action: 'complete' | 'cancel'}; output: CrmActivity}
+  reopenCrmOpportunity: {input: CrmVersion & {id: number}; output: CrmOpportunity}
+  changeCrmQuote: {input: CrmVersion & {id: number; action: CrmQuoteAction}; output: CrmQuote}
+  convertCrmQuote: {input: CrmVersion & {id: number; opportunity_version: number; acceptance_reference: string}; output: CrmQuote}
+}

@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_mrp_schema():
+def remove_crm_schema():
     def remove(db):
+        for table in ('crm_changes','crm_quote_lines','crm_quotes','crm_activities','crm_opportunities','crm_contacts'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for code in ('crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage',
+                     'crm_quote.create','crm_quote.submit','crm_quote.review','crm_quote.cancel','crm_quote.convert'):
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='sales.crm'")
+    return remove
+
+
+@pytest.fixture
+def remove_mrp_schema(remove_crm_schema):
+    def remove(db):
+        remove_crm_schema(db)
         for table in ('mrp_conversions','mrp_plan_changes','mrp_plans','mrp_policy_changes','mrp_policies'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view','configure','create','submit','review','cancel','convert'):
