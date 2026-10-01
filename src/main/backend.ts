@@ -1,6 +1,7 @@
 import type { BackendHealth } from '../shared/desktop-api'
 import type { ErpOperations } from '../shared/erp-api'
 import {validateDashboardResult} from '../shared/dashboard-api.ts'
+import {validateEquipmentResult} from '../shared/equipment-validation.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -116,6 +117,50 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return {method:'POST', path:'/api/v1/dashboard/query', body:{period}}
     }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
+    case 'equipmentOverview': return {method:'GET',path:'/api/v1/equipment/overview'}
+    case 'equipmentDetail': return {method:'GET',path:`/api/v1/equipment/assets/${positiveId(payload,'id')}`}
+    case 'maintenancePlanDetail': return {method:'GET',path:`/api/v1/equipment/plans/${positiveId(payload,'id')}`}
+    case 'maintenanceJobDetail': return {method:'GET',path:`/api/v1/equipment/jobs/${positiveId(payload,'id')}`}
+    case 'saveEquipment':
+    case 'saveMaintenancePlan':
+    case 'saveMaintenanceJob': {
+      if(!payload || typeof payload!=='object' || Array.isArray(payload))throw new Error('设备维护资料无效')
+      const source=payload as Record<string,unknown>
+      const fields=action==='saveEquipment'?['code','name','serial_number','location','status','reason']
+        :action==='saveMaintenancePlan'?['reference','title','interval_days','next_due','enabled','reason']
+        :['reference','kind','request_note','reason']
+      const body:Record<string,unknown>=Object.fromEntries(fields.map(key=>[key,source[key]]))
+      if(action==='saveEquipment' && !['active','inactive','retired'].includes(String(source.status)))throw new Error('设备状态无效')
+      if(action!=='saveEquipment')body.equipment_id=positiveId(source,'equipment_id')
+      if(action==='saveMaintenancePlan'){
+        if(typeof source.enabled!=='boolean')throw new Error('计划启停选择无效')
+        body.interval_days=positiveId(source,'interval_days')
+      }
+      if(action==='saveMaintenanceJob'){
+        if(!['preventive','corrective'].includes(String(source.kind)))throw new Error('维护方式无效')
+        body.assigned_to=positiveId(source,'assigned_to')
+        for(const key of ['plan_id','work_order_id','warehouse_id'])body[key]=source[key]==null?null:positiveId(source,key)
+        if(!Array.isArray(source.parts) || source.parts.length>100)throw new Error('维护耗材明细无效')
+        body.parts=source.parts.map(row=>{
+          if(!row || typeof row!=='object' || typeof row.quantity!=='string')throw new Error('耗材数量须为精确字符串')
+          return {material_id:positiveId(row,'material_id'),quantity:row.quantity}
+        })
+      }
+      const edit=source.id!==undefined
+      if(edit)body.version=positiveId(source,'version')
+      const kind=action==='saveEquipment'?'assets':action==='saveMaintenancePlan'?'plans':'jobs'
+      return {method:edit?'PUT':'POST',path:`/api/v1/equipment/${kind}${edit?'/'+positiveId(source,'id'):''}`,body}
+    }
+    case 'changeMaintenanceJob': {
+      const source=payload as ErpOperations['changeMaintenanceJob']['input']
+      if(!source || !['submit','approve','reject','start','report','rework','accept','cancel','reverse'].includes(source.action))throw new Error('维护操作无效')
+      const body:Record<string,unknown>={version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence}
+      if(source.action==='report'){
+        if(typeof source.solution!=='string' || typeof source.labor_hours!=='string' || typeof source.service_amount!=='string')throw new Error('报工须明确填写结果、工时和费用')
+        Object.assign(body,{solution:source.solution,labor_hours:source.labor_hours,service_amount:source.service_amount})
+      }else if(['solution','labor_hours','service_amount'].some(key=>key in source))throw new Error('只有报工可以登记结果、工时和费用')
+      return {method:'POST',path:`/api/v1/equipment/jobs/${positiveId(source,'id')}/${source.action}`,body}
+    }
     case 'afterSalesOverview': return {method:'GET',path:'/api/v1/after-sales'}
     case 'afterSalesDetail': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}`}
     case 'saveAfterSalesCase': {
@@ -695,6 +740,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
+  validateEquipmentResult(action,data)
   return data
 }
 

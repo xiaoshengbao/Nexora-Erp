@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict'
+import {test} from 'node:test'
+import {createAppState} from '../src/renderer/src/store/state.ts'
+import {createEquipmentActions} from '../src/renderer/src/store/modules/equipment-actions.ts'
+import {maintenanceActions,equipmentChanges,maintenanceEffect,downtimeLabel} from '../src/renderer/src/views/workspace/production/equipment-display.ts'
+import {validateEquipmentResult} from '../src/shared/equipment-validation.ts'
+import {callBackend} from '../src/main/backend.ts'
+import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
+const permissions=['equipment.view','equipment.manage','equipment.create','equipment.execute','equipment.accept','equipment.review','equipment.submit','equipment.cancel','equipment.reverse']
+const input={reference:'M-1',equipment_id:1,kind:'corrective',plan_id:null,work_order_id:null,assigned_to:1,request_note:'检查轴承',warehouse_id:null,parts:[],reason:'现场记录'}
+const row={...input,id:1,version:3,status:'draft',plan_version:null,plan_due_date:null,equipment_snapshot:{code:'EQ-1',name:'一号设备'},
+  work_order_snapshot:{},work_order_linked:false,work_order_current_status:null,parts_outbound_id:null,parts_status:null,
+  solution:'',labor_hours:null,service_amount:null,plan_roll:{},created_by:1,created_by_name:'admin',assigned_to_name:'admin',author_ids:[1],
+  reviewed_by:null,reported_by:null,accepted_by:null,created_at:'2026-10-01 12:00:00',started_at:null,reported_at:null,accepted_at:null,
+  allowed_actions:['submit','cancel'],can_edit:true,downtime:null,changes:[]}
+const overview={as_of:'2026-10-01 12:00:00',equipment:[],plans:[],jobs:[row],executors:[{id:1,username:'admin'}],materials:[],warehouses:[],work_orders:[]}
+const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
+function fixture(t,callApi,perform=run=>run()){
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  globalThis.window={nexora:{callApi}}
+  const state=createAppState();state.user.value={id:1,permissions}
+  return {state,actions:createEquipmentActions(state,perform)}
+}
+test('独立维护入口及耗材开始权限，不由生产权限替代',()=>{
+  assert.equal(canVisitRoute(routeByKey('equipmentMaintenance'),['production.view']),false)
+  assert.equal(canVisitRoute(routeByKey('equipmentMaintenance'),['equipment.view']),true)
+  assert.deepEqual(maintenanceActions({...row,parts:[{material_id:1,quantity:'1'}],allowed_actions:['start','cancel']},permissions),['cancel'])
+  assert.deepEqual(maintenanceActions({...row,parts:[{material_id:1,quantity:'1'}],allowed_actions:['start']},[...permissions,'other_outbound.create']),['start'])
+  assert.deepEqual(maintenanceActions(row,[]),[])
+  assert.deepEqual(maintenanceActions(row,['equipment.view']),[])
+})
+test('IPC 固定路径、写字段白名单、严格编号与明确费用，界面标记不能写入正文',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous})
+  const calls=[];globalThis.fetch=async(url,options)=>{calls.push([new URL(url).pathname,options.body?JSON.parse(options.body):null]);return new Response(JSON.stringify(new URL(url).pathname.endsWith('/login')?{token:'test',user:{id:1}}:row),{status:200})}
+  await callBackend('login',{});calls.length=0
+  await callBackend('saveMaintenanceJob',{...input,id:1,version:3,status:'accepted',parts:[{material_id:2,quantity:'0.125',_X_ROW_KEY:'ui'}]})
+  assert.deepEqual(calls[0],['/api/v1/equipment/jobs/1',{...input,parts:[{material_id:2,quantity:'0.125'}],version:3}])
+  await callBackend('changeMaintenanceJob',{id:1,version:3,action:'report',reason:'复核',evidence:'记录',solution:'试运行通过',labor_hours:'0',service_amount:'0',status:'accepted'})
+  assert.deepEqual(calls[1][1],{version:3,reason:'复核',evidence:'记录',solution:'试运行通过',labor_hours:'0',service_amount:'0'})
+  await assert.rejects(callBackend('changeMaintenanceJob',{id:1,version:3,action:'../users'}),/操作无效/)
+  await assert.rejects(callBackend('changeMaintenanceJob',{id:1,version:3,action:'report',labor_hours:0,service_amount:'0'}),/明确填写/)
+  await assert.rejects(callBackend('changeMaintenanceJob',{id:1,version:3,action:'accept',service_amount:'0'}),/只有报工/)
+  await assert.rejects(callBackend('saveMaintenanceJob',{...input,equipment_id:true}),/编号无效/)
+  await assert.rejects(callBackend('saveMaintenanceJob',{...input,parts:[null]}),/精确字符串/)
+  await assert.rejects(callBackend('saveMaintenanceJob',{...input,parts:[{material_id:1,quantity:0.125}]}),/精确字符串/)
+  await assert.rejects(callBackend('saveMaintenancePlan',{equipment_id:1,interval_days:30,enabled:1}),/启停选择无效/)
+  await assert.rejects(callBackend('saveEquipment',{id:1,version:0,status:'active'}),/编号无效/)
+  assert.equal(calls.length,2)
+})
+test('拒绝金额伪零、错误阶段动作、缺失证据数组和错误响应编号',()=>{
+  validateEquipmentResult('equipmentOverview',overview);validateEquipmentResult('maintenanceJobDetail',row)
+  for(const bad of [{...row,labor_hours:0},{...row,service_amount:'NaN'},{...row,status:'done'},{...row,allowed_actions:['delete']},{...row,changes:null},{...row,id:true}]){
+    assert.throws(()=>validateEquipmentResult('maintenanceJobDetail',bad),/响应格式/)
+  }
+  assert.throws(()=>validateEquipmentResult('equipmentOverview',{...overview,executors:[{id:1}]}),/响应格式/)
+})
+test('旧详情和断线迟到读取失效，同账号输入与版本保留，换号撤权清除',async t=>{
+  const pending=deferred();const {state,actions}=fixture(t,(_action,data)=>data?.id===1?pending.promise:Promise.resolve({...row,id:2}))
+  const first=actions.loadEquipmentDetail('job',1);await actions.loadEquipmentDetail('job',2);pending.resolve(row)
+  assert.equal(await first,false);assert.equal(state.equipmentDetail.value.row.id,2)
+  state.equipmentForms.value.job=structuredClone(input);state.equipmentEdit.value={kind:'job',id:1,version:3}
+  const late=deferred();globalThis.window.nexora.callApi=()=>late.promise
+  const reading=actions.loadEquipment();state.connectionLost.value=true;late.resolve(overview)
+  assert.equal(await reading,false);assert.equal(state.equipmentOverview.value,null);assert.equal(state.equipmentDetail.value,null)
+  assert.equal(state.equipmentForms.value.job.reference,'M-1');assert.equal(state.equipmentEdit.value.version,3)
+  state.user.value={id:1,permissions:['equipment.view']}
+  assert.equal(state.equipmentForms.value.job.reference,'');assert.equal(state.equipmentEdit.value,null)
+})
+test('保存冲突保留正文及旧版本，保存后才清空；隐藏计划和仓库字段归一',async t=>{
+  let fail=true;const calls=[]
+  const {state,actions}=fixture(t,async(action,data)=>{calls.push([action,data]);if(action==='saveMaintenanceJob' && fail)throw Error('版本冲突');return action==='equipmentOverview'?overview:row},async run=>{try{await run()}catch{}})
+  state.equipmentForms.value.job={...structuredClone(input),plan_id:9,warehouse_id:1};state.equipmentEdit.value={kind:'job',id:1,version:3}
+  assert.equal(await actions.saveEquipmentRecord('job'),false)
+  assert.equal(state.equipmentForms.value.job.reference,'M-1');assert.equal(state.equipmentEdit.value.version,3)
+  assert.deepEqual(calls[0][1],{...input,id:1,version:3})
+  fail=false;assert.equal(await actions.saveEquipmentRecord('job'),true);assert.equal(state.equipmentForms.value.job.reference,'')
+})
+test('迟到及排队写入不能进入新账号，写后刷新时断线不能清空未保存正文',async t=>{
+  const pending=deferred();const {state,actions}=fixture(t,()=>pending.promise)
+  state.equipmentForms.value.job=structuredClone(input);const old=actions.saveEquipmentRecord('job')
+  state.user.value={id:2,permissions};state.equipmentForms.value.job.reference='新账号正文';pending.resolve(row)
+  assert.equal(await old,false);assert.equal(state.equipmentForms.value.job.reference,'新账号正文')
+  const gate=deferred();let called=false;const queued=fixture(t,()=>{called=true;return Promise.resolve(row)},async run=>{await gate.promise;await run()})
+  queued.state.equipmentForms.value.job=structuredClone(input);const write=queued.actions.saveEquipmentRecord('job')
+  queued.state.user.value={id:3,permissions};gate.resolve();assert.equal(await write,false);assert.equal(called,false)
+  const reading=deferred();const dropped=fixture(t,async action=>action==='equipmentOverview'?reading.promise:row)
+  dropped.state.equipmentForms.value.job=structuredClone(input);const saved=dropped.actions.saveEquipmentRecord('job')
+  await new Promise(done=>setImmediate(done));dropped.state.connectionLost.value=true;reading.resolve(overview)
+  assert.equal(await saved,false);assert.equal(dropped.state.equipmentForms.value.job.reference,'M-1')
+})
+test('修订必须等待匹配详情，隐藏生产来源不允许重新编辑',async t=>{
+  const {state,actions}=fixture(t,()=>Promise.resolve({...row,can_edit:false,work_order_linked:true}))
+  assert.equal(await actions.editEquipmentRecord('job',1),false);assert.equal(state.equipmentEdit.value,null)
+  state.connectionLost.value=true;assert.equal(actions.startEquipmentRecord('asset'),false)
+})
+test('更正与取消显示真实库存和停机影响，审计中文差异不打印 JSON',()=>{
+  assert.match(maintenanceEffect('reverse'),/保留真实停机与耗材领用/)
+  assert.match(maintenanceEffect('cancel'),/不会自动归库/)
+  assert.match(maintenanceEffect('report'),/费用也须明确填零/)
+  assert.equal(downtimeLabel({seconds:3661,ongoing:true}),'1 小时 1 分（截至本次读取）')
+  const changes=equipmentChanges({before:{status:'draft',parts_json:'[]',service_amount:null},after:{status:'accepted',parts_json:'[{"material_id":2,"quantity":"0.125"}]',service_amount:'0.00'}})
+  assert.match(JSON.stringify(changes),/草稿/);assert.match(JSON.stringify(changes),/物料 #2 × 0.125/)
+  assert.equal(changes.find(row=>row.name==='声明外委费用（元）').before,'未登记')
+})

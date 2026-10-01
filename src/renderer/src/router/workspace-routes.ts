@@ -314,7 +314,8 @@ export const workspaceRouteGroups = [
         icon: 'file'
       },
       { key: 'materialPlanning', path: '/workspace/material-planning', label: '物料需求计划', permission: 'mrp.view', icon: 'file' },
-      { key: 'qualityDisposition', path: '/workspace/production-quality', label: '不合格品处置与返工', permission: 'quality.view', icon: 'file' }
+      { key: 'qualityDisposition', path: '/workspace/production-quality', label: '不合格品处置与返工', permission: 'quality.view', icon: 'file' },
+      { key: 'equipmentMaintenance', path: '/workspace/equipment-maintenance', label: '设备维护', permission: 'equipment.view', icon: 'file' }
     ]
   },
   {

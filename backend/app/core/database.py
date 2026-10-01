@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 52:
+        if version > 53:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1778,3 +1778,93 @@ def migrate() -> None:
                 [('warehouse', 'after_sales.' + action) for action in ('view','receive','inspect','close')] +
                 [('finance', 'after_sales.view'), ('finance', 'after_sales.review')])
             db.execute('PRAGMA user_version = 52')
+
+        if version < 53:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE equipment_assets (
+                id INTEGER PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                serial_number TEXT UNIQUE,
+                location TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('active','inactive','retired')),
+                version INTEGER NOT NULL CHECK(version>0),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE maintenance_plans (
+                id INTEGER PRIMARY KEY,
+                equipment_id INTEGER NOT NULL REFERENCES equipment_assets(id),
+                reference TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                interval_days INTEGER NOT NULL CHECK(interval_days BETWEEN 1 AND 3650),
+                next_due TEXT NOT NULL,
+                enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+                version INTEGER NOT NULL CHECK(version>0),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE maintenance_jobs (
+                id INTEGER PRIMARY KEY,
+                reference TEXT NOT NULL UNIQUE,
+                equipment_id INTEGER NOT NULL REFERENCES equipment_assets(id),
+                kind TEXT NOT NULL CHECK(kind IN ('preventive','corrective')),
+                plan_id INTEGER REFERENCES maintenance_plans(id),
+                plan_version INTEGER,
+                plan_due_date TEXT,
+                work_order_id INTEGER REFERENCES work_orders(id),
+                assigned_to INTEGER NOT NULL REFERENCES users(id),
+                request_note TEXT NOT NULL,
+                equipment_json TEXT NOT NULL,
+                work_order_json TEXT NOT NULL,
+                parts_json TEXT NOT NULL,
+                warehouse_id INTEGER REFERENCES warehouses(id),
+                parts_outbound_id INTEGER REFERENCES warehouse_outbounds(id) UNIQUE,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','in_progress','reported','accepted','cancelled','reversed')),
+                version INTEGER NOT NULL CHECK(version>0),
+                solution TEXT NOT NULL,
+                labor_hours TEXT,
+                service_amount TEXT,
+                plan_roll_json TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                reviewed_by INTEGER REFERENCES users(id),
+                reported_by INTEGER REFERENCES users(id),
+                accepted_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TEXT,
+                reported_at TEXT,
+                accepted_at TEXT)''')
+            db.execute('''CREATE TABLE maintenance_downtimes (
+                id INTEGER PRIMARY KEY,
+                equipment_id INTEGER NOT NULL REFERENCES equipment_assets(id),
+                job_id INTEGER NOT NULL REFERENCES maintenance_jobs(id) UNIQUE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                close_reason TEXT NOT NULL,
+                started_by INTEGER NOT NULL REFERENCES users(id),
+                ended_by INTEGER REFERENCES users(id))''')
+            db.execute('''CREATE TABLE maintenance_changes (
+                id INTEGER PRIMARY KEY,
+                entity_type TEXT NOT NULL CHECK(entity_type IN ('equipment','plan','job')),
+                entity_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                before_json TEXT,
+                after_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("CREATE UNIQUE INDEX maintenance_plan_occurrence ON maintenance_jobs(plan_id,plan_due_date) WHERE plan_id IS NOT NULL AND status NOT IN ('cancelled','reversed')")
+            db.execute("CREATE UNIQUE INDEX maintenance_equipment_running ON maintenance_jobs(equipment_id) WHERE status IN ('in_progress','reported')")
+            db.execute('CREATE INDEX maintenance_entity_changes ON maintenance_changes(entity_type,entity_id,id)')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('production.equipment','设备维护','production',7)")
+            operations = [('equipment.' + action, label) for action, label in (
+                ('view','查看设备维护与停机证据'), ('manage','维护设备台账与周期计划'),
+                ('create','编制及修订维护工单'), ('submit','提交维护工单'), ('review','独立审核维护工单'),
+                ('execute','执行维护与报工'), ('accept','独立验收维护结果'),
+                ('cancel','取消未验收维护工单'), ('reverse','更正已验收维护工单'))]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'production.equipment')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [('admin', code) for code, _ in operations] +
+                [('planner', 'equipment.' + action) for action in ('view','manage','create','submit','execute','cancel')] +
+                [('warehouse', 'equipment.view'), ('warehouse', 'equipment.execute')])
+            db.execute('PRAGMA user_version = 53')
