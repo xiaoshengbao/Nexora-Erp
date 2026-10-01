@@ -22,6 +22,7 @@ from app.core.models import (
     Warehouse,
     WorkOrder,
     WorkOrderLine,
+    QualityDisposition,
 )
 from app.inventory.warehouse import require_warehouse
 from app.access.security import require
@@ -181,6 +182,7 @@ def work_order_data(db: Session, order_id: int) -> dict:
             }
         )
     reported, accepted, rejected = posted_completion_totals(db, order_id)
+    rework = db.scalar(select(QualityDisposition).where(QualityDisposition.rework_order_id == order_id))
     return {
         **dict(row),
         "lines": details,
@@ -188,6 +190,9 @@ def work_order_data(db: Session, order_id: int) -> dict:
         "accepted_quantity": str(accepted),
         "rejected_quantity": str(rejected),
         "remaining_output_quantity": str(Decimal(row["target_quantity"]) - reported),
+        "rework_disposition_id": rework.id if rework else None,
+        "rework_completion_id": rework.completion_id if rework else None,
+        "rework_reference": rework.reference if rework else None,
     }
 
 
@@ -274,12 +279,18 @@ def release_work_order(order_id: int, user: dict = Depends(require("work_order.r
             raise HTTPException(404, "生产工单不存在")
         if row["status"] != "draft":
             raise HTTPException(409, "只有工单草稿可以下达")
-        if row["bom_status"] != "active":
+        rework = db.scalar(select(QualityDisposition).where(QualityDisposition.rework_order_id == order_id))
+        if rework is not None and rework.status != 'posted':
+            raise HTTPException(409, '返工来源已更正，不能下达此工单')
+        if rework is None and row["bom_status"] != "active":
             raise HTTPException(409, "BOM 已停用，请取消草稿并使用新版本建单")
+        # 无追加材料的返工仍需下达，随后可登记人工并报工；不虚构组件出库。
+        status = 'in_progress' if rework is not None and db.scalar(select(WorkOrderLine.id).where(
+            WorkOrderLine.work_order_id == order_id).limit(1)) is None else 'released'
         db.execute(
             update(WorkOrder)
             .where((WorkOrder.id == order_id))
-            .values(status="released", released_by=user["id"], released_at=func.current_timestamp())
+            .values(status=status, released_by=user["id"], released_at=func.current_timestamp())
         )
         return work_order_data(db, order_id)
 
@@ -294,6 +305,9 @@ def cancel_work_order(order_id: int, user: dict = Depends(require("work_order.ca
         )
         if not row:
             raise HTTPException(404, "生产工单不存在")
+        if db.scalar(select(QualityDisposition.id).where(QualityDisposition.rework_order_id == order_id,
+            QualityDisposition.status == 'posted')) is not None:
+            raise HTTPException(409, '关联返工工单须在不合格品处置页更正来源后取消，不能遗失被占用的不合格数量')
         # 发料后由后续更正流程处理，不能用取消抹去真实库存流水。
         if row["status"] not in ("draft", "released"):
             raise HTTPException(409, "已发料或已完工的生产工单不可取消")

@@ -127,7 +127,7 @@ const filteredEntries = computed(() =>
               : item.work_order_status === 'draft'
                 ? '未下达'
                 : item.total_amount === null
-                  ? '待核价'
+                  ? (item.unpriced_rework ? '来源待结算' : '待核价')
                   : '当前已知'
           }}
         </span>
@@ -153,7 +153,8 @@ const filteredEntries = computed(() =>
           <span>材料已知金额 ¥{{ item.known_material_amount }}</span>
           <span>人工 ¥{{ item.labor_amount }}</span>
           <span>制造费用 ¥{{ item.overhead_amount }}</span>
-          <span>总成本 {{ item.total_amount === null ? '待核价' : `¥${item.total_amount}` }}</span>
+          <span v-if="item.rework_source">返工来源 {{ item.rework_source.reference }} · 原工单 #{{ item.rework_source.origin_work_order_id }} · 携入 {{ item.rework_amount === null ? '原工单尚未结算' : `¥${item.rework_amount}` }}</span>
+          <span>总成本 {{ item.total_amount === null ? (item.unpriced_rework ? '原工单尚未结算' : '待核价') : `¥${item.total_amount}` }}</span>
           <span v-if="item.unpriced_issue_count"
             >待核价领料 {{ item.unpriced_issue_count }} 条</span
           >
@@ -171,7 +172,7 @@ const filteredEntries = computed(() =>
     >
       <form class="flex flex-col gap-4" @submit.prevent="submitSettlement">
         <p class="muted">
-          工单全部报工后，材料、人工和制造费用按合格入库数量分摊到每个完工批次。不合格品消耗也由合格成品承担。结算保存快照；更正来源前须先冲销结算。
+          工单全部报工且不合格数量全部确认处置后，按所选规则分摊材料、人工、制造费用与返工携入成本。正常报废由合格品承担，独立报废列损失，返工携带来源成本。结算保存快照；更正来源前须先冲销下游及原结算。
         </p>
         <label
           >生产工单<WorkspaceSelect
@@ -181,7 +182,7 @@ const filteredEntries = computed(() =>
         /></label>
         <p v-if="selectedOrder">
           材料 ¥{{ selectedOrder.known_material_amount }} · 人工 ¥{{ selectedOrder.labor_amount }} ·
-          制造费用 ¥{{ selectedOrder.overhead_amount }} · 合计 ¥{{ selectedOrder.total_amount }}
+          制造费用 ¥{{ selectedOrder.overhead_amount }} · 返工携入 ¥{{ selectedOrder.rework_amount ?? '待来源结算' }} · 合计 ¥{{ selectedOrder.total_amount }}
         </p>
         <label
           >结算依据编号<AppInput
@@ -375,6 +376,8 @@ const filteredEntries = computed(() =>
         <NCollapse class="mt-3">
           <AppCollapseItem title="查看分摊与来源快照" name="sources">
             <div class="flex flex-col gap-2">
+              <span v-for="allocation in item.quality_allocations" :key="allocation.disposition_id">处置 {{ allocation.reference }} · 原完工 #{{ allocation.completion_id }} · 数量 {{ allocation.quantity }} · {{ allocation.loss_treatment === 'absorb' ? '成本已由合格品承担' : allocation.loss_treatment === 'expense' ? `独立损失 ¥${allocation.amount}` : `携入返工 ¥${allocation.amount}` }}<template v-if="allocation.rework_order_id"> · 返工工单 #{{ allocation.rework_order_id }}</template></span>
+              <span v-for="source in item.rework_sources" :key="source.disposition_id">携入处置 #{{ source.disposition_id }} · 原结算 #{{ source.origin_settlement_id }} · ¥{{ source.amount }}</span>
               <span v-for="allocation in item.allocations" :key="allocation.movement_id"
                 >完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} ·
                 合格数量 {{ allocation.quantity }} · 分摊 ¥{{ allocation.amount }}</span

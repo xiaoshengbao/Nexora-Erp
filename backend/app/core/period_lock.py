@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.models import (
     AccountingPeriod, InventoryCostInput, PaymentRecord, ProductionCostEntry,
     ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal,
-    StockMovement, SubledgerPayment,
+    StockMovement, SubledgerPayment, QualityDispositionChange,
 )
 
 
@@ -31,7 +31,7 @@ def ensure_movement_unlocked(db: Session, movement_id: int) -> None:
 def write_boundary(db: Session) -> tuple[str | None, dict]:
     boundary = closed_through(db)
     models = (StockMovement, PaymentRecord, SubledgerPayment, InventoryCostInput, ProductionCostEntry,
-              ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal)
+              ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal, QualityDispositionChange)
     return boundary, ({model: db.scalar(select(func.max(model.id))) or 0 for model in models}
                       if boundary is not None else {})
 

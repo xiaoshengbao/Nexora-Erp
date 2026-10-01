@@ -184,6 +184,7 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
+          <span v-if="item.rework_disposition_id">返工来源 {{ item.rework_reference }} · 原完工 #{{ item.rework_completion_id }}。<RouterLink v-if="can('quality.view')" to="/workspace/production-quality">查看处置证据</RouterLink></span>
           <span>
             已报工 {{ item.reported_quantity }} · 合格 {{ item.accepted_quantity }} · 不合格
             {{ item.rejected_quantity }} · 待报工 {{ item.remaining_output_quantity }}
@@ -237,7 +238,7 @@ const filteredRecords = computed(() =>
           </AppButton>
           <AppButton
             v-if="
-              (item.status === 'draft' || item.status === 'released') && can('work_order.cancel')
+              (item.status === 'draft' || item.status === 'released') && !item.rework_disposition_id && can('work_order.cancel')
             "
             type="button"
             :disabled="busy"

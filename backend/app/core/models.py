@@ -829,6 +829,7 @@ class ProductionCostSettlement(Base):
     material_amount: Mapped[str] = mapped_column(Text, nullable=False)
     labor_amount: Mapped[str] = mapped_column(Text, nullable=False)
     overhead_amount: Mapped[str] = mapped_column(Text, nullable=False)
+    rework_amount: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'0.00'"))
     total_amount: Mapped[str] = mapped_column(Text, nullable=False)
     accepted_quantity: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
@@ -876,6 +877,65 @@ class ProductionSettlementCharge(Base):
     __tablename__ = 'production_settlement_charges'
     settlement_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_cost_settlements.id'), primary_key=True)
     entry_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_cost_entries.id'), primary_key=True)
+
+
+class QualityDisposition(Base):
+    __tablename__ = 'quality_dispositions'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    completion_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_completions.id'), nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    loss_treatment: Mapped[str] = mapped_column(Text, nullable=False)
+    defect: Mapped[str] = mapped_column(Text, nullable=False)
+    action_note: Mapped[str] = mapped_column(Text, nullable=False)
+    warehouse_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouses.id'), nullable=True)
+    materials_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    rework_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('work_orders.id'), nullable=True, unique=True)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    submitted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    reversed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    submitted_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    posted_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reversed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class QualityDispositionChange(Base):
+    __tablename__ = 'quality_disposition_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    disposition_id: Mapped[int] = mapped_column(Integer, ForeignKey('quality_dispositions.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class QualityCostAllocation(Base):
+    __tablename__ = 'quality_cost_allocations'
+    settlement_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_cost_settlements.id'), primary_key=True)
+    disposition_id: Mapped[int] = mapped_column(Integer, ForeignKey('quality_dispositions.id'), primary_key=True)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    loss_treatment: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ProductionReworkSource(Base):
+    __tablename__ = 'production_rework_sources'
+    settlement_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_cost_settlements.id'), primary_key=True)
+    disposition_id: Mapped[int] = mapped_column(Integer, ForeignKey('quality_dispositions.id'), primary_key=True)
+    origin_settlement_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_cost_settlements.id'), nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class StockMovement(Base):

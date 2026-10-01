@@ -50,6 +50,7 @@ import { createAuxiliaryActions } from './modules/auxiliary-actions'
 import { createSubledgerActions } from './modules/subledger-actions'
 import { createMrpActions } from './modules/mrp-actions'
 import { createCrmActions } from './modules/crm-actions'
+import { createQualityActions } from './modules/quality-actions'
 import { createLedgerReportActions } from './modules/ledger-report-actions'
 import { createValuationActions } from './modules/valuation-actions'
 import { createSalesActions } from './modules/sales-actions'
@@ -221,6 +222,7 @@ function createAppStore() {
   const subledgerActions = createSubledgerActions(state, perform)
   const mrpActions = createMrpActions(state, perform)
   const crmActions = createCrmActions(state, perform)
+  const qualityActions = createQualityActions(state, perform)
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
 
@@ -287,6 +289,7 @@ function createAppStore() {
     ...subledgerActions,
     ...mrpActions,
     ...crmActions,
+    ...qualityActions,
     ...openingBalanceActions,
     ...ledgerReportActions,
     ...valuationActions,

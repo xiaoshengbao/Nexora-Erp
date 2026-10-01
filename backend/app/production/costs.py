@@ -16,6 +16,7 @@ from app.core.models import (User, Material, Bom, WorkOrder, WorkOrderLine, Mate
     ProductionCostReversal, ProductionSettlementSource)
 from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import active_settlement, ensure_unsettled
+from app.production.quality_rules import rework_source
 
 router = APIRouter(prefix='/api/v1')
 
@@ -146,15 +147,21 @@ def cost_report(session: Session) -> dict:
             if item['work_order_id'] == order.id and item['status'] == 'active' and item['kind'] == kind), Decimal(0))
             for kind in ('labor', 'overhead')}
         settlement = active_settlement(session, order.id)
+        rework = rework_source(session, order.id)
+        carried = Decimal(rework['amount']) if rework and rework['amount'] is not None else Decimal(0)
+        unresolved_rework = rework is not None and rework['amount'] is None
         summary = {'work_order_id': order.id, 'product_name': product_name, 'work_order_status': order.status,
             'known_material_amount': money(known), 'labor_amount': money(fees['labor']),
             'overhead_amount': money(fees['overhead']),
-            'total_amount': None if unpriced else money(known + fees['labor'] + fees['overhead']),
+            'rework_amount': None if unresolved_rework else money(carried), 'rework_source': rework,
+            'unpriced_rework': unresolved_rework,
+            'total_amount': None if unpriced or unresolved_rework else money(known + fees['labor'] + fees['overhead'] + carried),
             'unpriced_issue_count': unpriced, 'settlement_id': settlement['id'] if settlement else None}
         if settlement:
             # 结算后的汇总和来源均使用当时快照，后补价格不会悄然替换历史依据。
             summary.update(known_material_amount=settlement['material_amount'], labor_amount=settlement['labor_amount'],
-                overhead_amount=settlement['overhead_amount'], total_amount=settlement['total_amount'], unpriced_issue_count=0)
+                overhead_amount=settlement['overhead_amount'], rework_amount=settlement['rework_amount'],
+                total_amount=settlement['total_amount'], unpriced_issue_count=0, unpriced_rework=False)
             material_sources = [item for item in material_sources if item['work_order_id'] != order.id]
             unpriced_lines = [item for item in unpriced_lines if item['work_order_id'] != order.id]
             for source, issue_id, sku, name in session.execute(select(ProductionSettlementSource,

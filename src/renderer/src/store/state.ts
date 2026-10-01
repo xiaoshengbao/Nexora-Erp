@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
+import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
 import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
 import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
@@ -96,6 +97,13 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  const qualityOverview = ref<QualityOverview | null>(null)
+  const qualityDetail = ref<QualityEvidence | null>(null)
+  const qualityLoading = ref(false)
+  const qualityError = ref('')
+  const qualityEdit = ref<{id:number;version:number} | null>(null)
+  const qualityForm = ref<QualityDraft>({completion_id:0,reference:'',kind:'scrap',quantity:'1',loss_treatment:'',
+    defect:'',action_note:'',warehouse_id:1,materials:[],reason:''})
   const mrpPlans = ref<MrpPlan[]>([])
   const crmOptions = ref<CrmOptions | null>(null)
   const crmOverview = ref<CrmOverview | null>(null)
@@ -463,6 +471,7 @@ export function createAppState() {
   )
 
   return {
+    qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmDetail, crmChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,

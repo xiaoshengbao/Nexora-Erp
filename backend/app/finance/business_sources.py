@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.models import (PaymentRecord, ProductionCostEntry, ProductionCostReversal, Material, Warehouse,
-    SubledgerPayment, SubledgerOpeningLine)
+    SubledgerPayment, SubledgerOpeningLine, QualityDisposition, QualityCostAllocation,
+    ProductionSettlementReversal)
 from app.core.orm import model_data
 from app.finance.routes import financial_entries
 from app.inventory.valuation import calculate_valuation
@@ -18,6 +19,7 @@ ROLE_LABELS = {
     'sales_cost': '销售成本', 'cash': '收付款资金', 'price_variance': '采购价差',
     'work_in_progress': '生产在制成本', 'labor_accrual': '人工费用对方',
     'overhead_accrual': '制造费用对方', 'inventory_offset': '其他库存变动对方',
+    'quality_loss': '不合格品独立报废损失',
 }
 SOURCE_LABELS = {
     'receipt': '采购入库', 'receipt_reversal': '采购入库冲销',
@@ -33,6 +35,7 @@ SOURCE_LABELS = {
     'production_charge': '生产费用', 'production_charge_reversal': '生产费用冲销',
     'payment_record': '收付款登记',
     'subledger_payment': '分户期初收付款',
+    'quality_loss': '不合格品报废损失',
 }
 
 
@@ -84,6 +87,18 @@ def business_sources(db: Session) -> dict[str, dict]:
         if reversal.entry_id in charges:
             item = group('production_charge_reversal', reversal.id, reversal.created_at)
             item['records'].extend((model_data(reversal), model_data(charges[reversal.entry_id])))
+    for disposition in db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
+        QualityDisposition.loss_treatment == 'expense').order_by(QualityDisposition.id)):
+        allocation = db.scalar(select(QualityCostAllocation).where(
+            QualityCostAllocation.disposition_id == disposition.id,
+            ~select(ProductionSettlementReversal.id).where(
+                ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists()))
+        item = group('quality_loss', disposition.id, disposition.posted_at)
+        item['records'].append({key: getattr(disposition, key) for key in (
+            'id','completion_id','reference','quantity','defect','action_note','posted_by','posted_at')})
+        item['records'].append(model_data(allocation) if allocation else None)
+        if allocation is None:
+            item['blockers'].append('原工单尚未结算独立报废成本，不能按零生成损失凭证')
 
     for item in groups.values():
         roles = {}
@@ -138,6 +153,10 @@ def business_sources(db: Session) -> dict[str, dict]:
             value = Decimal(record['amount']) * (-1 if kind.endswith('_reversal') else 1)
             add('work_in_progress', value)
             add(record['kind'] + '_accrual', -value)
+        if kind == 'quality_loss' and item['records'][-1] is not None:
+            value = Decimal(item['records'][-1]['amount'])
+            add('quality_loss', value)
+            add('work_in_progress', -value)
         item['roles'] = {key: f'{value:.2f}' for key, value in roles.items() if value}
         if sum(roles.values(), Decimal(0)):
             item['blockers'].append('来源借贷不平衡，请核对库存与业务资料')

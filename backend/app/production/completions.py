@@ -23,6 +23,7 @@ from app.inventory.warehouse import balance
 from app.access.security import require
 from app.production.work_orders import issued_quantity, posted_completion_totals, required_for_output
 from app.production.cost_lock import ensure_unsettled
+from app.production.quality_rules import ensure_completion_unallocated
 
 UserCreator = aliased(User)
 UserInspector = aliased(User)
@@ -400,6 +401,7 @@ def reverse_completion(
         if row["status"] != "posted":
             raise HTTPException(409, "只有已确认的完工单可以冲销")
         ensure_unsettled(db, row["work_order_id"])
+        ensure_completion_unallocated(db, completion_id)
         if (
             db.execute(
                 select(literal(1))
