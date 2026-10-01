@@ -31,12 +31,13 @@ from app.purchase.returns import router as purchase_returns_router
 from app.sales.orders import router as sales_orders_router
 from app.sales.returns import router as sales_returns_router
 from app.service.routes import router as service_router
+from app.reports.dashboard import router as dashboard_router
 
 
 def test_every_feature_router_is_registered() -> None:
     schema_paths = app.openapi()["paths"]
     routers = (
-        service_router, access_router, catalog_router, warehouse_router,
+        service_router, dashboard_router, access_router, catalog_router, warehouse_router,
         stock_router, stocktake_router, purchase_orders_router, receipts_router,
         purchase_returns_router, sales_orders_router, sales_returns_router,
         boms_router, work_orders_router, issues_router, material_returns_router,

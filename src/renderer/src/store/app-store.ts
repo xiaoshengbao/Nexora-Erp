@@ -52,6 +52,7 @@ import { createMrpActions } from './modules/mrp-actions'
 import { createCrmActions } from './modules/crm-actions'
 import { createQualityActions } from './modules/quality-actions'
 import { createAfterSalesActions } from './modules/after-sales-actions'
+import { createDashboardActions } from './modules/dashboard-actions'
 import { createLedgerReportActions } from './modules/ledger-report-actions'
 import { createValuationActions } from './modules/valuation-actions'
 import { createSalesActions } from './modules/sales-actions'
@@ -225,6 +226,7 @@ function createAppStore() {
   const crmActions = createCrmActions(state, perform)
   const qualityActions = createQualityActions(state, perform)
   const afterSalesActions = createAfterSalesActions(state, perform)
+  const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
 
@@ -293,6 +295,7 @@ function createAppStore() {
     ...crmActions,
     ...qualityActions,
     ...afterSalesActions,
+    ...dashboardActions,
     ...openingBalanceActions,
     ...ledgerReportActions,
     ...valuationActions,

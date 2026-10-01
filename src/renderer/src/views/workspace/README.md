@@ -4,7 +4,7 @@
 
 | 目录 | 页面组件 | 页面用途 |
 | --- | --- | --- |
-| `home/` | `HomeDashboardView.vue` | 以演示数据展示经营指标、趋势、单据构成和待处理事项；数据集中在 `dashboard-data.ts`，尚未接入真实统计 |
+| `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库及冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
