@@ -345,6 +345,8 @@ def transition(
     if action in ("submit", "approve", "confirm"):
         validate(db, record)
     if action == "reverse":
+        from app.finance.subledger_rules import protect_opening
+        protect_opening(db, record.id)
         ensure_no_posted_journals(db)
         from app.core.period_lock import ensure_date_unlocked
         ensure_date_unlocked(db, record.effective_date)

@@ -14,6 +14,7 @@ from app.core.models import (User, Material, Customer, Supplier, SalesOrder, Sal
     PurchaseOrder, PurchaseOrderLine, Receipt, ReceiptLine, ReceiptOrderLink, ReceiptReversal,
     PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal, PaymentRecord)
 from app.access.security import require
+from app.finance.subledger_rules import check_subledger
 
 router = APIRouter(prefix="/api/v1")
 
@@ -260,6 +261,7 @@ def finance_overview(_: dict = Depends(require("finance.view"))) -> dict:
 @router.post("/finance/payment-records", status_code=201)
 def create_payment_record(payload: PaymentInput, user: dict = Depends(require("finance.record"))) -> dict:
     with orm_session(write=True) as db:
+        check_subledger(db)
         # 写锁覆盖余额核对和新增记录，防止并行收付款超额。
         account = account_data(db, payload.kind, payload.order_id)
         if not account['source_keys']:
@@ -284,6 +286,7 @@ def create_payment_record(payload: PaymentInput, user: dict = Depends(require("f
 def reverse_payment_record(payment_id: int, payload: ReversalInput,
                            user: dict = Depends(require("finance.reverse"))) -> dict:
     with orm_session(write=True) as db:
+        check_subledger(db)
         original = db.get(PaymentRecord, payment_id)
         if original is None:
             raise HTTPException(404, '收付款记录不存在')

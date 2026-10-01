@@ -90,7 +90,13 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         unassigned_count += int(not values)
         auxiliary_opening.append(dict(opening_balance_id=line.opening_balance_id, line_id=line.id,
             account_id=line.account_id, auxiliary=values, debit=line.debit, credit=line.credit))
+    from app.finance.subledger_rules import active_subledger
+    from app.finance.subledger_openings import snapshot as subledger_snapshot, balance as subledger_balance, lines_for as subledger_lines
+    subledger = active_subledger(db)
+    subledger_evidence = None if subledger is None else dict(opening=subledger_snapshot(db, subledger),
+        rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
+        subledger=subledger_evidence,
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
             policies=selection_options(db)['auxiliary_policies']),
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,

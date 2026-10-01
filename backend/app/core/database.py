@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 47:
+        if version > 48:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1539,3 +1539,48 @@ def migrate() -> None:
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, code) for role in ('admin', 'finance') for code, _ in operations])
             db.execute('PRAGMA user_version = 47')
+
+        if version < 48:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE subledger_openings (
+                id INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE,
+                opening_balance_id INTEGER NOT NULL REFERENCES opening_balances(id),
+                opening_version INTEGER NOT NULL CHECK(opening_version>0), effective_date TEXT NOT NULL,
+                control_accounts_json TEXT NOT NULL, evidence_json TEXT, note TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('draft','submitted','approved','rejected','confirmed','cancelled','reversed')),
+                version INTEGER NOT NULL CHECK(version>0), active_key INTEGER UNIQUE CHECK(active_key IS NULL OR active_key=1),
+                created_by INTEGER NOT NULL REFERENCES users(id), submitted_by INTEGER REFERENCES users(id),
+                reviewed_by INTEGER REFERENCES users(id), confirmed_by INTEGER REFERENCES users(id),
+                cancelled_by INTEGER REFERENCES users(id), reversed_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, submitted_at TEXT, reviewed_at TEXT,
+                confirmed_at TEXT, cancelled_at TEXT, reversed_at TEXT)''')
+            db.execute('''CREATE TABLE subledger_opening_lines (
+                id INTEGER PRIMARY KEY, opening_id INTEGER NOT NULL REFERENCES subledger_openings(id),
+                position INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('receivable','payable')),
+                account_id INTEGER NOT NULL REFERENCES ledger_accounts(id), account_code TEXT NOT NULL, account_name TEXT NOT NULL,
+                customer_id INTEGER REFERENCES customers(id), supplier_id INTEGER REFERENCES suppliers(id),
+                document_reference TEXT NOT NULL, document_date TEXT NOT NULL,
+                debit TEXT NOT NULL, credit TEXT NOT NULL, auxiliary_json TEXT NOT NULL,
+                UNIQUE(opening_id,position),
+                CHECK((kind='receivable' AND customer_id IS NOT NULL AND supplier_id IS NULL) OR
+                      (kind='payable' AND supplier_id IS NOT NULL AND customer_id IS NULL)))''')
+            db.execute('''CREATE TABLE subledger_opening_changes (
+                id INTEGER PRIMARY KEY, opening_id INTEGER NOT NULL REFERENCES subledger_openings(id),
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE subledger_payments (
+                id INTEGER PRIMARY KEY, opening_line_id INTEGER NOT NULL REFERENCES subledger_opening_lines(id),
+                action TEXT NOT NULL CHECK(action IN ('settlement','refund','reversal')),
+                amount TEXT NOT NULL, reference TEXT NOT NULL, note TEXT NOT NULL,
+                reverses_id INTEGER UNIQUE REFERENCES subledger_payments(id),
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(opening_line_id,action,reference))''')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.subledger_openings','分户期初','finance',53)")
+            operations = [('subledger_opening.' + action, label) for action, label in (
+                ('view','查看分户期初与未结余额'), ('create','建立及修改分户期初'), ('submit','提交分户期初'),
+                ('review','独立审核分户期初'), ('confirm','确认分户期初'), ('cancel','取消分户期初'), ('reverse','撤销未使用分户期初'))]
+            db.executemany("INSERT INTO permissions(code,label,group_code) VALUES (?,?,'finance.subledger_openings')", operations)
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, code) for role in ('admin','finance') for code, _ in operations])
+            db.execute('PRAGMA user_version = 48')

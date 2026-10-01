@@ -40,7 +40,8 @@ Snapshot: **2026-10-01, this auxiliary-accounting delivery**. Work in progress i
 | Profit transfer | Implemented | Company account scope, period-end drafts, independent review, source protection, reverse-order corrections and zero-balance closing checks. |
 | Company financial statements | Implemented | Project/account mappings, balance sheet and income statement, source drill-down, CSV, configuration audit and fixed archives for closed periods. |
 | Auxiliary accounting | Implemented | Customer/supplier/department/project dimensions, required account rules, split openings, grouped transfers, balances, sources, auditing and CSV. |
-| Full financial accounting | Planned | Subsidiary opening reconciliation, cash flow, statutory templates, taxes and bank reconciliation. |
+| [Historical subsidiary openings](docs/subledger-openings.md) | Implemented | Per-document imports reconcile by complete auxiliary combination to confirmed ledger openings, with independent review, settlement/refund/reversal records, journal sources, auditing and CSV. |
+| Full financial accounting | Planned | Cash flow, statutory templates, taxes, multiple currencies and bank reconciliation. |
 | Business expansion | Planned | MRP, scheduling, rework, quality/after-sales, CRM, equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 

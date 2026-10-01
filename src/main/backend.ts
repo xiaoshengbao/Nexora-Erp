@@ -311,6 +311,47 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: '/api/v1/finance/business-journals/generate', body: { source_key, fingerprint, policy_version, reference, journal_date, reason, ...auxiliary } }
     }
     case 'openingBalances': return { method: 'GET', path: '/api/v1/finance/opening-balances' }
+    case 'subledgerOpenings': return { method: 'GET', path: '/api/v1/finance/subledger-openings' }
+    case 'subledgerOptions': return { method: 'GET', path: '/api/v1/finance/subledger-openings/options' }
+    case 'subledgerPayments': return { method: 'GET', path: '/api/v1/finance/subledger-openings/payments' }
+    case 'subledgerChanges': return { method: 'GET', path: `/api/v1/finance/subledger-openings/${positiveId(payload, 'id')}/changes` }
+    case 'subledgerCheck': return { method: 'GET', path: `/api/v1/finance/subledger-openings/${positiveId(payload, 'id')}/check` }
+    case 'createSubledgerOpening':
+    case 'updateSubledgerOpening': {
+      const fields = payload as ErpOperations['updateSubledgerOpening']['input']
+      const { reference, note, reason, control_accounts, lines } = fields
+      if (!Array.isArray(control_accounts) || control_accounts.length < 1 || control_accounts.length > 2
+        || !Array.isArray(lines) || lines.length > 500) throw new Error('分户明细或控制科目无效')
+      const body = { reference, note, reason, opening_balance_id: positiveId(payload, 'opening_balance_id'),
+        opening_version: positiveId(payload, 'opening_version'),
+        control_accounts: control_accounts.map(item => ({ kind: item.kind, account_id: positiveId(item, 'account_id') })),
+        lines: lines.map(item => {
+          if (!Array.isArray(item.auxiliary) || item.auxiliary.length > 2) throw new Error('分户辅助信息无效')
+          return { kind: item.kind, account_id: positiveId(item, 'account_id'), party_id: positiveId(item, 'party_id'),
+            document_reference: item.document_reference, document_date: item.document_date, debit: item.debit, credit: item.credit,
+            auxiliary: item.auxiliary.map(value => ({ kind: value.kind, id: positiveId(value, 'id') })) }
+        }) }
+      const path = '/api/v1/finance/subledger-openings'
+      return action === 'createSubledgerOpening' ? { method: 'POST', path, body }
+        : { method: 'PUT', path: `${path}/${positiveId(payload, 'id')}`, body: { ...body, version: positiveId(payload, 'version') } }
+    }
+    case 'changeSubledgerStatus': {
+      const { action: command, reason } = payload as ErpOperations['changeSubledgerStatus']['input']
+      if (!['submit','approve','reject','confirm','cancel','reverse'].includes(command)) throw new Error('不允许的分户状态操作')
+      return { method: 'POST', path: `/api/v1/finance/subledger-openings/${positiveId(payload, 'id')}/${command}`,
+        body: { version: positiveId(payload, 'version'), reason } }
+    }
+    case 'querySubledger': {
+      const { to_date, kind, party_id } = payload as ErpOperations['querySubledger']['input']
+      return { method: 'POST', path: '/api/v1/finance/subledger-openings/query', body: { to_date, kind, party_id } }
+    }
+    case 'createSubledgerPayment': {
+      const { action: command, amount, reference, reason } = payload as ErpOperations['createSubledgerPayment']['input']
+      return { method: 'POST', path: `/api/v1/finance/subledger-openings/lines/${positiveId(payload, 'line_id')}/payments`,
+        body: { action: command, amount, reference, reason } }
+    }
+    case 'reverseSubledgerPayment': return { method: 'POST', path: `/api/v1/finance/subledger-openings/payments/${positiveId(payload, 'id')}/reverse`,
+      body: { reason: (payload as ErpOperations['reverseSubledgerPayment']['input']).reason } }
     case 'openingBalanceOptions': return { method: 'GET', path: '/api/v1/finance/opening-balances/options' }
     case 'openingBalanceChanges': return { method: 'GET', path: `/api/v1/finance/opening-balances/${positiveId(payload, 'id')}/changes` }
     case 'createOpeningBalance':

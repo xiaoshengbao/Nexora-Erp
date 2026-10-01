@@ -7,7 +7,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.models import PaymentRecord, ProductionCostEntry, ProductionCostReversal, Material, Warehouse
+from app.core.models import (PaymentRecord, ProductionCostEntry, ProductionCostReversal, Material, Warehouse,
+    SubledgerPayment, SubledgerOpeningLine)
 from app.core.orm import model_data
 from app.finance.routes import financial_entries
 from app.inventory.valuation import calculate_valuation
@@ -31,6 +32,7 @@ SOURCE_LABELS = {
     'production_completion': '生产完工', 'production_completion_reversal': '生产完工冲销',
     'production_charge': '生产费用', 'production_charge_reversal': '生产费用冲销',
     'payment_record': '收付款登记',
+    'subledger_payment': '分户期初收付款',
 }
 
 
@@ -68,6 +70,12 @@ def business_sources(db: Session) -> dict[str, dict]:
     for record in db.scalars(select(PaymentRecord).order_by(PaymentRecord.id)):
         item = group('payment_record', record.id, record.created_at)
         item['records'].append(model_data(record))
+    for record in db.scalars(select(SubledgerPayment).order_by(SubledgerPayment.id)):
+        line = db.get(SubledgerOpeningLine, record.opening_line_id)
+        item = group('subledger_payment', record.id, record.created_at)
+        item['records'].append(dict(**model_data(record), kind=line.kind,
+            party_id=line.customer_id or line.supplier_id, account_id=line.account_id,
+            document_reference=line.document_reference, auxiliary=json.loads(line.auxiliary_json)))
     charges = {record.id: record for record in db.scalars(select(ProductionCostEntry)
         .where(ProductionCostEntry.kind.in_(('labor', 'overhead'))))}
     for record in charges.values():
@@ -115,7 +123,7 @@ def business_sources(db: Session) -> dict[str, dict]:
                 add('inventory_offset', -inventory)
             else:
                 item['blockers'].append('此库存来源尚无凭证规则')
-        if kind == 'payment_record':
+        if kind in ('payment_record', 'subledger_payment'):
             record = item['records'][0]
             value = Decimal(record['amount'])
             if record['kind'] == 'receivable':

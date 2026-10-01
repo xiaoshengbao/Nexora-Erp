@@ -26,6 +26,7 @@
 | `finance/` | `LedgerReportsView.vue` | 已过账科目明细、试算平衡、CSV 和凭证下钻 |
 | `finance/` | `FinancialStatementsView.vue` | 公司项目/科目配置、资产负债与利润查询、来源核对、归档快照及 CSV |
 | `finance/` | `AuxiliaryAccountingView.vue` | 客户/供应商/部门/项目辅助余额、来源与 CSV、档案和科目必填规则 |
+| `finance/` | `SubledgerOpeningsView.vue` | 历史未结单据逐组合核对、独立审核启用、资金历史及 CSV |
 | `finance/` | `FinancialSourcesView.vue` | 查看应收应付的业务来源明细 |
 | `finance/` | `InventoryValuationView.vue` | 查看移动平均库存金额、待核价来源和核价修订历史 |
 | `production/` | `ProductionBomsView.vue` | 管理生产 BOM 版本 |
@@ -77,7 +78,9 @@
 
 `finance/LedgerAccountsView.vue` 与 `finance/AccountingPeriodsView.vue` 分别维护总账科目与会计期间，按独立查看、维护权限控制。共享草稿和快照在 Pinia，修改携带旧版本，冲突保留输入；`MetadataHistory.vue` 展示建立、名称、启停及版本变更，读取失败可重试。科目结构和期间日期保存后固定；`JournalsView.vue` 提供手工及业务来源凭证，`JournalHistory.vue` 展示操作审计；会计期间支持结账检查、结账与重开，操作沿用公共控件；历史成本锁定由服务端执行。
 
-`finance/OpeningBalancesView.vue` 提供首次总账启用方案，使用 Pinia、独立动作授权和版本校验；同账号不能审核自身建改或提交的方案。`OpeningHistory.vue` 展示阶段、操作者、结果及原因。主表、余额编辑和详情沿用 WorkspaceTable，窄窗口内部横向滚动。`LedgerReportsView.vue` 展示同快照期初来源与审计，正式期初不计本期发生额；业务分户初始余额不自动生成。
+`finance/OpeningBalancesView.vue` 提供首次总账启用方案，使用 Pinia、独立动作授权和版本校验；同账号不能审核自身建改或提交的方案。`OpeningHistory.vue` 展示阶段、操作者、结果及原因。主表、余额编辑和详情沿用 WorkspaceTable，窄窗口内部横向滚动。`LedgerReportsView.vue` 展示同快照期初来源与审计，正式期初不计本期发生额；业务分户初始余额不自动生成，须单独录入并核对。
+
+`finance/SubledgerOpeningsView.vue` 提供 `/workspace/subledger-openings` 独立查看权限入口，使用 Pinia 的 `subledger-actions.ts` 管理方案、查询、审计、资金与迟到请求。`SubledgerEditor.vue` 编辑原单与附加部门/项目，`SubledgerEvidence.vue` 显示逐完整组合差额、确认快照及审计前后明细。失败保留输入，同账号断线保留草稿；换号撤权清理全部共享数据，表格内部行标记不发送服务端。只读用户没有建单选项或资金写入能力，规则见 [分户期初](../../../../../docs/subledger-openings.md)。
 
 `finance/AuxiliaryAccountingView.vue` 及 `auxiliary-actions.ts` 提供独立辅助查看、配置和档案维护权限，使用 Pinia 保存查询、证据与加载状态；切换账号或撤权清理，迟到响应丢弃，写入失败保留表单。`AuxiliarySelector.vue` 供凭证、拆分期初和业务生成选择，`auxiliary-display.ts` 展示服务端名称快照。详情和公司报表保留辅助来源，损益结转逐完整组合清零，规则与限制见 [辅助核算](../../../../../docs/auxiliary-accounting.md)。
 

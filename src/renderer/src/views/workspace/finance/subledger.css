@@ -1,0 +1,4 @@
+/* 沿用财务公共布局；金额在核对文本中保持分位对齐。 */
+.subledger-page p { margin: 0; line-height: 1.65; }
+.subledger-page .subledger-totals { font-variant-numeric: tabular-nums; }
+.subledger-page .row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }

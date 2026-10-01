@@ -27,6 +27,14 @@ import type {
   FinanceMetadataChange,
   OpeningBalance,
   OpeningBalanceInput,
+  SubledgerInput,
+  SubledgerOpening,
+  SubledgerOptions,
+  SubledgerQuery,
+  SubledgerReport,
+  SubledgerChange,
+  SubledgerReconciliation,
+  SubledgerPayment,
   LedgerReportQuery,
   LedgerReportResult,
   LedgerAccountInput,
@@ -128,6 +136,17 @@ export function createAppState() {
   const openingBalances = ref<OpeningBalance[]>([])
   const openingBalanceOptions = ref<{ accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions>>({ accounts: [], period: null })
   const openingBalanceForm = ref<OpeningBalanceInput & { id: number | null; version: number }>({ id: null, version: 1, reference: '', effective_date: '', note: '', reason: '', lines: [] })
+  const subledgerOpenings = ref<SubledgerOpening[]>([])
+  const subledgerOptions = ref<SubledgerOptions | null>(null)
+  const subledgerForm = ref<SubledgerInput & { id: number | null; version: number }>({ id: null, version: 1,
+    reference: '', opening_balance_id: 0, opening_version: 0, control_accounts: [], lines: [], note: '', reason: '' })
+  const subledgerQuery = ref<SubledgerQuery>({ to_date: '', kind: null, party_id: null })
+  const subledgerReport = ref<SubledgerReport | null>(null)
+  const subledgerPayments = ref<SubledgerPayment[]>([])
+  const subledgerChanges = ref<SubledgerChange[]>([])
+  const subledgerCheck = ref<SubledgerReconciliation | null>(null)
+  const subledgerLoading = ref(false)
+  const subledgerError = ref('')
   const journals = ref<Journal[]>([])
   const businessJournalSources = ref<BusinessJournalCandidate[]>([])
   const businessJournalOptions = ref<BusinessJournalOptions | null>(null)
@@ -484,6 +503,16 @@ export function createAppState() {
     statementArchiveLoading,
     statementError,
     openingBalances,
+    subledgerOpenings,
+    subledgerOptions,
+    subledgerForm,
+    subledgerQuery,
+    subledgerReport,
+    subledgerPayments,
+    subledgerChanges,
+    subledgerCheck,
+    subledgerLoading,
+    subledgerError,
     openingBalanceOptions,
     openingBalanceForm,
     ledgerReportQuery,
