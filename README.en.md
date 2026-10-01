@@ -15,7 +15,7 @@ The project is in an **internal trial phase for one company, multiple warehouses
 | Purchasing | Request approval and split orders, orders, partial receiving, warehouse-confirmed receipts, returns awaiting shipment confirmation, and reversals. |
 | Warehousing | Multi-warehouse stock, other inbounds/outbounds, transfers, stocktakes, independently approved adjustments, source movements and stock ledgers. |
 | Sales | [Customer relations and quotations (Chinese)](docs/customer-relations.md) add contacts, follow-ups, opportunities and independently approved quotation conversion; orders, partial shipments, linked returns and reversals; confirmation checks remaining order quantities and stock. |
-| Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion. |
+| Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion; [equipment maintenance (Chinese)](docs/equipment-maintenance.md) adds calendar plans, independent execution/acceptance, downtime and material sources. |
 | Cost and operational finance | Moving-average valuation, manual valuation of unknown costs, material/labor/overhead collection, finished-goods cost allocation, receivable/payable sources, manual payments and reversals. |
 | General ledger | Accounts, periods, independently reviewed/confirmed opening balances, independently reviewed/posted/reversed manual and business-source journals, posted account ledgers and trial balance; ordered closing, reverse-order reopening and archived balances/cost evidence. |
 | Reports and operations | Basic purchasing/inventory reports and CSV; [live home statistics (Chinese)](docs/home-statistics.md) show authorized business net amounts, trends and current pending documents/stock; LAN discovery, certificate fingerprint trust, OS services, backup/restore and upgrade backups. |
@@ -24,7 +24,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this home statistics implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-01, this equipment maintenance implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -45,7 +45,8 @@ Snapshot: **2026-10-01, this home statistics implementation**. Work in progress 
 | [Customer relations and quotations](docs/customer-relations.md) | Basic flow implemented | Shared customer master, follow-up tasks, opportunities, fixed quotations, independent approval and acceptance evidence to sales drafts; marketing, forecasts, attachments and notification scheduling remain. |
 | [Production quality and rework](docs/quality-rework.md) | Basic flow implemented | Partial scrap/rework dispositions, independent review, source-cost carry-in, reinspection and audited correction. |
 | [After-sales (Chinese)](docs/after-sales.md) | Basic flow implemented | Original-shipment cases, independent review, return/exchange drafts, repair custody, inspection, handover and explicit fees/corrections. |
-| Business expansion | Planned | Finite-capacity scheduling, full quality, advanced after-sales, deeper CRM, equipment, HR and multiple organizations. |
+| [Equipment maintenance (Chinese)](docs/equipment-maintenance.md) | Basic flow implemented | Register, calendar plans, independent review/acceptance, assigned execution, downtime, material source documents and audited correction; telemetry and full asset accounting remain. |
+| Business expansion | Planned | Finite-capacity scheduling, full quality, advanced after-sales, deeper CRM/equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.

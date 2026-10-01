@@ -1458,6 +1458,90 @@ class StockAdjustmentLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+
+
+class EquipmentAsset(Base):
+    __tablename__ = 'equipment_assets'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    serial_number: Mapped[str | None] = mapped_column(Text, unique=True)
+    location: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+class MaintenancePlan(Base):
+    __tablename__ = 'maintenance_plans'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_assets.id'), nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    next_due: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+class MaintenanceJob(Base):
+    __tablename__ = 'maintenance_jobs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_assets.id'), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    plan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('maintenance_plans.id'))
+    plan_version: Mapped[int | None] = mapped_column(Integer)
+    plan_due_date: Mapped[str | None] = mapped_column(Text)
+    work_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('work_orders.id'))
+    assigned_to: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    request_note: Mapped[str] = mapped_column(Text, nullable=False)
+    equipment_json: Mapped[str] = mapped_column(Text, nullable=False)
+    work_order_json: Mapped[str] = mapped_column(Text, nullable=False)
+    parts_json: Mapped[str] = mapped_column(Text, nullable=False)
+    warehouse_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouses.id'))
+    parts_outbound_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouse_outbounds.id'), unique=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    solution: Mapped[str] = mapped_column(Text, nullable=False)
+    labor_hours: Mapped[str | None] = mapped_column(Text)
+    service_amount: Mapped[str | None] = mapped_column(Text)
+    plan_roll_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    reported_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    accepted_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    started_at: Mapped[str | None] = mapped_column(Text)
+    reported_at: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[str | None] = mapped_column(Text)
+
+class MaintenanceDowntime(Base):
+    __tablename__ = 'maintenance_downtimes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_assets.id'), nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, ForeignKey('maintenance_jobs.id'), nullable=False, unique=True)
+    started_at: Mapped[str] = mapped_column(Text, nullable=False)
+    ended_at: Mapped[str | None] = mapped_column(Text)
+    close_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    started_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    ended_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+
+class MaintenanceChange(Base):
+    __tablename__ = 'maintenance_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class StockAdjustmentReversal(Base):
     __tablename__ = "stock_adjustment_reversals"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

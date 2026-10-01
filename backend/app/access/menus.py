@@ -45,6 +45,7 @@ MENU_KEYS = {
     'route:productionCosts',
     'route:materialPlanning',
     'route:qualityDisposition',
+    'route:equipmentMaintenance',
     'route:afterSales',
     'route:purchase',
     'route:purchaseReports',

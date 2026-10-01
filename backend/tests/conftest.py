@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_after_sales_schema():
+def remove_equipment_schema():
     def remove(db):
+        for table in ('maintenance_changes','maintenance_downtimes','maintenance_jobs','maintenance_plans','equipment_assets'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse'):
+            code = 'equipment.' + action
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='production.equipment'")
+    return remove
+
+
+@pytest.fixture
+def remove_after_sales_schema(remove_equipment_schema):
+    def remove(db):
+        remove_equipment_schema(db)
         for table in ('after_sales_custody','after_sales_changes','after_sales_cases'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for action in ('view','create','submit','review','process','receive','inspect','close','cancel','reverse'):

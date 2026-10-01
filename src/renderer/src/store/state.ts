@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
 import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
 import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
@@ -99,6 +100,12 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  const equipmentOverview=ref<EquipmentOverview|null>(null),equipmentDetail=ref<EquipmentDetail|null>(null)
+  const equipmentLoading=ref(false),equipmentError=ref('')
+  const equipmentEdit=ref<{kind:EquipmentEntity;id:number;version:number}|null>(null)
+  const equipmentForms=ref<EquipmentForms>({asset:{code:'',name:'',serial_number:'',location:'',status:'active',reason:''},
+    plan:{equipment_id:0,reference:'',title:'',interval_days:30,next_due:'',enabled:true,reason:''},
+    job:{reference:'',equipment_id:0,kind:'corrective',plan_id:null,work_order_id:null,assigned_to:0,request_note:'',warehouse_id:null,parts:[],reason:''}})
   const dashboardResult = ref<DashboardResult|null>(null)
   const dashboardPeriod = ref<DashboardPeriod>('7d')
   const dashboardLoading = ref(false), dashboardError = ref('')
@@ -486,6 +493,7 @@ export function createAppState() {
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,
+    equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmDetail, crmChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,

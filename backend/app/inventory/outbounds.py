@@ -18,6 +18,7 @@ from app.core.models import (
     WarehouseOutbound,
     WarehouseOutboundLine,
     WarehouseOutboundReversal,
+    MaintenanceJob,
 )
 from app.inventory.warehouse import balance, require_warehouse
 
@@ -314,6 +315,9 @@ def reverse_outbound(
             .first()
         ):
             raise HTTPException(409, "只能冲销尚未冲销的已确认其他出库")
+        if db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.parts_outbound_id == outbound_id,
+                MaintenanceJob.status == 'accepted')):
+            raise HTTPException(409, '耗材已被有效设备维护验收使用，先更正验收再冲销出库')
         reversal_id = add_model(
             db,
             WarehouseOutboundReversal(outbound_id=outbound_id, reason=payload.reason, created_by=user["id"]),
