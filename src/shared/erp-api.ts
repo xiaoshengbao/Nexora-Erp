@@ -40,6 +40,7 @@ export interface PeriodClosingCheck {
   movement_count: number; business_unpriced_count: number
 }
 export interface PeriodClosingEvidence {
+  subledger?: { opening: SubledgerOpening; rows: SubledgerBalanceRow[] } | null
   period: AccountingPeriod; currency: 'CNY'; time_basis: 'UTC'; opening_balance_id: number | null
   ledger: { rows: Record<string, string>[]; totals: LedgerReportTotals }
   inventory: InventoryValuationReport; business_sources: ReceivablesPayables
@@ -204,6 +205,50 @@ export interface OpeningBalance extends Omit<Journal, 'journal_date' | 'status' 
   lines: (Omit<JournalLine, 'journal_id'> & { opening_balance_id: number })[]
 }
 export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' }
+export type SubledgerKind = 'receivable' | 'payable'
+export interface SubledgerControl { kind: SubledgerKind; account_id: number }
+export interface SubledgerLineInput {
+  kind: SubledgerKind; account_id: number; party_id: number; document_reference: string; document_date: string
+  debit: string; credit: string; auxiliary: AuxiliaryReference[]
+}
+export interface SubledgerInput {
+  reference: string; opening_balance_id: number; opening_version: number; control_accounts: SubledgerControl[]
+  lines: SubledgerLineInput[]; note: string; reason: string
+}
+export interface SubledgerLine extends Omit<SubledgerLineInput, 'auxiliary'> {
+  id: number; opening_id: number; position: number; account_code: string; account_name: string
+  customer_id: number | null; supplier_id: number | null; auxiliary: AuxiliarySnapshot[]
+  party_name: string; opening_amount: string
+}
+export interface SubledgerReconciliation {
+  opening_balance_id: number; opening_version: number; effective_date: string; currency: 'CNY'; matched: boolean
+  rows: { account_id: number; auxiliary: AuxiliarySnapshot[]; ledger_amount: string; subledger_amount: string; difference: string }[]
+}
+export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines'> {
+  id: number; effective_date: string; status: OpeningBalance['status']; version: number; active_key: number | null
+  lines: SubledgerLine[]; evidence: SubledgerReconciliation | null; currency: 'CNY'; author_ids: number[]
+  created_by: number; created_by_name: string; created_at: string
+  submitted_by: number | null; reviewed_by: number | null; confirmed_by: number | null
+  cancelled_by: number | null; reversed_by: number | null; submitted_at: string | null; reviewed_at: string | null
+  confirmed_at: string | null; cancelled_at: string | null; reversed_at: string | null
+}
+export interface SubledgerOptions extends AuxiliarySelectionOptions { accounts: LedgerAccount[]; opening_balance: OpeningBalance | null }
+export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpening, 'created_by_name' | 'author_ids'>> {
+  action: OpeningBalanceAction | 'create' | 'update'
+}
+export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
+export interface SubledgerPayment {
+  id: number; opening_line_id: number; action: 'settlement' | 'refund' | 'reversal'; amount: string; reference: string; note: string
+  reverses_id: number | null; created_by: number; created_by_name: string; created_at: string; currency: 'CNY'
+  kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
+}
+export interface SubledgerQuery { to_date: string; kind: SubledgerKind | null; party_id: number | null }
+export interface SubledgerBalanceRow extends SubledgerLine { settled_amount: string; outstanding_amount: string; payments: SubledgerPayment[] }
+export interface SubledgerReport {
+  currency: 'CNY'; time_basis: 'UTC'; to_date: string; rows: SubledgerBalanceRow[]; opening: SubledgerOpening | null
+  totals: Record<SubledgerKind, { opening_amount: string; settled_amount: string; outstanding_amount: string }>
+  csv: string; generated_at: string
+}
 export interface LedgerReportQuery {
   kind: 'trial_balance' | 'account_ledger'; from_date: string; to_date: string; account_id: number | null
 }
@@ -1092,6 +1137,17 @@ export interface ErpOperations {
   saveProfitTransferPolicy: { input: ProfitTransferPolicy & { reason: string }; output: ProfitTransferPolicy }
   generateProfitTransfer: { input: ProfitTransferGenerateInput; output: Journal }
   openingBalances: { input: undefined; output: OpeningBalance[] }
+  subledgerOpenings: { input: undefined; output: SubledgerOpening[] }
+  subledgerOptions: { input: undefined; output: SubledgerOptions }
+  subledgerChanges: { input: { id: number }; output: SubledgerChange[] }
+  subledgerCheck: { input: { id: number }; output: SubledgerReconciliation }
+  createSubledgerOpening: { input: SubledgerInput; output: SubledgerOpening }
+  updateSubledgerOpening: { input: SubledgerInput & { id: number; version: number }; output: SubledgerOpening }
+  changeSubledgerStatus: { input: { id: number; version: number; action: OpeningBalanceAction; reason: string }; output: SubledgerOpening }
+  querySubledger: { input: SubledgerQuery; output: SubledgerReport }
+  subledgerPayments: { input: undefined; output: SubledgerPayment[] }
+  createSubledgerPayment: { input: SubledgerPaymentInput; output: SubledgerPayment }
+  reverseSubledgerPayment: { input: { id: number; reason: string }; output: SubledgerPayment }
   openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions> }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }
   updateOpeningBalance: { input: OpeningBalanceInput & { id: number; version: number }; output: OpeningBalance }

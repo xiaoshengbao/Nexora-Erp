@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.models import OpeningBalance, Journal
+from app.finance.subledger_rules import check_subledger
 
 
 def active_opening(db: Session) -> OpeningBalance | None:
@@ -19,6 +20,7 @@ def ensure_no_posted_journals(db: Session) -> None:
 
 
 def check_journal_opening(db: Session, journal_date: str) -> None:
+    check_subledger(db, journal_date)
     opening = active_opening(db)
     if (
         opening is None

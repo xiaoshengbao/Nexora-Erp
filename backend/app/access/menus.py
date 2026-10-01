@@ -28,6 +28,7 @@ MENU_KEYS = {
     'route:financialStatements',
     'route:auxiliaryAccounting',
     'route:openingBalances',
+    'route:subledgerOpenings',
     'route:accountingPeriods',
     'route:goodsReceipts',
     'route:home',

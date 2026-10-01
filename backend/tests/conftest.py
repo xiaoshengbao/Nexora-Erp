@@ -4,8 +4,23 @@ import pytest
 
 
 @pytest.fixture
-def remove_auxiliary_schema():
+def remove_subledger_schema():
     def remove(db):
+        for table in ('subledger_payments', 'subledger_opening_changes', 'subledger_opening_lines', 'subledger_openings'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        for operation in ('view', 'create', 'submit', 'review', 'confirm', 'cancel', 'reverse'):
+            code = 'subledger_opening.' + operation
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+            db.execute('DELETE FROM permissions WHERE code=?', (code,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='finance.subledger_openings'")
+    return remove
+
+
+@pytest.fixture
+def remove_auxiliary_schema(remove_subledger_schema):
+    def remove(db):
+        remove_subledger_schema(db)
         for table in ('auxiliary_assignments', 'auxiliary_policy_changes', 'auxiliary_policies', 'auxiliary_item_changes', 'auxiliary_items'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         for operation in ('view', 'configure', 'manage'):

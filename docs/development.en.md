@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this auxiliary-accounting delivery on 2026-10-01, starting from main commit `a2f1051`. Period closing, business-source journals, profit transfer and company statements are already in main; this version adds auxiliary assignments, account rules, split openings and grouped transfers. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects this historical subsidiary-opening delivery on 2026-10-01, starting from main commit `2d49241`. This version adds per-document reconciliation by complete auxiliary combination, independent approval and subsequent settlement sources. Database version 48 has 104 static ORM tables. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -98,7 +98,7 @@ Put new APIs in their feature directory and assemble them in `main.py`, using ex
 | Valuation | Company-level material moving average; returns/transfers use source costs; eligible unknown inputs can be manually valued with revision history. | Revisions may change open-period costs; historical valuation and allocation are locked through the last closed period. Variances and formal COGS journals remain. |
 | Production | BOM versions/cycle checks, frozen requirements, partial issues/returns/completions and accepted-goods receipt; consumed reporting requirements cannot be returned. | Targets include rejected quantities; rework, MRP, scheduling and full quality management remain. |
 | Finished-goods cost | Inventory issue price first, manual valuation when unknown; material/labor/overhead allocated by accepted quantity with rounding reconciliation. | Includes rejected consumption; reverse dependent settlements before corrections. WIP/cross-period cost remain. |
-| Operational finance | Sources produce receivables/payables and order balances; manual settlements/refunds have limits, reversals append inverse records. | Does not prove bank receipt; RMB scope, taxes/multiple currencies/subsidiary opening balances remain. |
+| Operational finance | Sources produce receivables/payables and order balances; manual settlements/refunds have limits and inverse reversals; historical subsidiary openings reconcile by complete combination before independent activation and settlements. | Does not prove bank receipt; RMB scope, taxes/multiple currencies/bank reconciliation remain. |
 | Ledger foundations | Flat account structures are fixed; inclusive periods cannot overlap. Name/activation changes carry versions, reasons and transactional auditing. | Closing/reopening is provided separately; auxiliary accounting is provided separately. |
 | Period closing | Close ended periods in order, reopen in reverse order; archive balances/cost sources and lock historical valuation/allocations. | Does not generate business journals, profit transfer or statutory statements. |
 | Reports | Purchasing execution, receiving/returns, stock balances/movements and CSV. | Business summaries are not formal financial statements. Dashboard demo charts are not actual business metrics. |
@@ -239,4 +239,4 @@ See the [official GitHub Pages workflow guide](https://docs.github.com/en/pages/
 
 Company statement configuration, archive rules and permissions are described in the [statement rules (Chinese)](financial-statements.md).
 
-Auxiliary accounting uses static ORM models for four dimensions, versioned rules, split openings and grouped transfers; see [rules and desktop permission boundaries (Chinese)](auxiliary-accounting.md). Subsidiary opening balances still require separate reconciliation.
+Auxiliary accounting uses static ORM models for four dimensions, versioned rules, split openings and grouped transfers; see [rules and desktop permission boundaries (Chinese)](auxiliary-accounting.md). [Historical subsidiary openings (Chinese)](subledger-openings.md) reconcile individual unsettled documents before independent activation and subsequent settlements, without adding ledger openings a second time.

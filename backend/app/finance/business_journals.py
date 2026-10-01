@@ -19,6 +19,7 @@ from app.finance.journals import (JournalInput, JournalLineInput, ReasonInput, a
     period_for, save_lines, view)
 from app.finance.ledger import PeriodInput
 from app.finance.auxiliary_rules import AuxiliaryReference, selection_options
+from app.finance.subledger_rules import check_control_mapping
 
 router = APIRouter(prefix='/api/v1/finance/business-journals')
 
@@ -89,6 +90,8 @@ def minimum_date(db: Session, source: dict) -> str:
 
 
 def inferred_partners(db: Session, source: dict) -> list[AuxiliaryReference]:
+    if source['source_type'] == 'subledger_payment':
+        return [AuxiliaryReference(kind=item['kind'], id=item['id']) for item in source['records'][0]['auxiliary']]
     pairs = {(item['kind'], item['party_id']) for item in source['business']}
     if source['source_type'] == 'payment_record':
         record = source['records'][0]
@@ -104,6 +107,8 @@ def inferred_partners(db: Session, source: dict) -> list[AuxiliaryReference]:
 def source_auxiliary(db: Session, source: dict, role: str, selections: dict) -> list[AuxiliaryReference]:
     defaults = {item.kind: item for item in inferred_partners(db, source)}
     for item in selections.get(role, []):
+        if source['source_type'] == 'subledger_payment' and (item.kind not in defaults or defaults[item.kind].id != item.id):
+            raise HTTPException(409, '分户收付款须沿用原始未结单据的完整辅助归属')
         if item.kind in ('customer', 'supplier') and (item.kind not in defaults or defaults[item.kind].id != item.id):
             raise HTTPException(409, '辅助往来对象须与真实业务来源一致')
         defaults[item.kind] = item
@@ -155,6 +160,7 @@ def get_policy(_: dict = Depends(require('business_journal.view'))) -> dict:
 @router.put('/policy')
 def save_policy(data: PolicyInput, user: dict = Depends(require('business_journal.configure'))) -> dict:
     with orm_session(write=True) as db:
+        check_control_mapping(db, data.mapping)
         record = db.get(BusinessJournalPolicy, 1)
         before = policy_data(record)
         if data.version != before['version']:
