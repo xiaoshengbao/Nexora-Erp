@@ -29,13 +29,15 @@ def orm_violations(source: str, relative: str) -> list[str]:
         if isinstance(node, ast.Import):
             for name in node.names:
                 imports[name.asname or name.name.split('.')[0]] = name.name if name.asname else name.name.split('.')[0]
-                if name.name.split('.')[0] in RAW_DRIVERS and relative != 'service/backup.py':
+                driver = name.name.split('.')[0]
+                if driver in RAW_DRIVERS and not (relative == 'service/backup.py' and driver == 'sqlite3'):
                     report(node, '业务模块不得导入数据库底层驱动')
         elif isinstance(node, ast.ImportFrom):
             for name in node.names:
                 qualified = f'{node.module}.{name.name}'
                 imports[name.asname or name.name] = qualified
-                if node.module and node.module.split('.')[0] in RAW_DRIVERS and relative != 'service/backup.py':
+                driver = (node.module or '').split('.')[0]
+                if driver in RAW_DRIVERS and not (relative == 'service/backup.py' and driver == 'sqlite3'):
                     report(node, '业务模块不得导入数据库底层驱动')
                 if qualified == 'app.core.database.connection':
                     report(node, '不得导入旧业务 SQL 连接')
@@ -173,10 +175,12 @@ def test_model_defaults_are_not_a_query_exception():
 
 
 def test_backup_exception_cannot_be_used_for_business_queries():
+    assert not orm_violations('import sqlite3', 'service/backup.py')
     assert not orm_violations('session.connection().exec_driver_sql("PRAGMA integrity_check")', 'service/backup.py')
     for source in ('session.connection().exec_driver_sql("SELECT * FROM server_identity")',
                    'statement = "SELECT * FROM server_identity"; db.execute(statement)',
-                   'from sqlalchemy import text; db.scalar(text("SELECT 1"))'):
+                   'from sqlalchemy import text; db.scalar(text("SELECT 1"))',
+                   'import pymysql', 'from psycopg import connect'):
         assert orm_violations(source, 'service/backup.py')
 
 
