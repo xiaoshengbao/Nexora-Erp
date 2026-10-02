@@ -1,6 +1,6 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
-import {physicalLotEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
+import {physicalLotEvidenceBody,physicalLotMovementEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
@@ -138,13 +138,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const warehouse=source?.warehouseId
       return {method:'GET',path:'/api/v1/inventory/warnings'+(warehouse===undefined?'':`?warehouse_id=${positiveId({id:warehouse},'id')}`)}
     }
-    case 'physicalLotOverview': {
+    case 'physicalLotOverview':
+    case 'physicalLotUnallocated': {
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('实物批次查询范围无效')
       const source = payload as Record<string, unknown>
       const parts: string[] = []
       if (source.warehouse_id !== null) parts.push(`warehouse_id=${positiveId({id: source.warehouse_id}, 'id')}`)
       if (source.material_id !== null) parts.push(`material_id=${positiveId({id: source.material_id}, 'id')}`)
-      return {method: 'GET', path: '/api/v1/inventory/physical-lots/overview' + (parts.length ? `?${parts.join('&')}` : '')}
+      return {method: 'GET', path: '/api/v1/inventory/physical-lots/'
+        + (action === 'physicalLotOverview' ? 'overview' : 'unallocated-movements')
+        + (parts.length ? `?${parts.join('&')}` : '')}
     }
     case 'physicalLotHistory':
       return {method: 'GET', path: `/api/v1/inventory/physical-lots/${positiveId(payload, 'lot_id')}/history`}
@@ -154,6 +157,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'physicalLotEvidenceReverse':
       return {method: 'POST',
         path: `/api/v1/inventory/physical-lots/reclassifications/${positiveId(payload, 'record_id')}/reverse`,
+        body: physicalLotReverseBody(payload)}
+    case 'physicalLotMovementEvidence':
+      return {method: 'POST',
+        path: `/api/v1/inventory/physical-lots/movements/${positiveId(payload,'movement_id')}/evidence`,
+        body: physicalLotMovementEvidenceBody(payload)}
+    case 'physicalLotMovementEvidenceReverse':
+      return {method: 'POST',
+        path: `/api/v1/inventory/physical-lots/movement-evidence/${positiveId(payload,'record_id')}/reverse`,
         body: physicalLotReverseBody(payload)}
     case 'inventoryWarningDetail':
     case 'saveInventoryWarning': {

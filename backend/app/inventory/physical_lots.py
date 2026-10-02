@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotOpening, PhysicalLotReclassification, StockMovement, User, Warehouse
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotMovementEvidence, PhysicalLotOpening, PhysicalLotReclassification, StockMovement, User, Warehouse
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 
@@ -77,8 +77,32 @@ def lot_balance(db: Session, warehouse_id: int, lot_id: int) -> Decimal:
     incoming = db.scalars(select(PhysicalLotReclassification.quantity).where(
         PhysicalLotReclassification.warehouse_id == warehouse_id,
         PhysicalLotReclassification.verified_lot_id == lot_id))
-    return (sum((Decimal(value) for value in (*opening, *movement, *incoming)), Decimal(0))
+    evidence = db.scalars(select(PhysicalLotMovementEvidence.quantity).join(
+        StockMovement, StockMovement.id == PhysicalLotMovementEvidence.movement_id).where(
+            StockMovement.warehouse_id == warehouse_id,
+            PhysicalLotMovementEvidence.lot_id == lot_id))
+    return (sum((Decimal(value) for value in (*opening, *movement, *evidence, *incoming)), Decimal(0))
             - sum((Decimal(value) for value in outgoing), Decimal(0)))
+
+
+def unassigned_stock_quantity(db: Session, warehouse_id: int, material_id: int) -> Decimal:
+    """正值表示正式库存尚有未归批次数量；补证只允许缩小当前差额。"""
+    stock = db.scalars(select(StockMovement.quantity).where(
+        StockMovement.warehouse_id == warehouse_id, StockMovement.material_id == material_id))
+    opening = db.scalars(select(PhysicalLotOpening.quantity).join(
+        PhysicalLot, PhysicalLot.id == PhysicalLotOpening.lot_id).where(
+            PhysicalLotOpening.warehouse_id == warehouse_id,
+            PhysicalLot.material_id == material_id))
+    allocated = db.scalars(select(PhysicalLotAllocation.quantity).join(
+        StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+            StockMovement.warehouse_id == warehouse_id,
+            StockMovement.material_id == material_id))
+    evidence = db.scalars(select(PhysicalLotMovementEvidence.quantity).join(
+        StockMovement, StockMovement.id == PhysicalLotMovementEvidence.movement_id).where(
+            StockMovement.warehouse_id == warehouse_id,
+            StockMovement.material_id == material_id))
+    return (sum((Decimal(value) for value in stock), Decimal(0))
+            - sum((Decimal(value) for value in (*opening, *allocated, *evidence)), Decimal(0)))
 
 
 @router.post('/reclassifications', status_code=201)
@@ -92,20 +116,8 @@ def reclassify_legacy_lot(data: LegacyEvidenceInput,
             raise HTTPException(422, '须选择历史未识别批次')
         if lot_balance(db, data.warehouse_id, legacy.id) < data.quantity:
             raise HTTPException(409, '历史未识别批次现存量不足，请重新读取')
-        stock_quantity = sum((Decimal(value) for value in db.scalars(select(StockMovement.quantity).where(
-            StockMovement.warehouse_id == data.warehouse_id,
-            StockMovement.material_id == legacy.material_id))), Decimal(0))
-        opening_quantity = db.scalars(select(PhysicalLotOpening.quantity)
-            .join(PhysicalLot, PhysicalLot.id == PhysicalLotOpening.lot_id)
-            .where(PhysicalLotOpening.warehouse_id == data.warehouse_id,
-                   PhysicalLot.material_id == legacy.material_id))
-        allocated_quantity = db.scalars(select(PhysicalLotAllocation.quantity)
-            .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
-            .where(StockMovement.warehouse_id == data.warehouse_id,
-                   StockMovement.material_id == legacy.material_id))
-        # 同仓同物料的补证一出一入相抵；这里只核对原期初与库存流水分配总量。
-        assigned_quantity = sum((Decimal(value) for value in (*opening_quantity, *allocated_quantity)), Decimal(0))
-        if assigned_quantity > stock_quantity:
+        # 同仓同物料的补证一出一入相抵，逐笔补证也须纳入正式库存差额。
+        if unassigned_stock_quantity(db, data.warehouse_id, legacy.material_id) < 0:
             raise HTTPException(409, '正式库存少于批次结存，请先核对未分配出库差额')
         # 补证只在实物批次之间转移数量，不建立正式库存流水，也不改移动平均成本。
         verified = add_model(db, PhysicalLot(
@@ -230,6 +242,17 @@ def overview(warehouse_id: int | None = Query(default=None, gt=0),
         for warehouse, lot, quantity in db.execute(allocation_query):
             _add(lot_balances, (warehouse, lot), quantity)
 
+        evidence_query = select(StockMovement.warehouse_id, PhysicalLotMovementEvidence.lot_id,
+                                PhysicalLotMovementEvidence.quantity).join(
+                                    StockMovement, StockMovement.id == PhysicalLotMovementEvidence.movement_id).join(
+                                        PhysicalLot, PhysicalLot.id == PhysicalLotMovementEvidence.lot_id)
+        if warehouse_id is not None:
+            evidence_query = evidence_query.where(StockMovement.warehouse_id == warehouse_id)
+        if material_id is not None:
+            evidence_query = evidence_query.where(PhysicalLot.material_id == material_id)
+        for warehouse, lot, quantity in db.execute(evidence_query):
+            _add(lot_balances, (warehouse, lot), quantity)
+
         reclassification_query = select(PhysicalLotReclassification)
         if warehouse_id is not None:
             reclassification_query = reclassification_query.where(PhysicalLotReclassification.warehouse_id == warehouse_id)
@@ -323,6 +346,22 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                                       'evidence': record.evidence, 'created_by_name': username,
                                       'original_reclassification_id': record.original_reclassification_id,
                                       'created_at': record.created_at})
+        movement_evidence = []
+        evidence_rows = db.execute(select(PhysicalLotMovementEvidence, StockMovement, User.username)
+            .join(StockMovement, StockMovement.id == PhysicalLotMovementEvidence.movement_id)
+            .join(User, User.id == PhysicalLotMovementEvidence.created_by)
+            .where(PhysicalLotMovementEvidence.lot_id == lot_id)
+            .order_by(PhysicalLotMovementEvidence.id))
+        for record, movement, username in evidence_rows:
+            balances[movement.warehouse_id] = balances.get(movement.warehouse_id, Decimal(0)) + Decimal(record.quantity)
+            movement_evidence.append({'id': record.id, 'movement_id': movement.id,
+                                      'warehouse_id': movement.warehouse_id,
+                                      'warehouse_name': db.get(Warehouse, movement.warehouse_id).name,
+                                      'quantity': record.quantity, 'source_type': movement.source_type,
+                                      'source_id': movement.source_id, 'source_line_id': movement.source_line_id,
+                                      'evidence': record.evidence, 'created_by_name': username,
+                                      'original_evidence_id': record.original_evidence_id,
+                                      'created_at': record.created_at})
         return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                 'lot': {'id': lot.id, 'material_id': lot.material_id, 'code': lot.code,
                         'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
@@ -330,7 +369,7 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                         'origin_movement_id': lot.origin_movement_id,
                         'sku': material.sku, 'material_name': material.name, 'unit': material.unit},
                 'openings': openings, 'movements': movements,
-                'reclassifications': reclassifications,
+                'reclassifications': reclassifications, 'movement_evidence': movement_evidence,
                 'balances': [{'warehouse_id': warehouse_id,
                               'warehouse_name': db.get(Warehouse, warehouse_id).name,
                               'quantity': format(quantity, 'f')}

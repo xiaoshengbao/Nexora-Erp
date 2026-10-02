@@ -9,15 +9,15 @@ import vue from '@vitejs/plugin-vue'
 
 const storeModule=`import {defineStore} from 'pinia';import {ref} from 'vue';
 export const usePiniaAppStore=defineStore('physical-lot-ui-test',()=>(()=>{
-const lotOverview=ref(null),lotHistory=ref(null),lotLoading=ref(false),lotError=ref('');
+const lotOverview=ref(null),lotHistory=ref(null),lotUnallocated=ref(null),lotLoading=ref(false),lotError=ref('');
 const lotWarehouseId=ref(0),lotMaterialId=ref(0),warehouses=ref([{id:1,code:'MAIN',name:'主仓库'}]);
 const materials=ref([{id:3,sku:'LOT-3',name:'试件'}]),busy=ref(false),connectionLost=ref(false),user=ref({id:1,permissions:['inventory.view']});
 const ledgerQuery=ref({warehouse_id:null,material_id:null,from_date:'',to_date:'',source_type:null});
-const allowed=ref(true);return {lotOverview,lotHistory,lotLoading,lotError,lotWarehouseId,lotMaterialId,
+const allowed=ref(true);return {lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,
   warehouses,materials,busy,connectionLost,user,ledgerQuery,allowed,
   can(code){return allowed.value&&user.value.permissions.includes(code)},localTime:value=>value,
-  loadPhysicalLots(){},loadPhysicalLotHistory(){},savePhysicalLotEvidence(){},
-  reversePhysicalLotEvidence(){},clearPhysicalLotHistory(){}};
+  loadPhysicalLots(){},loadPhysicalLotUnallocated(){},loadPhysicalLotHistory(){},savePhysicalLotEvidence(){},
+  reversePhysicalLotEvidence(){},savePhysicalLotMovementEvidence(){},reversePhysicalLotMovementEvidence(){},clearPhysicalLotHistory(){}};
 })());`
 
 test('批次页面显示历史未识别、未分配差额、来源流水及无权状态',async t=>{
@@ -50,6 +50,13 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
   assert.doesNotMatch(unallocated,/现场补证<\/button>/)
   store.user={id:1,permissions:['inventory.view','physical_lot.reclassify']}
   assert.match(await render(),/现场补证/)
+  store.user={id:1,permissions:['inventory.view','physical_lot.reclassify','physical_lot.movement_evidence']}
+  store.lotUnallocated={checkpoint_movement_id:8,checkpoint_basis:'v56_opening',
+    warehouse_id:null,material_id:null,has_more:false,rows:[{movement_id:9,warehouse_id:1,
+      material_id:3,quantity:'0.125',unallocated_quantity:'0.125',source_type:'other_inbound',
+      source_id:4,source_line_id:5,created_at:'2026-10-02 09:01:00'}]}
+  assert.match(await render(),/待补证的旧客户端流水/)
+  assert.match(await render(),/逐笔补证/)
   store.lotHistory={as_of:'2026-10-02 09:00:00',lot:{id:7,material_id:3,code:'LEGACY-W1-M3',source_kind:'legacy',
     supplier_lot:null,manufactured_on:null,expires_on:null,origin_movement_id:null,
     sku:'LOT-3',material_name:'试件',unit:'件'},
@@ -60,6 +67,9 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
     reclassifications:[{id:3,warehouse_id:1,warehouse_name:'主仓库',quantity:'-0.500',
       counterpart_lot_id:8,counterpart_lot_code:'VERIFIED-1',evidence:'现场逐箱核对并签字确认',
       original_reclassification_id:null,created_by_name:'admin',created_at:'2026-10-02 09:02:00'}],
+    movement_evidence:[{id:4,movement_id:9,warehouse_id:1,warehouse_name:'主仓库',quantity:'0.125',
+      source_type:'other_inbound',source_id:4,source_line_id:5,evidence:'现场交接单与批次标签核对',
+      original_evidence_id:null,created_by_name:'admin',created_at:'2026-10-02 09:03:00'}],
     balances:[{warehouse_id:1,warehouse_name:'主仓库',quantity:'1.875'}]}
   const traced=await render()
   assert.match(traced,/升级检查点流水 #8/)
@@ -67,6 +77,8 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
   assert.match(traced,/无实物批次证据/)
   assert.match(traced,/现场逐箱核对并签字确认/)
   assert.match(traced,/冲销补证/)
+  assert.match(traced,/现场交接单与批次标签核对/)
+  assert.match(traced,/冲销逐笔补证/)
   store.connectionLost=true
   assert.match(await render(),/旧批次余额与来源证据已失效/)
   store.allowed=false
