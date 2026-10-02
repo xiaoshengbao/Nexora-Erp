@@ -39,6 +39,26 @@ const reclassification: Check = value => fields(value, {
   evidence: text, original_reclassification_id: optional(positive),
   created_by_name: text, created_at: text
 })
+const movementEvidence: Check = value => fields(value, {
+  id: positive, movement_id: positive, lot_id: positive, lot_code: text,
+  warehouse_id: positive, material_id: positive, quantity: decimal, evidence: text,
+  original_evidence_id: optional(positive), created_by_name: text, created_at: text
+})
+const unallocatedRow: Check = value => fields(value, {
+  movement_id: positive, warehouse_id: positive, material_id: positive,
+  quantity: decimal, unallocated_quantity: decimal, source_type: text,
+  source_id: positive, source_line_id: positive, created_at: text
+})
+const unallocated: Check = value => fields(value, {
+  checkpoint_movement_id: nonnegative, checkpoint_basis: text,
+  warehouse_id: optional(positive), material_id: optional(positive),
+  rows: array(unallocatedRow), has_more: value => typeof value === 'boolean'
+})
+const movementEvidenceHistory: Check = value => fields(value, {
+  id: positive, movement_id: positive, warehouse_id: positive, warehouse_name: text,
+  quantity: decimal, source_type: text, source_id: positive, source_line_id: positive,
+  evidence: text, created_by_name: text, original_evidence_id: optional(positive), created_at: text
+})
 const balance: Check = value => fields(value, {warehouse_id: positive, warehouse_name: text, quantity: decimal})
 const overview: Check = value => fields(value, {
   as_of: text, warehouse_id: optional(positive), material_id: optional(positive),
@@ -46,7 +66,8 @@ const overview: Check = value => fields(value, {
 }) && object(value) && value.fully_allocated === (Array.isArray(value.differences) && value.differences.length === 0)
 const history: Check = value => fields(value, {
   as_of: text, lot: identity, openings: array(opening), movements: array(movement),
-  reclassifications: array(reclassification), balances: array(balance)
+  reclassifications: array(reclassification), movement_evidence: array(movementEvidenceHistory),
+  balances: array(balance)
 })
 const evidence: Check = value => fields(value, {
   id: positive, legacy_lot_id: positive, verified_lot_id: positive,
@@ -58,5 +79,8 @@ export function validatePhysicalLotResult(action: string, value: unknown): void 
   const check = action === 'physicalLotOverview' ? overview
     : action === 'physicalLotHistory' ? history
     : action === 'physicalLotEvidence' || action === 'physicalLotEvidenceReverse' ? evidence : null
-  if (check && !check(value)) throw new Error('实物批次响应格式不匹配，请核对服务端版本后重新读取。')
+  const checked = check ?? (action === 'physicalLotUnallocated' ? unallocated
+    : action === 'physicalLotMovementEvidence' || action === 'physicalLotMovementEvidenceReverse'
+      ? movementEvidence : null)
+  if (checked && !checked(value)) throw new Error('实物批次响应格式不匹配，请核对服务端版本后重新读取。')
 }

@@ -29,8 +29,32 @@ export interface PhysicalLotHistory {
     quantity: string; counterpart_lot_id: number; counterpart_lot_code: string
     evidence: string; original_reclassification_id: number | null
     created_by_name: string; created_at: string}[]
+  movement_evidence: {id: number; movement_id: number; warehouse_id: number; warehouse_name: string
+    quantity: string; source_type: string; source_id: number; source_line_id: number
+    evidence: string; created_by_name: string; original_evidence_id: number | null
+    created_at: string}[]
   balances: {warehouse_id: number; warehouse_name: string; quantity: string}[]
 }
+export interface PhysicalLotUnallocatedMovement {
+  movement_id: number; warehouse_id: number; material_id: number
+  quantity: string; unallocated_quantity: string; source_type: string
+  source_id: number; source_line_id: number; created_at: string
+}
+export interface PhysicalLotUnallocatedList {
+  checkpoint_movement_id: number; checkpoint_basis: string
+  warehouse_id: number | null; material_id: number | null
+  rows: PhysicalLotUnallocatedMovement[]; has_more: boolean
+}
+export interface PhysicalLotMovementEvidenceInput {
+  movement_id: number; lot_id: number | null; quantity: string; evidence: string
+  supplier_lot: string | null; manufactured_on: string | null; expires_on: string | null
+}
+export interface PhysicalLotMovementEvidenceResult {
+  id: number; movement_id: number; lot_id: number; lot_code: string
+  warehouse_id: number; material_id: number; quantity: string; evidence: string
+  original_evidence_id: number | null; created_by_name: string; created_at: string
+}
+export interface PhysicalLotMovementEvidenceReverseInput {record_id: number; reason: string}
 export interface PhysicalLotEvidenceInput {
   legacy_lot_id: number; warehouse_id: number; quantity: string; evidence: string
   supplier_lot: string | null; manufactured_on: string | null; expires_on: string | null
@@ -46,13 +70,13 @@ export interface PhysicalLotOperations {
   physicalLotHistory: {input: {lot_id: number}; output: PhysicalLotHistory}
   physicalLotEvidence: {input: PhysicalLotEvidenceInput; output: PhysicalLotEvidenceResult}
   physicalLotEvidenceReverse: {input: PhysicalLotReverseInput; output: PhysicalLotEvidenceResult}
+  physicalLotUnallocated: {input: {warehouse_id: number | null; material_id: number | null}; output: PhysicalLotUnallocatedList}
+  physicalLotMovementEvidence: {input: PhysicalLotMovementEvidenceInput; output: PhysicalLotMovementEvidenceResult}
+  physicalLotMovementEvidenceReverse: {input: PhysicalLotMovementEvidenceReverseInput; output: PhysicalLotMovementEvidenceResult}
 }
 
-export function physicalLotEvidenceBody(value: unknown): PhysicalLotEvidenceInput {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('批次补证数据无效')
-  const source = value as Record<string, unknown>
-  const positive = (item: unknown): item is number => typeof item === 'number' && Number.isSafeInteger(item) && item > 0
-  if (!positive(source.legacy_lot_id) || !positive(source.warehouse_id)) throw new Error('批次或仓库编号无效')
+function evidenceFields(source: Record<string, unknown>): Pick<PhysicalLotEvidenceInput,
+  'quantity' | 'evidence' | 'supplier_lot' | 'manufactured_on' | 'expires_on'> {
   const quantity = source.quantity
   if (typeof quantity !== 'string' || !/^\d+(?:\.\d{1,3})?$/.test(quantity)
       || Number(quantity) <= 0 || Number(quantity) > 1_000_000) throw new Error('补证数量须为正数且最多三位小数')
@@ -68,9 +92,17 @@ export function physicalLotEvidenceBody(value: unknown): PhysicalLotEvidenceInpu
   if (!date(source.manufactured_on) || !date(source.expires_on)
       || (source.manufactured_on && source.expires_on && source.expires_on < source.manufactured_on))
     throw new Error('生产日期或失效日期无效')
-  return {legacy_lot_id: source.legacy_lot_id, warehouse_id: source.warehouse_id,
-    quantity, evidence: evidence.trim(), supplier_lot: supplier?.trim() || null,
+  return {quantity, evidence: evidence.trim(), supplier_lot: supplier?.trim() || null,
     manufactured_on: source.manufactured_on, expires_on: source.expires_on}
+}
+
+export function physicalLotEvidenceBody(value: unknown): PhysicalLotEvidenceInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('批次补证数据无效')
+  const source = value as Record<string, unknown>
+  const positive = (item: unknown): item is number => typeof item === 'number' && Number.isSafeInteger(item) && item > 0
+  if (!positive(source.legacy_lot_id) || !positive(source.warehouse_id)) throw new Error('批次或仓库编号无效')
+  return {legacy_lot_id: source.legacy_lot_id, warehouse_id: source.warehouse_id,
+    ...evidenceFields(source)}
 }
 
 export function physicalLotReverseBody(value: unknown): {reason: string} {
@@ -82,9 +114,18 @@ export function physicalLotReverseBody(value: unknown): {reason: string} {
   return {reason: reason.trim()}
 }
 
+export function physicalLotMovementEvidenceBody(value: unknown): Omit<PhysicalLotMovementEvidenceInput,'movement_id'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('逐笔补证数据无效')
+  const source = value as Record<string, unknown>
+  if (source.lot_id !== null && (typeof source.lot_id !== 'number'
+      || !Number.isSafeInteger(source.lot_id) || source.lot_id <= 0)) throw new Error('所选批次编号无效')
+  return {lot_id: source.lot_id as number | null,...evidenceFields(source)}
+}
+
 export function physicalLotKindLabel(kind: string): string {
   if (kind === 'legacy') return '历史未识别'
   if (kind === 'legacy_evidence') return '历史现场补证'
+  if (kind === 'movement_evidence') return '旧流水逐笔补证'
   return ({receipt: '采购入库', other_inbound: '其他入库', production_completion: '合格完工',
     stocktake: '盘点发现', adjustment: '调整新增', sales_return: '退货新批次',
     material_return: '退料新批次'} as Record<string,string>)[kind]

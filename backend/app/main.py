@@ -25,6 +25,7 @@ from app.inventory.stocktake import router as stocktake_router
 from app.inventory.stock import router as stock_router
 from app.inventory.warnings import router as warnings_router
 from app.inventory.physical_lots import router as physical_lots_router
+from app.inventory.movement_evidence import router as movement_evidence_router
 from app.inventory.ledger import router as ledger_router
 from app.inventory.valuation import router as valuation_router
 from app.inventory.adjustments import router as adjustments_router
@@ -100,7 +101,7 @@ app = FastAPI(title="Nexora ERP API", version="0.1.0", lifespan=lifespan)
 # 路由只在这里组装；各功能目录负责自己的参数校验与业务接口。
 for router in (
     service_router, access_router, menu_router, catalog_router, receipts_router,
-    inventory_router, stock_router, warnings_router, physical_lots_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
+    inventory_router, stock_router, warnings_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, sales_router, sales_returns_router, crm_router, crm_quotes_router, after_sales_router,

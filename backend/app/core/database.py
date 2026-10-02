@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 57:
+        if version > 58:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1991,3 +1991,34 @@ def migrate() -> None:
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                            [('admin','physical_lot.reclassify'), ('warehouse','physical_lot.reclassify')])
             db.execute('PRAGMA user_version = 57')
+
+        if version < 58:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE physical_lot_movement_checkpoints (
+                id INTEGER PRIMARY KEY CHECK(id=1), movement_id INTEGER NOT NULL,
+                basis TEXT NOT NULL)''')
+            opening_checkpoint = db.execute(
+                'SELECT MAX(checkpoint_movement_id) FROM physical_lot_openings').fetchone()[0]
+            # 旧版没有保存空结存时的升级检查点；保守地排除无法判定时期的旧流水。
+            checkpoint = opening_checkpoint if opening_checkpoint is not None else db.execute(
+                'SELECT COALESCE(MAX(id),0) FROM stock_movements').fetchone()[0]
+            basis = 'v56_opening' if opening_checkpoint is not None else 'v58_conservative'
+            db.execute('INSERT INTO physical_lot_movement_checkpoints(id,movement_id,basis) VALUES (1,?,?)',
+                       (checkpoint, basis))
+            db.execute('''CREATE TABLE physical_lot_movement_evidence (
+                id INTEGER PRIMARY KEY,
+                movement_id INTEGER NOT NULL REFERENCES stock_movements(id),
+                lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                quantity TEXT NOT NULL, evidence TEXT NOT NULL,
+                original_evidence_id INTEGER REFERENCES physical_lot_movement_evidence(id),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX physical_lot_movement_evidence_movement ON physical_lot_movement_evidence(movement_id,id)')
+            db.execute('CREATE INDEX physical_lot_movement_evidence_lot ON physical_lot_movement_evidence(lot_id,id)')
+            db.execute('CREATE UNIQUE INDEX physical_lot_movement_evidence_reverse_once ON physical_lot_movement_evidence(original_evidence_id)')
+            db.execute('CREATE INDEX IF NOT EXISTS physical_lot_allocation_movement ON physical_lot_allocations(movement_id)')
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('physical_lot.movement_evidence','旧流水逐笔补证','warehouse.physical_lots')")
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                           [('admin','physical_lot.movement_evidence'), ('warehouse','physical_lot.movement_evidence')])
+            db.execute('PRAGMA user_version = 58')

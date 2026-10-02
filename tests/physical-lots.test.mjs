@@ -15,7 +15,7 @@ const history={as_of:overview.as_of,lot:{id:7,material_id:3,code:row.lot_code,so
   supplier_lot:null,manufactured_on:null,expires_on:null,origin_movement_id:null,
   sku:row.sku,material_name:row.material_name,unit:row.unit},
   openings:[{id:1,warehouse_id:1,warehouse_name:'主仓库',quantity:'2.000',checkpoint_movement_id:8,
-    evidence:'无实物批次证据',created_at:overview.as_of}],movements:[],reclassifications:[],
+    evidence:'无实物批次证据',created_at:overview.as_of}],movements:[],reclassifications:[],movement_evidence:[],
   balances:[{warehouse_id:1,warehouse_name:'主仓库',quantity:'2.000'}]}
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 
@@ -51,7 +51,8 @@ test('响应不能把缺失差额、未知数量或伪造来源当成已核对',
   for(const invalid of [{...history,lot:{...history.lot,id:'7'}},
     {...history,openings:[{...history.openings[0],checkpoint_movement_id:-1}]},
     {...history,movements:[{id:1,movement_id:2,quantity:null}]},
-    {...history,reclassifications:[{id:1,quantity:'1.000'}]}])
+    {...history,reclassifications:[{id:1,quantity:'1.000'}]},
+    {...history,movement_evidence:[{id:1,quantity:'1.000'}]}])
     assert.throws(()=>validatePhysicalLotResult('physicalLotHistory',invalid),/响应格式/)
   assert.throws(()=>validatePhysicalLotResult('physicalLotEvidence',{...evidence,verified_lot_id:null}),/响应格式/)
 })
