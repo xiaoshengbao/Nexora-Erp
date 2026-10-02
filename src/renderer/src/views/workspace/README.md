@@ -8,7 +8,7 @@
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；只读，不表示单据已支持批次录入 |
-| `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库及冲销 |
+| `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |

@@ -3,7 +3,6 @@
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -27,6 +26,7 @@ from app.core.models import (
 )
 from app.inventory.warehouse import balance, require_warehouse
 from app.inventory.physical_lots import LotPart, post_lot_movement
+from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.purchase.orders import (
     linked_order_for_receipt,
     order_receipt_lines,
@@ -74,28 +74,9 @@ class ReceiptReverseInput(BaseModel):
         return value.strip()
 
 
-class ReceiptLotPartInput(BaseModel):
-    quantity: Decimal
-    supplier_lot: str | None = Field(default=None, max_length=100)
-    manufactured_on: date | None = None
-    expires_on: date | None = None
-
-    @field_validator('quantity')
-    @classmethod
-    def valid_quantity(cls, value: Decimal) -> Decimal:
-        if not value.is_finite() or value <= 0 or value > 1_000_000 or value.as_tuple().exponent < -3:
-            raise ValueError('批次数量须大于零、最多三位小数且不超过一百万')
-        return value
-
-    @field_validator('supplier_lot')
-    @classmethod
-    def trim_supplier_lot(cls, value: str | None) -> str | None:
-        return value.strip() or None if value is not None else None
-
-
 class ReceiptLotLineInput(BaseModel):
     receipt_line_id: int = Field(gt=0)
-    lots: list[ReceiptLotPartInput] = Field(min_length=1, max_length=20)
+    lots: list[PhysicalLotPartInput] = Field(min_length=1, max_length=20)
 
 
 class ReceiptPostInput(BaseModel):

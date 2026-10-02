@@ -6,6 +6,13 @@ export interface ReceiptLotPartInput {
   expires_on: string | null
 }
 
+export type PhysicalLotPartInput = ReceiptLotPartInput
+
+export interface InboundLotLineInput {
+  inbound_line_id: number
+  lots: PhysicalLotPartInput[]
+}
+
 export interface ReceiptLotLineInput {
   receipt_line_id: number
   lots: ReceiptLotPartInput[]

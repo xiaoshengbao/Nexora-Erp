@@ -110,7 +110,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 多仓库库存与调拨
 
-数据库第 31 版新增 `/api/v1/warehouse-inbounds` 其他入库单，适用于期初补录、赠品及有明确说明的其他非采购来源。单据保存仓库、用途、说明、参考号和物料数量；`/post` 确认后在同一事务写入正向库存流水，`/cancel` 仅取消草稿，管理员可用 `/reverse` 填写原因并在原仓库存充足时追加负向冲销流水。重复确认、重复冲销和库存不足返回 409，原单及原流水留存。其他入库不生成采购应付。查看、创建、确认、取消、冲销分别要求 `other_inbound.view`、`other_inbound.create`、`other_inbound.post`、`other_inbound.cancel`、`other_inbound.reverse`；管理员和仓库员默认可处理草稿，冲销默认仅管理员可做。
+数据库第 31 版新增 `/api/v1/warehouse-inbounds` 其他入库单，适用于期初补录、赠品及有明确说明的其他非采购来源。单据保存仓库、用途、说明、参考号和物料数量；`/post` 确认后在同一事务写入正向库存流水，可提交逐行实物批次分配，见下文；`/cancel` 仅取消草稿，管理员可用 `/reverse` 填写原因并在原仓库存充足时追加负向冲销流水，已登记批次时按原分配逐批扣回。重复确认、重复冲销和库存不足返回 409，原单及原流水留存。其他入库不生成采购应付。查看、创建、确认、取消、冲销分别要求 `other_inbound.view`、`other_inbound.create`、`other_inbound.post`、`other_inbound.cancel`、`other_inbound.reverse`；管理员和仓库员默认可处理草稿，冲销默认仅管理员可做。
 
 数据库升级时自动建立 `MAIN` 主仓库，旧入库单和历史流水归入主仓库。新入库单可指定 `warehouse_id`；旧客户端省略时仍入主仓库。`GET /api/v1/warehouses` 查看仓库，`POST /api/v1/warehouses` 创建仓库。`GET /api/v1/stock` 返回所有仓库合计，添加 `warehouse_id` 查询参数可查看指定仓库；`GET /api/v1/movements` 返回带仓库、单据来源和操作者的有符号流水。
 
@@ -251,4 +251,4 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 实物批次数据基础
 
-第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`，必须覆盖每条入库明细且逐行数量守恒；同一写事务写库存流水、批次及分配。冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他单据来源仍待逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
+第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`。两类入库均须覆盖每条明细并逐行精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；出库、调拨、退货及其他单据来源仍待逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。

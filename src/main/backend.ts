@@ -1,6 +1,6 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
-import {receiptLotBody,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
+import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -377,7 +377,12 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'warehouses': return { method: 'GET', path: '/api/v1/warehouses' }
     case 'otherInbounds': return { method: 'GET', path: '/api/v1/warehouse-inbounds' }
     case 'createOtherInbound': return { method: 'POST', path: '/api/v1/warehouse-inbounds', body: payload }
-    case 'postOtherInbound': return { method: 'POST', path: `/api/v1/warehouse-inbounds/${positiveId(payload, 'inboundId')}/post` }
+    case 'postOtherInbound': {
+      const inboundId = positiveId(payload, 'inboundId')
+      const source = payload as ErpOperations['postOtherInbound']['input']
+      return {method: 'POST', path: `/api/v1/warehouse-inbounds/${inboundId}/post`,
+        ...(source.lines === undefined ? {} : {body: inboundLotBody({lines: source.lines})})}
+    }
     case 'cancelOtherInbound': return { method: 'POST', path: `/api/v1/warehouse-inbounds/${positiveId(payload, 'inboundId')}/cancel` }
     case 'reverseOtherInbound': {
       const inboundId = positiveId(payload, 'inboundId')
@@ -784,6 +789,11 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'postReceipt') {
     const request = payload as ErpOperations['postReceipt']['input']
     if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'postOtherInbound') {
+    const request = payload as ErpOperations['postOtherInbound']['input']
+    if (request.lines) validatePostedInboundLots(data, request.inboundId,
+      inboundLotBody({lines: request.lines}).lines)
   }
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)

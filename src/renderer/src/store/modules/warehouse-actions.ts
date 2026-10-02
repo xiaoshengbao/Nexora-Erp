@@ -1,4 +1,4 @@
-import type { Warehouse } from '../../../../shared/erp-api'
+import type { ErpOperations, Warehouse } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 
 // 仓库与盘点操作独立维护；写入后由统一入口刷新服务端快照。
@@ -98,9 +98,10 @@ export function createWarehouseActions(
     }, '其他入库草稿已创建。')
   }
 
-  async function postOtherInbound(inboundId: number): Promise<void> {
+  async function postOtherInbound(inboundId: number,
+                                  lines?: ErpOperations['postOtherInbound']['input']['lines']): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('postOtherInbound', { inboundId }),
+    await perform(() => window.nexora!.callApi('postOtherInbound', { inboundId, lines }),
       `其他入库单 #${inboundId} 已确认，库存流水已生成。`)
   }
 

@@ -1,6 +1,6 @@
 import type {InventoryWarningOperations} from './inventory-warning-api'
 import type {PhysicalLotOperations} from './physical-lot-api'
-import type {ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
+import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
@@ -298,7 +298,7 @@ export interface OtherInbound {
   reversed_by: number | null
   reversed_by_name: string | null
   reversed_at: string | null
-  lines: ReceiptLine[]
+  lines: (ReceiptLine & {physical_lots: ReceiptPhysicalLot[]})[]
 }
 // 出库确认才扣库存；后续采购退货沿用仓库确认单。
 export interface WarehouseOutbound {
@@ -1103,7 +1103,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   warehouses: { input: undefined; output: Warehouse[] }
   otherInbounds: { input: undefined; output: OtherInbound[] }
   createOtherInbound: { input: { warehouse_id: number; reason: 'opening' | 'gift' | 'other'; note: string; reference: string; lines: { material_id: number; quantity: string }[] }; output: OtherInbound }
-  postOtherInbound: { input: { inboundId: number }; output: OtherInbound }
+  postOtherInbound: { input: { inboundId: number; lines?: InboundLotLineInput[] }; output: OtherInbound }
   cancelOtherInbound: { input: { inboundId: number }; output: OtherInbound }
   reverseOtherInbound: { input: { inboundId: number; reason: string }; output: OtherInbound }
   warehouseOutbounds: { input: undefined; output: WarehouseOutbound[] }
