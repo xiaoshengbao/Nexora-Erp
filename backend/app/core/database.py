@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 59:
+        if version > 60:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2042,3 +2042,24 @@ def migrate() -> None:
             db.execute('CREATE INDEX physical_lot_evidence_pair_inbound ON physical_lot_evidence_pairs(inbound_evidence_id)')
             db.execute('CREATE INDEX physical_lot_evidence_pair_outbound ON physical_lot_evidence_pairs(outbound_evidence_id)')
             db.execute('PRAGMA user_version = 59')
+
+        if version < 60:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE physical_lot_evidence_groups (
+                id INTEGER PRIMARY KEY,
+                lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                material_id INTEGER NOT NULL REFERENCES materials(id),
+                evidence TEXT NOT NULL,
+                original_group_id INTEGER REFERENCES physical_lot_evidence_groups(id),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE physical_lot_evidence_group_pairs (
+                group_id INTEGER NOT NULL REFERENCES physical_lot_evidence_groups(id),
+                pair_id INTEGER NOT NULL REFERENCES physical_lot_evidence_pairs(id),
+                position INTEGER NOT NULL,
+                PRIMARY KEY(group_id,pair_id), UNIQUE(pair_id), UNIQUE(group_id,position))''')
+            db.execute('CREATE UNIQUE INDEX physical_lot_evidence_group_reverse_once ON physical_lot_evidence_groups(original_group_id)')
+            db.execute('CREATE INDEX physical_lot_evidence_group_lot ON physical_lot_evidence_groups(lot_id,id)')
+            db.execute('PRAGMA user_version = 60')

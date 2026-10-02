@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidencePair, PhysicalLotMovementEvidence, PhysicalLotOpening, PhysicalLotReclassification, StockMovement, User, Warehouse
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidenceGroup, PhysicalLotEvidenceGroupPair, PhysicalLotEvidencePair, PhysicalLotMovementEvidence, PhysicalLotOpening, PhysicalLotReclassification, StockMovement, User, Warehouse
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 
@@ -375,6 +375,24 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                                    'quantity': pair.quantity, 'evidence': pair.evidence,
                                    'original_pair_id': pair.original_pair_id,
                                    'created_by_name': username, 'created_at': pair.created_at})
+        evidence_groups = []
+        for group, username in db.execute(select(PhysicalLotEvidenceGroup, User.username)
+                .join(User, User.id == PhysicalLotEvidenceGroup.created_by)
+                .where(PhysicalLotEvidenceGroup.lot_id == lot_id)
+                .order_by(PhysicalLotEvidenceGroup.id)):
+            links = db.scalars(select(PhysicalLotEvidenceGroupPair).where(
+                PhysicalLotEvidenceGroupPair.group_id == group.id).order_by(
+                    PhysicalLotEvidenceGroupPair.position))
+            pairs = []
+            for link in links:
+                pair = db.get(PhysicalLotEvidencePair, link.pair_id)
+                pairs.append({'id': pair.id, 'inbound_movement_id': pair.inbound_movement_id,
+                              'outbound_movement_id': pair.outbound_movement_id,
+                              'quantity': pair.quantity})
+            evidence_groups.append({'id': group.id, 'evidence': group.evidence,
+                                    'original_group_id': group.original_group_id,
+                                    'created_by_name': username, 'created_at': group.created_at,
+                                    'pairs': pairs})
         return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                 'lot': {'id': lot.id, 'material_id': lot.material_id, 'code': lot.code,
                         'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
@@ -383,7 +401,7 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                         'sku': material.sku, 'material_name': material.name, 'unit': material.unit},
                 'openings': openings, 'movements': movements,
                 'reclassifications': reclassifications, 'movement_evidence': movement_evidence,
-                'evidence_pairs': evidence_pairs,
+                'evidence_pairs': evidence_pairs, 'evidence_groups': evidence_groups,
                 'balances': [{'warehouse_id': warehouse_id,
                               'warehouse_name': db.get(Warehouse, warehouse_id).name,
                               'quantity': format(quantity, 'f')}
