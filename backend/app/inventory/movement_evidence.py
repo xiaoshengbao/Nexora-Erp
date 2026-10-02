@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import (Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotMovementCheckpoint,
-                             PhysicalLotMovementEvidence, StockMovement, Warehouse)
+from app.core.models import (Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidencePair,
+                             PhysicalLotMovementCheckpoint, PhysicalLotMovementEvidence, StockMovement, Warehouse)
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.inventory.physical_lots import lot_balance, unassigned_stock_quantity
@@ -37,6 +37,11 @@ class ReverseMovementEvidenceInput(BaseModel):
     reason: str = Field(min_length=10, max_length=500)
 
 
+class EvidencePairInput(MovementEvidenceInput):
+    inbound_movement_id: int = Field(gt=0, strict=True)
+    outbound_movement_id: int = Field(gt=0, strict=True)
+
+
 def _checkpoint(db: Session) -> PhysicalLotMovementCheckpoint:
     checkpoint = db.get(PhysicalLotMovementCheckpoint, 1)
     if checkpoint is None:
@@ -60,6 +65,20 @@ def _result(db: Session, record: PhysicalLotMovementEvidence, username: str) -> 
             'material_id': movement.material_id, 'quantity': record.quantity,
             'evidence': record.evidence, 'original_evidence_id': record.original_evidence_id,
             'created_by_name': username, 'created_at': record.created_at}
+
+
+def _pair_result(db: Session, pair: PhysicalLotEvidencePair, username: str) -> dict:
+    lot = db.get(PhysicalLot, pair.lot_id)
+    inbound = db.get(StockMovement, pair.inbound_movement_id)
+    return {'id': pair.id, 'inbound_movement_id': pair.inbound_movement_id,
+            'outbound_movement_id': pair.outbound_movement_id,
+            'inbound_evidence_id': pair.inbound_evidence_id,
+            'outbound_evidence_id': pair.outbound_evidence_id,
+            'lot_id': pair.lot_id, 'lot_code': lot.code,
+            'warehouse_id': inbound.warehouse_id, 'material_id': inbound.material_id,
+            'quantity': pair.quantity, 'evidence': pair.evidence,
+            'original_pair_id': pair.original_pair_id,
+            'created_by_name': username, 'created_at': pair.created_at}
 
 
 @router.get('/unallocated-movements')
@@ -152,6 +171,10 @@ def reverse_movement_evidence(data: ReverseMovementEvidenceInput, record_id: int
             raise HTTPException(404, '逐笔补证记录不存在')
         if original.original_evidence_id is not None:
             raise HTTPException(422, '只能冲销原始逐笔补证')
+        if db.scalar(select(PhysicalLotEvidencePair.id).where(
+                (PhysicalLotEvidencePair.inbound_evidence_id == record_id)
+                | (PhysicalLotEvidencePair.outbound_evidence_id == record_id))) is not None:
+            raise HTTPException(422, '成对补证须作为整体冲销')
         if db.scalar(select(PhysicalLotMovementEvidence.id).where(
                 PhysicalLotMovementEvidence.original_evidence_id == record_id)) is not None:
             raise HTTPException(409, '逐笔补证已冲销')
@@ -164,3 +187,102 @@ def reverse_movement_evidence(data: ReverseMovementEvidenceInput, record_id: int
             quantity=format(-quantity, 'f'), evidence=data.reason,
             original_evidence_id=original.id, created_by=user['id']))
         return _result(db, reversal, user['username'])
+
+
+@router.post('/evidence-pairs', status_code=201)
+def create_evidence_pair(data: EvidencePairInput,
+                         user: dict = Depends(require('physical_lot.movement_evidence'))) -> dict:
+    with orm_session(write=True) as db:
+        checkpoint = _checkpoint(db).movement_id
+        inbound = db.get(StockMovement, data.inbound_movement_id)
+        outbound = db.get(StockMovement, data.outbound_movement_id)
+        if inbound is None or outbound is None:
+            raise HTTPException(404, '待补证库存流水不存在')
+        if (inbound.id <= checkpoint or outbound.id <= checkpoint
+                or inbound.id >= outbound.id
+                or inbound.warehouse_id != outbound.warehouse_id
+                or inbound.material_id != outbound.material_id
+                or Decimal(inbound.quantity) <= 0 or Decimal(outbound.quantity) >= 0):
+            raise HTTPException(422, '须选择升级后同仓同物料、先入后出的两笔流水')
+        inbound_remaining = Decimal(inbound.quantity) - _assigned_to_movement(db, inbound.id)
+        outbound_remaining = Decimal(outbound.quantity) - _assigned_to_movement(db, outbound.id)
+        if inbound_remaining < data.quantity or outbound_remaining > -data.quantity:
+            raise HTTPException(409, '两笔流水的未分配数量不足，请重新读取')
+        if data.lot_id is None:
+            lot = add_model(db, PhysicalLot(
+                material_id=inbound.material_id, code=f'EVIDENCE-{uuid4().hex.upper()}',
+                source_kind='movement_evidence', supplier_lot=data.supplier_lot,
+                manufactured_on=data.manufactured_on.isoformat() if data.manufactured_on else None,
+                expires_on=data.expires_on.isoformat() if data.expires_on else None,
+                origin_movement_id=inbound.id, created_by=user['id']))
+        else:
+            lot = db.get(PhysicalLot, data.lot_id)
+            if lot is None or lot.material_id != inbound.material_id:
+                raise HTTPException(422, '所选批次与两笔流水的物料不一致')
+            if lot.origin_movement_id is not None and lot.origin_movement_id > inbound.id:
+                raise HTTPException(422, '不能把较早入库归入后来才建立的批次')
+            if data.supplier_lot or data.manufactured_on or data.expires_on:
+                raise HTTPException(422, '已有批次的来源属性不能在成对补证时修改')
+            if lot_balance(db, inbound.warehouse_id, lot.id) < 0:
+                raise HTTPException(409, '所选批次当前余额异常，请先核对')
+        inbound_evidence = add_model(db, PhysicalLotMovementEvidence(
+            movement_id=inbound.id, lot_id=lot.id, quantity=format(data.quantity, 'f'),
+            evidence=data.evidence, created_by=user['id']))
+        outbound_evidence = add_model(db, PhysicalLotMovementEvidence(
+            movement_id=outbound.id, lot_id=lot.id, quantity=format(-data.quantity, 'f'),
+            evidence=data.evidence, created_by=user['id']))
+        pair = add_model(db, PhysicalLotEvidencePair(
+            inbound_movement_id=inbound.id, outbound_movement_id=outbound.id,
+            inbound_evidence_id=inbound_evidence.id, outbound_evidence_id=outbound_evidence.id,
+            lot_id=lot.id, quantity=format(data.quantity, 'f'), evidence=data.evidence,
+            created_by=user['id']))
+        return _pair_result(db, pair, user['username'])
+
+
+@router.post('/evidence-pairs/{pair_id}/reverse', status_code=201)
+def reverse_evidence_pair(data: ReverseMovementEvidenceInput, pair_id: int = Path(gt=0),
+                          user: dict = Depends(require('physical_lot.movement_evidence'))) -> dict:
+    with orm_session(write=True) as db:
+        original = db.get(PhysicalLotEvidencePair, pair_id)
+        if original is None:
+            raise HTTPException(404, '成对补证记录不存在')
+        if original.original_pair_id is not None:
+            raise HTTPException(422, '只能冲销原始成对补证')
+        if db.scalar(select(PhysicalLotEvidencePair.id).where(
+                PhysicalLotEvidencePair.original_pair_id == pair_id)) is not None:
+            raise HTTPException(409, '成对补证已冲销')
+        lot = db.get(PhysicalLot, original.lot_id)
+        # 新建批次的首次来源若已被其他证据引用，撤销来源会留下无法解释的追溯链。
+        if lot.source_kind == 'movement_evidence' and lot.origin_movement_id == original.inbound_movement_id:
+            evidence = list(db.scalars(select(PhysicalLotMovementEvidence).where(
+                PhysicalLotMovementEvidence.lot_id == original.lot_id)))
+            evidence_reversals = {row.original_evidence_id for row in evidence
+                                  if row.original_evidence_id is not None}
+            active_evidence = any(row.original_evidence_id is None
+                                  and row.id not in (original.inbound_evidence_id,
+                                                     original.outbound_evidence_id)
+                                  and row.id not in evidence_reversals for row in evidence)
+            allocations = list(db.scalars(select(PhysicalLotAllocation).where(
+                PhysicalLotAllocation.lot_id == original.lot_id)))
+            allocation_reversals = {row.original_allocation_id for row in allocations
+                                    if row.original_allocation_id is not None}
+            active_allocation = any(row.original_allocation_id is None
+                                    and row.id not in allocation_reversals for row in allocations)
+            if active_evidence or active_allocation:
+                raise HTTPException(409, '批次已被其他有效流水使用，不能冲销首次成对补证')
+        quantity = Decimal(original.quantity)
+        inbound_reverse = add_model(db, PhysicalLotMovementEvidence(
+            movement_id=original.inbound_movement_id, lot_id=original.lot_id,
+            quantity=format(-quantity, 'f'), evidence=data.reason,
+            original_evidence_id=original.inbound_evidence_id, created_by=user['id']))
+        outbound_reverse = add_model(db, PhysicalLotMovementEvidence(
+            movement_id=original.outbound_movement_id, lot_id=original.lot_id,
+            quantity=format(quantity, 'f'), evidence=data.reason,
+            original_evidence_id=original.outbound_evidence_id, created_by=user['id']))
+        reversal = add_model(db, PhysicalLotEvidencePair(
+            inbound_movement_id=original.inbound_movement_id,
+            outbound_movement_id=original.outbound_movement_id,
+            inbound_evidence_id=inbound_reverse.id, outbound_evidence_id=outbound_reverse.id,
+            lot_id=original.lot_id, quantity=format(-quantity, 'f'), evidence=data.reason,
+            original_pair_id=original.id, created_by=user['id']))
+        return _pair_result(db, reversal, user['username'])

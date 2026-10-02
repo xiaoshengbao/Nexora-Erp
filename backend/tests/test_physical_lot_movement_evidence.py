@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.database import connection, migrate
-from app.core.models import (Material, PhysicalLot, PhysicalLotMovementCheckpoint,
+from app.core.models import (Material, PhysicalLot, PhysicalLotEvidencePair, PhysicalLotMovementCheckpoint,
                              PhysicalLotMovementEvidence, StockMovement)
 from app.core.orm import add_model, orm_session
 from app.main import app
@@ -138,6 +138,7 @@ def test_v57_without_opening_uses_conservative_checkpoint(monkeypatch, tmp_path)
             quantity='1.000', source_type='legacy_test', source_id=1, source_line_id=1))
         old_id = old.id
     with connection() as db:
+        db.execute('DROP TABLE physical_lot_evidence_pairs')
         db.execute('DROP TABLE physical_lot_movement_evidence')
         db.execute('DROP TABLE physical_lot_movement_checkpoints')
         db.execute("DELETE FROM role_permissions WHERE permission_code='physical_lot.movement_evidence'")
@@ -163,9 +164,10 @@ def test_offsetting_unallocated_movements_need_atomic_group_reconciliation(monke
         with orm_session(write=True) as db:
             inbound = add_model(db, StockMovement(warehouse_id=1, material_id=material_id,
                 quantity='1.000', source_type='legacy_test', source_id=1, source_line_id=1))
-            db.add(StockMovement(warehouse_id=1, material_id=material_id,
+            outbound = add_model(db, StockMovement(warehouse_id=1, material_id=material_id,
                 quantity='-1.000', source_type='legacy_test', source_id=2, source_line_id=2))
             inbound_id = inbound.id
+            outbound_id = outbound.id
         listing = client.get('/api/v1/inventory/physical-lots/unallocated-movements',
             headers=auth).json()
         assert len(listing['rows']) == 2
@@ -174,3 +176,57 @@ def test_offsetting_unallocated_movements_need_atomic_group_reconciliation(monke
         assert response.status_code == 409
         with orm_session() as db:
             assert db.scalar(select(PhysicalLotMovementEvidence.id)) is None
+        pair_path = '/api/v1/inventory/physical-lots/evidence-pairs'
+        body = {'inbound_movement_id': inbound_id, 'outbound_movement_id': outbound_id,
+                'quantity': '1.000', 'evidence': '入库箱码与出库签收逐件核对为同一实物批次'}
+        assert client.post(pair_path, json=body).status_code == 401
+        assert client.post(pair_path, headers=auth, json={**body, 'quantity': '1.001'}).status_code == 409
+        assert client.post(pair_path, headers=auth, json={**body, 'quantity': 1}).status_code == 422
+        assert client.post(pair_path, headers=auth, json={**body,
+            'inbound_movement_id': outbound_id, 'outbound_movement_id': inbound_id}).status_code == 422
+        created = client.post(pair_path, headers=auth, json=body)
+        assert created.status_code == 201, created.text
+        record = created.json()
+        assert record['quantity'] == '1.000'
+        assert record['inbound_movement_id'] == inbound_id
+        assert record['outbound_movement_id'] == outbound_id
+        assert record['original_pair_id'] is None
+        assert client.get('/api/v1/inventory/physical-lots/unallocated-movements',
+            headers=auth).json()['rows'] == []
+        overview = client.get('/api/v1/inventory/physical-lots/overview', headers=auth).json()
+        assert overview['fully_allocated']
+        history = client.get(f"/api/v1/inventory/physical-lots/{record['lot_id']}/history",
+            headers=auth).json()
+        assert [row['quantity'] for row in history['movement_evidence']] == ['1.000', '-1.000']
+        assert history['balances'][0]['quantity'] == '0.000'
+        for evidence_id in (record['inbound_evidence_id'], record['outbound_evidence_id']):
+            assert client.post(f'/api/v1/inventory/physical-lots/movement-evidence/{evidence_id}/reverse',
+                headers=auth, json={'reason': '成对补证不能只撤销其中一笔证据'}).status_code == 422
+        with orm_session(write=True) as db:
+            later_inbound = add_model(db, StockMovement(warehouse_id=1, material_id=material_id,
+                quantity='1.000', source_type='legacy_test', source_id=3, source_line_id=3))
+            later_outbound = add_model(db, StockMovement(warehouse_id=1, material_id=material_id,
+                quantity='-1.000', source_type='legacy_test', source_id=4, source_line_id=4))
+            later_inbound_id, later_outbound_id = later_inbound.id, later_outbound.id
+        second = client.post(pair_path, headers=auth, json={**body,
+            'inbound_movement_id': later_inbound_id, 'outbound_movement_id': later_outbound_id,
+            'lot_id': record['lot_id']})
+        assert second.status_code == 201, second.text
+        reverse_path = f"{pair_path}/{record['id']}/reverse"
+        assert client.post(reverse_path, headers=auth,
+            json={'reason': '后续有效批次来源尚在，不能先撤销首次来源'}).status_code == 409
+        assert client.post(f"{pair_path}/{second.json()['id']}/reverse", headers=auth,
+            json={'reason': '先撤销后续配对再撤销首次来源记录'}).status_code == 201
+        reversed_pair = client.post(reverse_path, headers=auth,
+            json={'reason': '交接记录复核发现原配对有误，整体冲销'})
+        assert reversed_pair.status_code == 201, reversed_pair.text
+        assert reversed_pair.json()['original_pair_id'] == record['id']
+        assert reversed_pair.json()['quantity'] == '-1.000'
+        assert client.post(reverse_path, headers=auth,
+            json={'reason': '重复冲销必须明确返回冲突错误'}).status_code == 409
+        assert client.get('/api/v1/inventory/physical-lots/unallocated-movements',
+            headers=auth).json()['rows'] != []
+        with orm_session() as db:
+            assert len(list(db.scalars(select(PhysicalLotEvidencePair.id)))) == 4
+            assert len(list(db.scalars(select(PhysicalLotMovementEvidence.id)))) == 8
+            assert [row.quantity for row in db.scalars(select(StockMovement).order_by(StockMovement.id))] == ['1.000', '-1.000', '1.000', '-1.000']

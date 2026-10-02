@@ -1,6 +1,6 @@
 import {watch} from 'vue'
 import type {AppState} from '../state'
-import type {PhysicalLotEvidenceInput,PhysicalLotEvidenceResult,PhysicalLotMovementEvidenceInput,PhysicalLotMovementEvidenceResult,PhysicalLotMovementEvidenceReverseInput,PhysicalLotReverseInput,PhysicalLotRow} from '../../../../shared/physical-lot-api'
+import type {PhysicalLotEvidenceInput,PhysicalLotEvidenceResult,PhysicalLotEvidencePairInput,PhysicalLotEvidencePairResult,PhysicalLotEvidencePairReverseInput,PhysicalLotMovementEvidenceInput,PhysicalLotMovementEvidenceResult,PhysicalLotMovementEvidenceReverseInput,PhysicalLotReverseInput,PhysicalLotRow} from '../../../../shared/physical-lot-api'
 import {displayError} from '../../utils/formatters.ts'
 
 export function createPhysicalLotActions(state: AppState) {
@@ -143,8 +143,46 @@ export function createPhysicalLotActions(state: AppState) {
       return null
     }
   }
+  async function savePhysicalLotEvidencePair(input: PhysicalLotEvidencePairInput): Promise<PhysicalLotEvidencePairResult | null> {
+    if (!available() || !state.user.value?.permissions.includes('physical_lot.movement_evidence')) return null
+    const session = owner
+    state.lotError.value = ''
+    try {
+      const result = await window.nexora!.callApi('physicalLotEvidencePair', input)
+      if (session !== owner || !available()) return null
+      const source = state.lotUnallocated.value?.rows.find(row => row.movement_id === input.inbound_movement_id)
+      if (result.inbound_movement_id !== input.inbound_movement_id
+          || result.outbound_movement_id !== input.outbound_movement_id
+          || (input.lot_id !== null && result.lot_id !== input.lot_id)
+          || Number(result.quantity) !== Number(input.quantity)
+          || (source && (result.warehouse_id !== source.warehouse_id || result.material_id !== source.material_id)))
+        throw Error('成对补证响应与提交范围不一致，请重新读取。')
+      await Promise.all([loadPhysicalLots(), loadPhysicalLotUnallocated()])
+      return result
+    } catch (cause) {
+      if (session === owner) state.lotError.value = displayError(cause)
+      return null
+    }
+  }
+  async function reversePhysicalLotEvidencePair(input: PhysicalLotEvidencePairReverseInput): Promise<PhysicalLotEvidencePairResult | null> {
+    if (!available() || !state.user.value?.permissions.includes('physical_lot.movement_evidence')) return null
+    const session = owner
+    state.lotError.value = ''
+    try {
+      const result = await window.nexora!.callApi('physicalLotEvidencePairReverse', input)
+      if (session !== owner || !available()) return null
+      if (result.original_pair_id !== input.record_id || !result.quantity.startsWith('-'))
+        throw Error('成对补证冲销响应与原记录不一致，请重新读取。')
+      await Promise.all([loadPhysicalLots(), loadPhysicalLotUnallocated()])
+      return result
+    } catch (cause) {
+      if (session === owner) state.lotError.value = displayError(cause)
+      return null
+    }
+  }
   return {loadPhysicalLots, loadPhysicalLotUnallocated, loadPhysicalLotHistory,
     savePhysicalLotEvidence, reversePhysicalLotEvidence,
     savePhysicalLotMovementEvidence, reversePhysicalLotMovementEvidence,
+    savePhysicalLotEvidencePair, reversePhysicalLotEvidencePair,
     clearPhysicalLotHistory}
 }

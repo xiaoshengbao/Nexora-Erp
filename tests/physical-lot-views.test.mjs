@@ -17,7 +17,8 @@ const allowed=ref(true);return {lotOverview,lotHistory,lotUnallocated,lotLoading
   warehouses,materials,busy,connectionLost,user,ledgerQuery,allowed,
   can(code){return allowed.value&&user.value.permissions.includes(code)},localTime:value=>value,
   loadPhysicalLots(){},loadPhysicalLotUnallocated(){},loadPhysicalLotHistory(){},savePhysicalLotEvidence(){},
-  reversePhysicalLotEvidence(){},savePhysicalLotMovementEvidence(){},reversePhysicalLotMovementEvidence(){},clearPhysicalLotHistory(){}};
+  reversePhysicalLotEvidence(){},savePhysicalLotMovementEvidence(){},reversePhysicalLotMovementEvidence(){},
+  savePhysicalLotEvidencePair(){},reversePhysicalLotEvidencePair(){},clearPhysicalLotHistory(){}};
 })());`
 
 test('批次页面显示历史未识别、未分配差额、来源流水及无权状态',async t=>{
@@ -70,6 +71,10 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
     movement_evidence:[{id:4,movement_id:9,warehouse_id:1,warehouse_name:'主仓库',quantity:'0.125',
       source_type:'other_inbound',source_id:4,source_line_id:5,evidence:'现场交接单与批次标签核对',
       original_evidence_id:null,created_by_name:'admin',created_at:'2026-10-02 09:03:00'}],
+    evidence_pairs:[{id:5,inbound_movement_id:9,outbound_movement_id:10,
+      inbound_evidence_id:6,outbound_evidence_id:7,quantity:'0.125',
+      evidence:'入库箱码与出库交接记录逐件确认',original_pair_id:null,
+      created_by_name:'admin',created_at:'2026-10-02 09:04:00'}],
     balances:[{warehouse_id:1,warehouse_name:'主仓库',quantity:'1.875'}]}
   const traced=await render()
   assert.match(traced,/升级检查点流水 #8/)
@@ -79,6 +84,8 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
   assert.match(traced,/冲销补证/)
   assert.match(traced,/现场交接单与批次标签核对/)
   assert.match(traced,/冲销逐笔补证/)
+  assert.match(traced,/入库箱码与出库交接记录逐件确认/)
+  assert.match(traced,/整体冲销/)
   store.connectionLost=true
   assert.match(await render(),/旧批次余额与来源证据已失效/)
   store.allowed=false

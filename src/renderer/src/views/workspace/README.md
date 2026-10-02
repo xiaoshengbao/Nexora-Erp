@@ -7,7 +7,7 @@
 | `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据 |
-| `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证，不推断旧单据的真实批号 |
+| `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证及先入后出成对补证，不推断旧单据的真实批号 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立库存盘点，逐行核对盘盈/盘亏实物批次并确认，沿原批次冲销 |
@@ -103,4 +103,4 @@
 
 `warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合，规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
 
-`warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理 Pinia 批次快照与补证写操作，查询沿用库存查看权限，现场补证另需 `physical_lot.reclassify`，旧客户端未分配流水逐笔补证需 `physical_lot.movement_evidence`；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初、新流水、现场补证与逐笔补证记录分开展示，补证与可审计冲销只转移批次归属，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。
+`warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理 Pinia 批次快照与补证写操作，查询沿用库存查看权限，现场补证另需 `physical_lot.reclassify`，旧客户端未分配流水逐笔及成对补证需 `physical_lot.movement_evidence`；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初、新流水、现场补证、逐笔及成对补证记录分开展示，补证与可审计冲销只转移批次归属，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。
