@@ -3,6 +3,7 @@ import type {PhysicalLotOperations} from './physical-lot-api'
 import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
 import type {OutboundLotLineInput,OutboundLotOptions} from './outbound-lot-api'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
+import type {TransferLotLineInput,TransferLotOptions} from './transfer-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -934,7 +935,7 @@ export interface SalesReturn {
   total_amount: string
 }
 // 调拨单沿用单据的状态与明细结构，同时明确记录两个仓库。
-export interface Transfer extends Omit<Receipt, 'supplier_id' | 'supplier_name' | 'warehouse_id' | 'warehouse_name'> {
+export interface Transfer extends Omit<Receipt, 'supplier_id' | 'supplier_name' | 'warehouse_id' | 'warehouse_name' | 'lines'> {
   from_warehouse_id: number
   from_warehouse_name: string
   to_warehouse_id: number
@@ -944,6 +945,7 @@ export interface Transfer extends Omit<Receipt, 'supplier_id' | 'supplier_name' 
   reversed_by: number | null
   reversed_by_name: string | null
   reversed_at: string | null
+  lines: (ReceiptLine & {physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]})[]
 }
 // 盘点差异由服务端根据建单快照计算，桌面端不能自行修改账面数量。
 export interface StocktakeLine {
@@ -1268,7 +1270,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   reverseSalesReturn: { input: { returnId: number; reason: string }; output: SalesReturn }
   transfers: { input: undefined; output: Transfer[] }
   createTransfer: { input: { from_warehouse_id: number; to_warehouse_id: number; reference: string; lines: { material_id: number; quantity: string }[] }; output: Transfer }
-  postTransfer: { input: { transferId: number }; output: Transfer }
+  availableTransferLots: {input: {transferId: number}; output: TransferLotOptions}
+  postTransfer: { input: { transferId: number; lines?: TransferLotLineInput[] }; output: Transfer }
   reverseTransfer: { input: { transferId: number; reason: string }; output: Transfer }
   stocktakes: { input: undefined; output: Stocktake[] }
   createStocktake: { input: { warehouse_id: number; reference: string; lines: { material_id: number; counted_quantity: string }[] }; output: Stocktake }

@@ -9,7 +9,7 @@
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；只读，不表示单据已支持批次录入 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
-| `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
+| `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
@@ -69,7 +69,7 @@
 
 `warehouse/WarehouseOutboundsView.vue` 展示其他出库草稿、仓库确认、取消和冲销；其他用途出库和已提交采购退货确认时逐行选择来源仓库的实物批次，标记历史未识别期初，冲销后保留原批次证据。两类出库均在仓库确认时扣减库存，采购退货冲销沿原批次回仓。
 
-采购退货页提交后展示待出库单号；仓库出库页复用列表确认采购退货，确认后才更新库存与应付。销售出库页确认时逐行选择来源仓库的实物批次，展示固定分配或旧确认差额，冲销沿原批次回仓。
+采购退货页提交后展示待出库单号；仓库出库页复用列表确认采购退货，确认后才更新库存与应付。销售出库页确认时逐行选择来源仓库的实物批次，展示固定分配或旧确认差额，冲销沿原批次回仓。仓库调拨页确认时逐行选择来源仓批次，确认后在目标仓保留同一批次编号；冲销沿原分配回仓，目标仓批次已被耗用时拒绝冲销。
 
 `warehouse/InventoryLedgerView.vue` 复用工作台表格展示服务端筛选后的期初、逐笔流水与期末。公共表格以完整占位区展示空结果或加载失败；台账查询失败时隐藏上次结果，并提供重新查询。服务端若返回默认 `Not Found`，桌面端会提示核对两端版本，不将失败误当作无流水。
 
