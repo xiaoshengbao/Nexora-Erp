@@ -1,26 +1,31 @@
-import { readFileSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs'
+import { displayStyles } from './site-display.mjs'
+import { detailControlsMarkup } from '../docs/site/source-details.mjs'
+import { createHash } from 'node:crypto'
+import { readFileSync, mkdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs'
 import { resolve, dirname, posix } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Marked } from 'marked'
 import { sandboxMarkup } from '../docs/site/sandbox-ui.mjs'
+import { showcaseMarkup, showcaseImages, sourceImages } from '../docs/site/product-showcase.mjs'
+import { pageEntryScript } from '../docs/site/hero-entrance.mjs'
 
 export const repository = 'https://github.com/zhangzzj2003/Nexora-Erp'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const languages = {
   'zh-CN': { other: 'en', readme: 'README.md', guide: 'docs/development.zh-CN.md',
     features: '项目功能', progress: '开发进度', docs: '开发文档', skip: '跳到正文', contents: '本页目录', source: '查看 Markdown',
-    title: '每一步业务，<br><span>彼此相连。</span>', subtitle: '联光 ERP · 面向企业内部的桌面 ERP',
-    intro: '采购、库存、销售与生产，连接到同一套可追溯的业务记录。', scope: '当前处于单公司、多仓库、在线局域网内部试用阶段。',
-    button: '阅读开发文档', code: '查看源码', home: '项目介绍', lang: 'EN',
+    title: '<span class="hero-title-line">每一步业务</span><br><span class="hero-title-line hero-title-accent">彼此相连</span>', subtitle: '联光 ERP · 面向企业内部的桌面 ERP',
+    intro: '面向电子生产，将物料、采购、库存、生产与销售连接起来，让业务记录与财务来源有据可查。', scope: '内部试用 · 单公司 · 多仓库 · 在线局域网',
+    button: '探索业务演示', code: '查看核心能力', home: '项目介绍', lang: 'EN',
     flows: [['采购', 'PURCHASE', '申请与订单'], ['库存', 'INVENTORY', '收发与台账'], ['生产', 'PRODUCTION', '工单与成本'], ['销售', 'SALES', '出库与退货']],
-    pillars: [['业务闭环', '分批收发与来源追溯'], ['财务基础', '科目、期间与变更审计'], ['持续开发', '手工凭证已合并，自动凭证待补']], footer: '内部试用 · 单公司 · 在线局域网', download: '下载 Markdown' },
+    pillars: [['电子生产物料管理', '按类别自动编码，集中维护规格、封装与制造商料号，让采购和生产使用同一份物料档案。'], ['跨业务来源追溯', '采购、库存、生产与销售保留单据关联、操作者与更正记录，查清每笔数量和金额的来处。'], ['业务与财务衔接', '从已确认业务生成凭证草稿，独立审核后过账；核对材料、人工和制造费用的成本来源。']], footer: '内部试用 · 单公司 · 在线局域网', download: '下载 Markdown' },
   en: { other: 'zh-CN', readme: 'README.en.md', guide: 'docs/development.en.md',
     features: 'Features', progress: 'Progress', docs: 'Development guide', skip: 'Skip to content', contents: 'On this page', source: 'View Markdown',
-    title: 'Every operation.<br><span>Connected.</span>', subtitle: 'Nexora ERP · Desktop ERP for internal operations',
-    intro: 'Purchasing, inventory, sales and production, connected through traceable business records.', scope: 'Internal trial: one company, multiple warehouses, online LAN clients.',
-    button: 'Read the guide', code: 'View source', home: 'Overview', lang: '中文',
+    title: '<span class="hero-title-line">Every operation</span><br><span class="hero-title-line hero-title-accent">Connected</span>', subtitle: 'Nexora ERP · Desktop ERP for internal operations',
+    intro: 'For electronic production: connect materials, purchasing, inventory, production and sales through traceable business and financial origins.', scope: 'Internal trial · Single company · Multiple warehouses · Online LAN',
+    button: 'Explore business demo', code: 'Core capabilities', home: 'Overview', lang: '中文',
     flows: [['Purchasing', 'PURCHASE', 'Requests & orders'], ['Inventory', 'INVENTORY', 'Movements & ledgers'], ['Production', 'PRODUCTION', 'Work orders & costs'], ['Sales', 'SALES', 'Shipments & returns']],
-    pillars: [['Business flow', 'Partial movements and source tracing'], ['Finance foundations', 'Accounts, periods and change history'], ['In development', 'Manual journals shipped; automation next']], footer: 'Internal trial · Single company · Online LAN', download: 'Download Markdown' }
+    pillars: [['Electronic materials', 'Category-based codes, specifications, packages and manufacturer part numbers keep purchasing and production on the same material records.'], ['Traceable business origins', 'Purchasing, inventory, production and sales preserve document links, operators and corrections so quantities and amounts can be traced.'], ['Business and finance', 'Generate journal drafts from confirmed business sources, independently review and post them, and reconcile material, labor and overhead costs.']], footer: 'Internal trial · Single company · Online LAN', download: 'Download Markdown' }
 }
 
 export function escapeHtml(value) {
@@ -73,8 +78,18 @@ function hero(language) {
   const en = language === 'en'
   const labels = en ? ['Receipt', 'Stock', 'Payable', 'Trace'] : ['入库', '库存', '财务', '追溯']
   const captions = en ? ['Warehouse confirmation starts the record.', 'The same transaction writes the stock movement.', 'The receipt becomes a traceable payable source.', 'Follow each source back to the original receipt.'] : ['仓库确认入库，业务记录由此开始。', '同一事务写入库存流水，数量与来源一起保留。', '已确认入库形成应付来源，金额可追溯到原单。', '沿着来源记录，查回同一张入库单。']
-  const cover = `<section class="hero" data-cover><div class="cover-content"><h1>${t.title}</h1><p class="subtitle">${t.subtitle}</p><p class="hero-description">${t.intro}</p><div class="actions"><a class="primary" href="development.html">${t.button} <span aria-hidden="true">↗</span></a><a href="${repository}">${t.code} <span aria-hidden="true">↗</span></a></div><div class="guide-origin" aria-hidden="true"><span class="cover-stem"></span></div></div><a class="cover-scroll" href="#business-demo"><span>${en ? 'Scroll to explore the connections' : '向下滚动，探索业务流转'}</span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></a><div class="cover-guide" hidden aria-hidden="true"><svg><path class="cover-guide-path"/><circle class="cover-guide-tip" r="2.5"/></svg></div></section>`
-  return `${cover}<section class="scroll-scene" id="business-demo" aria-label="${en ? 'Interactive receipt, stock and payable demo' : '入库、库存与应付交互演示'}"><div class="scene-sticky"><div class="stage-heading"><span>${en ? 'Follow a receipt. Explore every connection.' : '从一张入库单，看见业务的每一次连接。'}</span><button type="button" data-action="reset">${en ? 'Reset demo' : '重置演示'}</button></div><div class="scene-board">${sandboxMarkup(language)}<svg class="connection-layer" aria-hidden="true"><defs><filter id="line-glow" x="-80%" y="-100%" width="260%" height="300%"><feGaussianBlur stdDeviation="3"/></filter></defs><g data-connection="0"><path class="connection-glow"/><path class="connection-line"/><circle class="connection-node" r="4"/></g><g data-connection="1"><path class="connection-glow"/><path class="connection-line"/><circle class="connection-node" r="4"/></g></svg></div><div class="scene-narration">${captions.map((caption,index)=>`<p data-caption="${index}" ${index ? 'hidden' : ''}>${caption}</p>`).join('')}</div><div class="scene-controls"><div role="group" aria-label="${en ? 'Select a flow step' : '选择演示步骤'}">${labels.map((label,index)=>`<button type="button" data-stage="${index}" aria-pressed="${index===0}">${label}</button>`).join('')}</div><button type="button" data-overview>${en ? 'Overview' : '返回总览'}</button></div><p class="demo-status" data-demo-status role="status" aria-live="polite"></p><p class="demo-disclaimer">${en ? 'Interactive demo · Local sample data · Refresh to reset' : '网页交互演示 · 使用本地示例数据 · 刷新恢复初始状态'}</p><noscript><p class="no-script-note">${en ? 'DEMO-001: 12 units received → stock +12 → payable ¥120.00. Enable JavaScript to interact.' : 'DEMO-001：入库 12 件 → 库存 +12 → 应付 ¥120.00。启用 JavaScript 后可操作演示。'}</p></noscript></div></section><section class="pillars" aria-label="${t.home}">${t.pillars.map(([name,detail])=>`<div><h2>${name}</h2><p>${detail}</p></div>`).join('')}</section><div class="foundation"><p>Electron / Vue 3 / FastAPI / SQLite</p><a href="#section-2">${t.progress} →</a></div>`
+  // 首屏使用真实界面作为空间节点，四步路径直接解释产品覆盖的业务。
+  const journey = en ? ['Materials', 'Inventory', 'Production', 'Finance'] : ['物料', '库存', '生产', '财务']
+  const peeks = ['home', 'materials'].map((key, index) => `<div class="hero-peek hero-peek-${index}" aria-hidden="true"><img src="../assets/screenshots/${key}.png" alt="" width="1800" height="1200"><span>${en ? ['One workspace', 'Shared material records'][index] : ['业务全貌，一眼看清', '从同一份物料开始'][index]}</span><i data-orbit-node></i></div>`).join('')
+  const cover = `<section class="hero" data-cover>${peeks}<div class="cover-content"><p class="hero-eyebrow">${en ? 'CONNECTED OPERATIONS' : '联光 ERP · 业务彼此相连'}</p><h1>${t.title}</h1><p class="subtitle">${t.subtitle}</p><p class="hero-description">${t.intro}</p><p class="hero-scope">${t.scope}</p><div class="actions"><a class="primary" href="#business-demo">${t.button} <span aria-hidden="true">↗</span></a><a href="#core-capabilities">${t.code} <span aria-hidden="true">↗</span></a></div><nav class="hero-journey" aria-label="${en ? 'Connected business areas' : '相连的业务领域'}">${journey.map((label, index) => `<a href="#preview-${['materials', 'inventory', 'production', 'journals'][index]}"><span>${String(index + 1).padStart(2, '0')}</span>${label}</a>${index < 3 ? '<i aria-hidden="true">→</i>' : ''}`).join('')}</nav><div class="guide-origin" data-orbit-node aria-hidden="true"><span class="cover-stem"></span></div></div><a class="cover-scroll" href="#product-preview"><span>${en ? 'Scroll to see the workspace' : '向下滚动，看见真实工作空间'}</span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></a><div class="cover-guide" hidden aria-hidden="true"><svg><path class="cover-guide-path"/><circle class="cover-guide-tip" r="2.5"/></svg></div></section>`
+  return `${cover}${showcaseMarkup(language)}<section class="scroll-scene" data-surface="screenshots" id="business-demo" aria-label="${en ? 'Interactive receipt, stock and payable demo' : '入库、库存与应付交互演示'}"><div class="scene-sticky"><div class="stage-heading"><span class="stage-orbit-label"><i class="stage-orbit-node" data-orbit-node="stage" aria-hidden="true"></i>${en ? 'Follow a receipt. Explore every connection.' : '从一张入库单，看见业务的每一次连接。'}</span><div class="surface-controls" role="group" aria-label="${en ? 'Choose interface preview or interactive demo' : '选择真实界面或业务演示'}"><button type="button" data-surface-select="screenshots" aria-pressed="true">${en ? 'Real interfaces' : '真实界面'}</button><button type="button" data-surface-select="sandbox" aria-pressed="false">${en ? 'Business demo' : '业务演示'}</button></div><button type="button" data-action="reset">${en ? 'Reset demo' : '重置演示'}</button></div>${detailControlsMarkup(language)}<div class="scene-board">${sandboxMarkup(language)}<svg class="connection-layer" aria-hidden="true"><defs><filter id="line-glow" x="-80%" y="-100%" width="260%" height="300%"><feGaussianBlur stdDeviation="3"/></filter></defs><g data-connection="0"><path class="connection-glow"/><path class="connection-line"/><circle class="connection-node" r="4"/></g><g data-connection="1"><path class="connection-glow"/><path class="connection-line"/><circle class="connection-node" r="4"/></g></svg></div><div class="scene-narration">${captions.map((caption,index)=>`<p data-caption="${index}" ${index ? 'hidden' : ''}>${caption}</p>`).join('')}</div><div class="scene-controls"><div role="group" aria-label="${en ? 'Select a flow step' : '选择演示步骤'}">${labels.map((label,index)=>`<button type="button" data-stage="${index}" aria-pressed="${index===0}">${label}</button>`).join('')}</div><button type="button" data-overview>${en ? 'Overview' : '返回总览'}</button></div><p class="demo-status" data-demo-status role="status" aria-live="polite"></p><p class="demo-disclaimer"><span class="real-surface-note">${en ? 'Project interface presentation · Sample data · Scroll to enlarge; focus a view for details. Switch to Business demo to interact.' : '项目界面展示 · 示例数据 · 随滚动放大，可聚焦明细；切换业务演示后可操作。'}</span><span class="sandbox-surface-note">${en ? 'Interactive demo · Local sample data · Refresh to reset' : '网页交互演示 · 使用本地示例数据 · 刷新恢复初始状态'}</span></p><noscript><p class="no-script-note">${en ? 'DEMO-001: 12 units received → stock +12 → payable ¥120.00. Enable JavaScript to interact.' : 'DEMO-001：入库 12 件 → 库存 +12 → 应付 ¥120.00。启用 JavaScript 后可操作演示。'}</p></noscript></div></section><section class="pillars" id="core-capabilities" data-orbit-node="edge" aria-label="${t.home}">${t.pillars.map(([name,detail])=>`<div><h2>${name}</h2><p>${detail}</p></div>`).join('')}</section><div class="foundation"><p>Electron / Vue 3 / FastAPI / SQLite</p><a href="#section-2">${t.progress} →</a></div>`
+}
+
+// 首屏与收尾主标题不加标点；收尾只表达后续演进，不把计划能力描述为已交付；装饰复用全页 WebGL 轨道。
+function finaleMarkup(language) {
+  const en = language === 'en'
+  // 句号悬挂在标题旁，四个主字与背景同心；主线沿倾斜轨道的切线接入后闭合，不再延伸至页脚。
+  return `<section class="site-finale" id="coming-next" data-orbit-finale aria-labelledby="finale-title"><div class="finale-ring" data-finale-ring aria-hidden="true"><span class="finale-origin" data-orbit-node="finale"></span><i class="finale-secondary"></i></div><div class="finale-copy"><p class="finale-eyebrow">NEXORA · ${en ? 'THE NEXT CONNECTION' : '下一次连接'}</p><h2 id="finale-title" aria-label="${en ? 'Stay tuned' : '敬请期待'}"><span class="finale-title-text">${en ? 'Stay tuned' : '敬请期待'}</span></h2><p class="finale-description">${en ? 'More connections. More possibilities.' : '让更多业务，彼此相连。'}</p></div><a class="finale-back" href="#main">${en ? 'Back to the beginning' : '回到起点'} <span aria-hidden="true">↑</span></a></section>`
 }
 
 function page(language, guide, rendered) {
@@ -82,15 +97,33 @@ function page(language, guide, rendered) {
   const title = guide ? `${t.docs} · Nexora ERP` : `Nexora ERP · ${t.home}`
   const source = guide ? t.guide : t.readme
   const toc = `<aside class="toc"><nav aria-label="${t.contents}"><p>${t.contents}</p>${rendered.headings.map(h => `<a href="#${h.id}">${h.text}</a>`).join('')}<a class="source-link" href="${repository}/blob/main/${source}">${t.source} ↗</a></nav></aside>`
-  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${escapeHtml(guide ? t.docs + ': Electron, Vue, FastAPI, testing, builds and GitHub Pages.' : t.intro)}"><link rel="icon" href="../assets/brand.png"><link rel="stylesheet" href="../assets/site.css">${guide ? '' : '<link rel="stylesheet" href="../assets/sandbox.css">'}</head><body class="${guide ? 'guide' : 'overview'}">${header(language,guide,rendered.headings)}<main id="main" ${guide ? 'class="doc-layout"' : ''}>${guide ? toc : hero(language)}<article class="prose ${guide ? '' : 'home-content'}">${rendered.html}<p class="download"><a href="../sources/${posix.basename(source)}" download>${t.download} ↓</a></p></article></main><footer><a class="brand-text" href="./">Nexora ERP</a><span>${t.footer}</span><a href="${repository}">GitHub ↗</a></footer>${guide ? '' : '<script type="module" src="../assets/motion.mjs"></script>'}</body></html>`
+  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script data-page-entry>${pageEntryScript}</script><title>${title}</title><meta name="description" content="${escapeHtml(guide ? t.docs + ': Electron, Vue, FastAPI, testing, builds and GitHub Pages.' : t.intro)}"><link rel="icon" href="../assets/brand.png"><link rel="stylesheet" href="../assets/site.css">${guide ? '' : '<link rel="stylesheet" href="../assets/sandbox.css"><link rel="stylesheet" href="../assets/product-showcase.css"><link rel="stylesheet" href="../assets/app-display.css">'}</head><body class="${guide ? 'guide' : 'overview'}">${guide ? '' : '<div class="page-orbit" aria-hidden="true"><svg></svg></div>'}${header(language,guide,rendered.headings)}<main id="main" ${guide ? 'class="doc-layout"' : ''}>${guide ? toc : hero(language)}<article class="prose ${guide ? '' : 'home-content'}" ${guide ? '' : 'data-orbit-node="edge"'}>${rendered.html}<p class="download" ${guide ? '' : 'data-orbit-node="edge"'}><a href="../sources/${posix.basename(source)}" download>${t.download} ↓</a></p></article>${guide ? '' : finaleMarkup(language)}</main><footer><a class="brand-text" href="./">Nexora ERP</a><span>${t.footer}</span><a href="${repository}">GitHub ↗</a></footer>${guide ? '' : '<script type="module" src="../assets/motion.mjs"></script><script type="module" src="../assets/product-gallery.mjs"></script>'}</body></html>`
 }
 
 export function buildSite(output = resolve(root, 'dist/site')) {
   mkdirSync(resolve(output, 'assets'), { recursive: true })
   mkdirSync(resolve(output, 'sources'), { recursive: true })
-  copyFileSync(resolve(root, 'docs/site/site.css'), resolve(output, 'assets/site.css'))
+  // 清理上一版构建遗留的嵌入应用产物，只删除官网专属的生成目录。
+  rmSync(resolve(output,'assets/live-preview'),{recursive:true,force:true})
+  // 整个模块图共用内容版本，避免更新后入口与被缓存的旧依赖混用。
+  const siteFiles=['site.css','product-showcase.css','product-gallery.mjs','product-showcase.mjs','workspace-display.mjs','product-orbit.mjs','hero-entrance.mjs','source-details.mjs','motion.mjs','cover-motion.mjs','scene-geometry.mjs','webgl-stage.mjs','sandbox.mjs','sandbox-ui.mjs','sandbox.css']
+  const appDisplay=displayStyles()
+  writeFileSync(resolve(output,'assets/app-display.css'),appDisplay)
+  const version=createHash('sha256').update(appDisplay).update(siteFiles.map(file=>readFileSync(resolve(root,'docs/site',file),'utf8')).join('\n')).digest('hex').slice(0,12)
+  for (const file of siteFiles) {
+    const source=readFileSync(resolve(root,'docs/site',file),'utf8')
+    writeFileSync(resolve(output,'assets',file),file.endsWith('.mjs') ? source.replace(/(['"])(\.\/[\w-]+\.mjs)\1/g,(_,quote,path)=>`${quote}${path}?v=${version}${quote}`) : source)
+  }
+  mkdirSync(resolve(output, 'assets/screenshots'), { recursive: true })
+  // 版本来自图片内容，更新截图后不会继续命中浏览器中的旧图或旧失败缓存。
+  const imageVersions = new Map()
+  for (const image of [...showcaseImages, ...sourceImages]) {
+    if (imageVersions.has(image.file)) continue
+    const source = resolve(root, 'docs/site/screenshots', image.file)
+    imageVersions.set(image.file, createHash('sha256').update(readFileSync(source)).digest('hex').slice(0, 12))
+    copyFileSync(source, resolve(output, 'assets/screenshots', image.file))
+  }
   copyFileSync(resolve(root, 'resources/icon.png'), resolve(output, 'assets/brand.png'))
-  for (const file of ['motion.mjs', 'cover-motion.mjs', 'scene-geometry.mjs', 'webgl-stage.mjs', 'sandbox.mjs', 'sandbox-ui.mjs', 'sandbox.css']) copyFileSync(resolve(root, 'docs/site', file), resolve(output, 'assets', file))
   copyFileSync(resolve(root, 'docs/site/fonts/InterVariable.woff2'), resolve(output, 'assets/InterVariable.woff2'))
   copyFileSync(resolve(root, 'docs/site/fonts/LICENSE.txt'), resolve(output, 'assets/FONT-LICENSE.txt'))
   for (const [language, t] of Object.entries(languages)) {
@@ -98,7 +131,12 @@ export function buildSite(output = resolve(root, 'dist/site')) {
     for (const guide of [false, true]) {
       const source = guide ? t.guide : t.readme
       const markdown = readFileSync(resolve(root, source), 'utf8')
-      writeFileSync(resolve(output, language, guide ? 'development.html' : 'index.html'), page(language, guide, renderMarkdown(markdown,source,language,!guide)))
+      let html = page(language, guide, renderMarkdown(markdown,source,language,!guide))
+      html=html.replace(/(\.\.\/assets\/[\w-]+\.(?:css|mjs))"/g,`$1?v=${version}"`)
+      // 提前获取轻量官网模块，展示内容已经在 HTML 中，不需要装配完整应用。
+      if (!guide) html=html.replace('</head>',siteFiles.filter(file=>file.endsWith('.mjs')&&file!=='product-showcase.mjs').map(file=>`<link rel="modulepreload" href="../assets/${file}?v=${version}">`).join('')+'</head>')
+      for (const [file, version] of imageVersions) html = html.replaceAll(`../assets/screenshots/${file}`, `../assets/screenshots/${file}?v=${version}`)
+      writeFileSync(resolve(output, language, guide ? 'development.html' : 'index.html'), html)
       writeFileSync(resolve(output, 'sources', posix.basename(source)), markdown)
     }
   }
@@ -107,6 +145,11 @@ export function buildSite(output = resolve(root, 'dist/site')) {
   return output
 }
 
+// 发布只生成官网 HTML/CSS/JavaScript；独立 Vue 入口仅用于维护者更新上方截图。
+export async function buildWebsite(output = resolve(root, 'dist/site')) {
+  return buildSite(output)
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  console.log(`官网已生成：${buildSite()}`)
+  console.log(`官网已生成：${await buildWebsite()}`)
 }

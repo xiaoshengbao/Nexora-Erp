@@ -162,7 +162,7 @@ npm run build
 PowerShell 不替原生命令展开通配符，显式枚举测试。`npm run build` 已含类型检查，`npm run preview` 预览已有构建。网站专用检查：
 
 ```bash
-node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
+node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs
 npm run docs:build
 ```
 
@@ -208,7 +208,13 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 ## 官网与 HTML 文档
 
-首页标题与行动独占 `100svh` 封面，页眉叠放在顶部。`cover-motion.mjs` 让按钮下方的青绿引导线随滚动伸向入库窗口的实测顶边，随后由入库、库存和应付来源线接续；倒滚收回，快速离场或手动聚焦清除旧线。桌面使用 WebGL，手机使用同一路径的 SVG；减少动态、低高度及无脚本保留静态引导与文档入口。标题同时按宽高适配，中英文采用同一结构。
+首页以真实界面卫星、物料 → 库存 → 生产 → 财务路径填充首屏。`product-orbit.mjs` 用透明 WebGL 轨道贯穿首屏、五张界面、三窗展示和正文外缘，轨道按滚动阅读进度绘制与回收，卡片依次入场、完整阅读、退场，光点不再独立计时。滚动每帧读取未变形节点并更新，不限速或追赶；吸顶舞台入口固定在自然布局位置，停止滚动及后台停绘。手机保留 SVG 滚动连线与轻量卡片入场，减少动态保留完整静态阅读。标题、正文与截图由 HTML 展示，不被画布截获点击，GPU 失效后仍可读。 全页轨道位于留白和渐变上方、真实界面与业务舞台后方，实体卡片自然遮挡经过背后的线。标题和说明容器透明，文字以自身大小的紧凑底色保护阅读，避免整块背景截断轨道；main 不建立层叠上下文。WebGL 与 SVG 共用层级，覆盖层不接收点击，导航与原生大图弹窗保持在前。
+
+官网正文末尾新增“敬请期待”双语收尾，标题主字与背景同心，主线从正文末尾直接延续为倾斜环绕路径，下降与整圈共用单一路径、进度和行进端点，随滚动展开并闭合，较淡的反向倾斜辅轨补充空间感，不再穿过标题或续到页脚，复用全页 WebGL 画布并在空闲与离屏时停绘。手机、减少动态及 WebGL 失败使用 SVG；无脚本保留文字、CSS 静态轨道与“回到起点”原生链接。
+
+首屏出场约 1.14 秒：两行标题先后出现，说明和按钮跟上，左右真实界面从外侧进入。`hero-entrance.mjs` 只在这段出场期间让轨道跟随窗口，结束后停帧；滚动、触摸、点击或键盘焦点会立即结束出场。首屏之外的锚点与恢复位置、减少动态直接可读，不等待业务视图。head 同步确定首屏出场状态；初次定位保持即时，load 后两帧才启用后续点击的平滑导航，避免打开时先露出首页再滚走。无脚本直接显示完整内容。 首屏入场按实际滚动位置判断，顶部刷新即使保留旧锚点也播放；浏览器顶部零位滚动通知不中断动画。下方锚点或恢复位置仍直接定位并取消首屏出场，不重置用户滚动位置。
+
+官网三窗是直接生成的只读 HTML 展示，构建时从项目的工作台、浅色主题、共享表格及标题栏抽取所需样式，并限制在 `.erp-display` 内。业务字段采用项目 13px 的 150%。`workspace-display.mjs` 维护展示结构，`scripts/site-display.mjs` 提取项目 CSS，`source-details.mjs` 测量本地字段 offset，并使用同一镜头矩阵平移、缩放内容和关联边框。示例行对应 200 / 2000 / 1000 个与 4000 / 400 / 400 元。缺失或越界字段只隐藏连线；手机可移动取景，减少动态保留静态阅读。官网不嵌入 iframe，不加载原 App、Vue、Pinia、业务路由或生产连接，不使用加载计时器。上方截图的独立 Vue 取景工具仍供维护者使用，不进入发布目录。
 
 官网采用静态 HTML/CSS/JavaScript 构建，`scripts/build-docs-site.mjs` 使用 Marked 将版本控制中的 Markdown 转成页面，无业务 API、数据库或浏览器端 Markdown 编译。中文入口 `/zh-CN/`，英文 `/en/`，对应 `development.html` 为开发文档，根入口为中文。
 
@@ -218,11 +224,20 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 | `docs/development.zh-CN.md`、`docs/development.en.md` | 指南内容源，自动生成 HTML。 |
 | `docs/site/site.css` | 官网/文档/移动端/打印样式。 |
 | `scripts/build-docs-site.mjs` | 页面、目录、路径与资源生成。 |
-| `.github/workflows/docs-site.yml` | PR 验证及主线 Pages 发布配置。 |
+| `docs/site/source-details.mjs` | 原始页面镜头、真实行矩形验证与逐项关联。 |
+| `docs/site/product-orbit.mjs` | 全页滚动轨道、卡片入退场、固定布局节点及 SVG 兼容层。 |
+| `docs/site/hero-entrance.mjs` | 一次性首屏出场的轨道跟随、中断、偏好适配与资源释放。 |
+| `docs/site/product-showcase.*`、`product-gallery.mjs` | 真实界面截图、双语说明、失败提示和原生大图弹窗。 |
+| `docs/site/screenshots/`、`scripts/site-preview/` | 截图素材、独立取景会话与只读组件入口；官网构建单独打包只读入口。 |
+| `.github/workflows/docs-site.yml` | PR 验证、明确手动发布及可选的主线 Pages 发布配置。 |
 
 本地 `npm run docs:build` 后运行 `python -m http.server 4173 --directory dist/site`，访问 `http://localhost:4173/`。语言切换保留页面类型，正文和目录无需 JavaScript；已有专题文档保留中文原文，英文指南明确标注语言。
 
-首页使用独立的网页交互沙盒：先显示完整入库窗口，再随滚动从右侧引入库存和应付窗口，用 WebGL 连接实际来源锚点。支持多单据、多物料、仓库与供应商选择、确认入库、库存筛选和来源追溯、部分或全部模拟付款。数量使用三位定点小数，金额以整数分计算；草稿不生成业务流水，确认不能重复，已确认单据只能复制为草稿，付款不得超过未付余额。
+首屏明确“联光 ERP · 面向企业内部的桌面 ERP”，主行动进入业务演示，次行动查看核心能力。五张真实组件截图位于封面与交互演示之间，以工作台首页为主图，补充物料管理、库存台账、生产成本和总账凭证。统一浅色 1800 × 1200，标注“当前界面预览 · 示例数据”，可点击查看大图；手机纵向展示，原图链接在无脚本时仍有效。优势说明覆盖电子生产物料、跨业务来源与业务财务衔接；业务来源生成凭证草稿，独立审核后过账。
+
+运行 `npm run docs:preview-ui` 打开独立取景会话；它加载当前真实 App、Pinia、侧栏、顶部导航、标签和共享表格，只提供本地虚构数据，拒绝所有未配置请求，不连接正式服务、不写入业务数据。它用于界面取景，不构成原生桌面或服务连接验收；[截图说明](site/screenshots/README.md)记录尺寸与业务示例。
+
+三窗默认展示真实采购入库、库存台账和应收应付来源组件，来源均为采购入库 #101，可聚焦明细；“业务演示”切换到独立网页沙盒，切换不重置沙盒状态：先显示完整入库窗口，再随滚动从右侧引入库存和应付窗口，用 WebGL 连接实际来源锚点。支持多单据、多物料、仓库与供应商选择、确认入库、库存筛选和来源追溯、部分或全部模拟付款。数量使用三位定点小数，金额以整数分计算；草稿不生成业务流水，确认不能重复，已确认单据只能复制为草稿，付款不得超过未付余额。
 
 `sandbox.mjs` 管理业务状态，`sandbox-ui.mjs` 生成并装配 HTML 控件，`scene-geometry.mjs` 统一逻辑画布和窗底投影，`motion.mjs` 只控制镜头与连接线，`sandbox.css` 提供舞台样式。业务数据不由滚动改变，也不连接 ERP 服务。同一标签页点击语言链接时通过一次性 `sessionStorage` 交接数据，刷新恢复初始示例；存储不可用时仍允许导航。分步与总览按钮滚动到页面的实际阶段；放大操作可在停滚时保持聚焦，但任何页面滚动都会立即退出聚焦并按滚动条位置重绘，没有暂停或恢复按钮。输入框获得焦点不会锁住页面滚动。手机纵向排列，减少动态效果时取消运动；无 JavaScript 时保留静态业务示例和文档入口。
 
@@ -232,11 +247,11 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 长记录分页展示：入库和应付明细每页 2 行，库存流水每页 4 行，余额和付款记录每页 3 行。页码属于展示状态，合计、确认和余额始终使用完整业务数据。添加物料打开最后一页；确认时若其他页有错误，自动返回对应页并定位字段。删除或筛选后的越界页会收敛到有效页。桌面先按实际内容（包括展开明细和错误提示）计算逻辑高度，再统一缩放窗口与连线；窗口内不建立滚动容器。总览保留物料、数量和单价，金额列及逐行删除入口在放大窗口中操作。
 
-运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
+运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
 
-目前按要求**暂不启用线上网站**。准备发布时由管理员在 Settings → Pages → Source 选 GitHub Actions，再启用仓库变量 `PAGES_ENABLED=true` 并手动运行官网工作流。普通推送权限不足以配置 Pages。工作流只上传 `dist/site/`；PR 只验证不发布。预期地址 `https://zhangzzj2003.github.io/Nexora-Erp/`，部署成功前不可称为可用官网。
+官网预览发布入口为 [https://zhangzzj2003.github.io/Nexora-Erp/](https://zhangzzj2003.github.io/Nexora-Erp/)。README 顶部的官网链接和可点击预览图打开完整 WebGL 展示，GitHub README 本身只显示静态内容。管理员将 Pages 来源设为 GitHub Actions；在所选官网分支手动运行 `docs-site.yml` 并勾选 `publish=true`，即可发布该分支而不合并。PR 和未勾选发布的手动运行只验证，工作流只上传 `dist/site/`。仓库变量 `PAGES_ENABLED=true` 另外控制主线推送自动发布，分支预览验收期间保持关闭。`github-pages` 环境须允许此次发布分支。
 
-参考 [GitHub Pages 官方工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。公开官网不包含数据库、私钥、令牌或本地日志。更新进度先核对合并代码，再同步双语文档并发布；未合并需求保持开发中。
+参考 [GitHub Pages 官方工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。公开官网不包含数据库、私钥、令牌或本地日志。发布前核对源码版本和双语文档；明确要求发布的分支预览不表示需求已合并或应用已验收，默认分支 README 仍须另行授权合并后更新。
 
 辅助核算使用静态 ORM 模型提供四类辅助归属、版本规则、拆分期初与组合结转；接口、快照更正和桌面权限边界见 [辅助核算规则](auxiliary-accounting.md)。[分户期初](subledger-openings.md)逐笔核对历史未结单据，独立审核后启用并记录资金，导入不会重复增加总账余额。
 
@@ -248,3 +263,5 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 ## 售后退换修
 
 [售后规则](after-sales.md)提供独立审批、退换货关联草稿、客户物品保管、维修检验与交付、明确收费及追加式更正；客户物品不进入公司可售库存。结账固定期末方案与保管记录。保修自动判定、序列号、附件、工时及分批交接仍待实现。
+
+原位展示内容随 HTML 直接生成，无脚本也能看见，不需要等待应用挂载。官网构建只生成静态 HTML/CSS/JavaScript，并清理上一版嵌入应用的生成目录；模块及样式使用内容版本。字体和窗口变化只校正本地字段与连线，不会出现全屏加载提示。

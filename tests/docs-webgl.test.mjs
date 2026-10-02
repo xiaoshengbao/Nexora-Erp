@@ -1,3 +1,4 @@
+import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, finaleGeometry, finaleOrbit, mountPageOrbit } from '../docs/site/product-orbit.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cubicPoints, trimPath, pointOnPath, ribbonMesh, floorLightAt, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
@@ -46,7 +47,7 @@ function fixture({ unavailable = false, compileFailure = false } = {}) {
   } }
   const board = { ownerDocument: doc, closest: () => scene, append: canvas => canvases.push(canvas) }
   const guideHost = { ...board, classList: scene.classList }
-  return { counters, canvases, scene, create: () => createWebGLStage(board, () => counters.frames++), createGuide: () => createWebGLGuide(guideHost, () => counters.frames++) }
+  return { counters, canvases, scene, doc, guideHost, create: () => createWebGLStage(board, () => counters.frames++), createGuide: () => createWebGLGuide(guideHost, () => counters.frames++) }
 }
 const frame = () => ({ width: 1200, height: 600, layout: sceneAt(.8).windows, progress: .8, ratio: 3, staticMode: false,
   connections: [{ visible: true, points: [[0, 0], [100, 100]], amount: .5, node: .3 }] })
@@ -266,7 +267,7 @@ test('封面 WebGL 初始化失败只保留 SVG，不影响业务舞台或泄漏
 })
 
 // 运行真实舞台控制器，DOM/GPU 只模拟边界；滚动位置与动画帧可以精确推进。
-function scrollingScene() {
+function scrollingScene({ real = false } = {}) {
   const element = () => {
     const attrs = new Map(), classes = new Set()
     return Object.assign(new EventTarget(), {
@@ -293,6 +294,7 @@ function scrollingScene() {
   win.scrollTo = options => { win.lastScroll = options; win.scrollY = options.top; win.dispatchEvent(new Event('scroll')) }
   doc.defaultView = win; doc.documentElement = { lang: 'zh-CN' }; doc.querySelector = () => scene
   doc.createElement = () => Object.assign(element(), { getContext: () => null, remove() {} })
+  scene.dataset.surface = real ? 'screenshots' : 'sandbox'
   scene.ownerDocument = doc; board.ownerDocument = doc; board.parentElement = sticky; sticky.children = [board]
   board.clientWidth = 1200; board.closest = () => scene; board.append = () => {}
   Object.defineProperty(board, 'clientHeight', { get: () => parseFloat(board.style.height) || 540 })
@@ -300,7 +302,9 @@ function scrollingScene() {
   board.querySelector = selector => selector === '.connection-layer' ? svg : null
   svg.querySelector = selector => groups[Number(selector.match(/\d+/)[0])]
   scene.getBoundingClientRect = () => ({ top: 1045 - win.scrollY, bottom: 4598 - win.scrollY, height: 3553 })
-  scene.querySelectorAll = selector => selector === '[data-stage]' ? buttons : selector === '[data-caption]' ? captions : []
+  // 收集真实组件的倍率，验证滚动、聚焦与停止绘制使用同一镜头时序。
+  const realPanes = real ? ['receipt','stock','finance'].map(element) : []
+  scene.querySelectorAll = selector => selector === '[data-stage]' ? buttons : selector === '[data-caption]' ? captions : selector === '.real-interface' ? realPanes : []
   scene.querySelector = selector => selector === '.scene-board' ? board : windows[['receipt', 'stock', 'finance'].findIndex(key => selector === `[data-window="${key}"]`)] ?? null
   scene.addEventListener('scene:geometry', event => { latest = event.detail })
   const destroy = mountScene(doc, win)
@@ -311,7 +315,7 @@ function scrollingScene() {
   }
   const scroll = p => { win.scrollY = 1045 + p * 2508; win.dispatchEvent(new Event('scroll')) }
   tick(0)
-  return { scene, win, doc, windows, board, buttons, tick, click, scroll, destroy, latest: () => latest, queued: () => frames.size }
+  return { scene, win, doc, windows, board, buttons, realPanes, tick, click, scroll, destroy, latest: () => latest, queued: () => frames.size }
 }
 
 test('聚焦与编辑都不能锁住页面滚动，下一帧直接使用真实进度；快跳和倒滚不延迟恢复', () => {
@@ -351,4 +355,296 @@ test('分步和总览改变真实滚动位置，滚动条与所选阶段一致�
   assert.ok(Math.abs(f.latest().progress - .92) < 1e-12)
   assert.equal(f.buttons[3].getAttribute('aria-pressed'), 'true')
   f.destroy()
+})
+
+
+// 全页轨道沿真实页面坐标接续；只裁掉整段离屏路径，不改变端点关系。
+test('全页轨道保持节点顺序和滚动平移，拒绝无效或反向路径，椭圆闭合', () => {
+  const nodes = [[100, -200], [900, 400], [120, 1000], [900, 2000]]
+  const paths = pageOrbitSegments(nodes, 1440, 900)
+  assert.equal(paths.length, 2)
+  assert.deepEqual(paths[0].points[0], nodes[0])
+  assert.deepEqual(paths[0].points.at(-1), nodes[1])
+  const translated = pageOrbitSegments(nodes.map(([x,y]) => [x,y-40]), 1440, 900)
+  paths.forEach((path,i) => path.points.forEach((point,k) => assert.ok(Math.abs(translated[i].points[k][1] - (point[1] - 40)) < 1e-8)))
+  assert.equal(pageOrbitSegments([[0,100],[0,0]], 100, 100).length, 0)
+  assert.equal(pageOrbitSegments([[NaN,0],[0,100]], 100, 100).length, 0)
+  assert.equal(pageOrbitSegments(nodes, 0, 900).length, 0)
+  // 手机正文高度区间只沿外缘走，仍接入真实编号端点。
+  const mobilePath = pageOrbitSegments([[195,600],[40,1500]],390,844,true)[0].points
+  assert.deepEqual(mobilePath[16],[12,632]); assert.deepEqual(mobilePath[17],[12,1476])
+  assert.deepEqual(mobilePath.at(-1),[40,1500])
+  const ring = orbitRing([720,450], [600,220], .6)
+  assert.ok(Math.hypot(ring[0][0]-ring.at(-1)[0],ring[0][1]-ring.at(-1)[1]) < 1e-8)
+  assert.ok(ring.flat().every(Number.isFinite))
+})
+
+function pageOrbitFixture(options = {}) {
+  const f = fixture(options), frames = new Map(), media = [new EventTarget(),new EventTarget()]
+  media.forEach(item => { item.matches = false })
+  const win = Object.assign(new EventTarget(), { innerWidth: 1440, innerHeight: 900, devicePixelRatio: 3 })
+  let sequence = 0, query = 0, top = 120, angle
+  const styles = {}, stage = { offsetHeight: 7, dataset: { orbitNode: 'stage' }, getBoundingClientRect: () => ({left:100,top:Math.max(48,top+600),width:7,height:7}), closest: () => ({getBoundingClientRect:()=>({top:top+600})}) }
+  win.requestAnimationFrame = fn => { frames.set(++sequence,fn); return sequence }
+  win.cancelAnimationFrame = id => frames.delete(id)
+  win.matchMedia = () => media[query++ % 2]
+  const doc = Object.assign(new EventTarget(), f.doc, { hidden: false })
+  const svg = { innerHTML:'',setAttribute() {} }
+  const hero = { getBoundingClientRect: () => ({ top,bottom:top+900,height:900 }) }
+  const node = { offsetHeight: 44, dataset: {}, getBoundingClientRect: () => ({left:100,top,width:44,height:44}) }
+  const other = { ...node,getBoundingClientRect: () => ({left:900,top:top+600,width:44,height:44}) }
+  const card = { dataset:{}, getBoundingClientRect: () => ({top,bottom:top+600,height:600}),style: {setProperty: (name,value) => { styles[name]=value; if(name==='--orbit-angle') angle=value },removeProperty(name) {delete styles[name]} } }
+  const host = { ...f.guideHost,ownerDocument:doc,dataset:{},querySelector:()=>svg }
+  const finale = options.finale ? { dataset: {}, getBoundingClientRect: () => ({top:top+2200,height:640}) } : null
+  const endingRing = options.ending ? {getBoundingClientRect:()=>({left:150,top:top+2200+640*.24,width:1040,height:640*.52})} : null
+  const endingNode = {offsetHeight:1,dataset:{orbitNode:'finale'},getBoundingClientRect:()=>({left:0,top:top+2200,width:1,height:1})}
+  const downloadNode = {...node,dataset:{orbitNode:'edge'},getBoundingClientRect:()=>({left:110,top:top+2120,width:200,height:24})}
+  doc.querySelector = selector => selector === '[data-finale-ring]' ? endingRing : selector === '.page-orbit' ? host : selector === '[data-cover]' ? hero : selector === '[data-orbit-finale]' ? finale : null
+  doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,options.sticky ? stage : other,...(options.ending?[downloadNode,endingNode]:[])] : selector === '[data-orbit-card]' ? [card] : []
+  const tick = time => { const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(time)) }
+  const destroy=mountPageOrbit(doc,win)
+  return { ...f,doc,win,media,svg,host,styles,card,finale,endingRing,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
+}
+
+test('全页轨道仅按需绘制，减少动态保留静态线，GPU 丢失恢复并释放资源', () => {
+  const f=pageOrbitFixture()
+  f.tick(40)
+  assert.equal(f.host.dataset.renderer,'webgl');assert.equal(f.queued(),0)
+  f.doc.hidden=true;f.doc.dispatchEvent(new Event('visibilitychange'))
+  assert.equal(f.queued(),0)
+  f.doc.hidden=false;f.doc.dispatchEvent(new Event('visibilitychange'));f.tick(80)
+  f.canvases[0].fire('webglcontextlost');f.tick(120)
+  assert.equal(f.host.dataset.renderer,'fallback');assert.equal(f.queued(),0)
+  assert.ok(f.svg.innerHTML.includes('<path'))
+  f.canvases[0].fire('webglcontextrestored');f.tick(160)
+  assert.equal(f.host.dataset.renderer,'webgl')
+  f.media[0].matches=true;f.media[0].dispatchEvent(new Event('change'));f.tick(200)
+  assert.equal(f.host.dataset.renderer,'fallback');assert.equal(f.queued(),0)
+  assert.equal(f.angle(),'0deg');assert.equal(f.canvases[0].hidden,true)
+  f.media[0].matches=false;f.setTop(-2000);f.win.dispatchEvent(new Event('scroll'));f.tick(240)
+  assert.equal(f.host.hidden,true);assert.equal(f.queued(),0)
+  f.destroy()
+  assert.equal(f.counters.programs,0);assert.equal(f.counters.buffers,0)
+  assert.ok(f.canvases[0].removed)
+  f.win.dispatchEvent(new Event('resize'));assert.equal(f.queued(),0)
+  const unavailable=pageOrbitFixture({unavailable:true});unavailable.tick(40)
+  assert.equal(unavailable.host.dataset.renderer,'fallback');assert.ok(unavailable.svg.innerHTML.includes('<path'))
+  unavailable.destroy()
+})
+
+test('首屏有限出场共用轨道测量帧，结束及卸载后不继续绘制', () => {
+  const f = pageOrbitFixture()
+  f.tick(0)
+  const initial = f.svg.innerHTML
+  f.setTop(90)
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  assert.equal(f.queued(), 1)
+  f.tick(16)
+  assert.notEqual(f.svg.innerHTML, initial)
+  assert.equal(f.queued(), 0)
+  f.destroy()
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  assert.equal(f.queued(), 0)
+})
+
+// 直接验证滚动几何而不是计时动画，覆盖同位置重放、反向与边界连续性。
+test('轨道弧长进度跟随阅读线，向下推进、倒滚收回且边界连续', () => {
+  const path = cubicPoints([100,600],[100,800],[900,1000],[900,1200])
+  const shift = delta => path.map(([x,y])=>[x,y-delta])
+  const start = orbitProgress(path,900), middle = orbitProgress(shift(300),900)
+  assert.ok(start > 0 && start < middle && middle < 1)
+  assert.equal(orbitProgress(shift(700),900),1)
+  assert.equal(orbitProgress(shift(-200),900),0)
+  assert.equal(orbitProgress(shift(300),900),middle)
+  assert.equal(orbitProgress(path,900),start)
+  for (const delta of [83.9,84,84.1,599.9,600,600.1]) {
+    assert.ok(Math.abs(orbitProgress(shift(delta+.01),900)-orbitProgress(shift(delta),900))<.001)
+  }
+  assert.equal(orbitProgress([[NaN,0],[0,100]],900),0)
+  assert.equal(orbitProgress([],900),0)
+  assert.equal(orbitProgress([[0,0],[0,0]],900),1)
+})
+
+test('卡片按滚动入场、中央完整阅读、退场，手机轻量位移与减少动态完整可读', () => {
+  const bounds = top => ({top,height:600})
+  const entering = orbitCardPose(bounds(750),900), reading = orbitCardPose(bounds(168),900), leaving = orbitCardPose(bounds(-400),900)
+  assert.equal(entering.phase,'entering');assert.ok(entering.y>0 && entering.scale<1 && entering.opacity<1)
+  assert.equal(reading.phase,'reading');assert.equal(reading.scale,1);assert.equal(reading.opacity,1);assert.equal(reading.angle,0)
+  assert.equal(leaving.phase,'leaving');assert.ok(leaving.y<0)
+  assert.equal(orbitCardPose(bounds(750),900,1).x,-entering.x)
+  assert.deepEqual(orbitCardPose(bounds(750),900),entering)
+  const mobile=orbitCardPose(bounds(750),900,0,true)
+  assert.equal(mobile.x,0);assert.equal(mobile.angle,0);assert.ok(mobile.y>0 && mobile.y<entering.y);assert.ok(mobile.opacity>=.55)
+  assert.deepEqual(orbitCardPose(bounds(750),900,0,false,true),reading)
+  // 阅读平台两侧接缝使用零斜率平滑曲线，微量滚动不会造成姿态突变。
+  for(let top=-900;top<1200;top+=5) {
+    const a=orbitCardPose(bounds(top),900), b=orbitCardPose(bounds(top+.1),900)
+    assert.ok(Math.abs(a.y-b.y)<.05);assert.ok(Math.abs(a.opacity-b.opacity)<.001)
+  }
+})
+
+test('高频滚动每帧合并到最新位置，暂停不漂移，倒滚和快速跳转可重复', () => {
+  const f=pageOrbitFixture({unavailable:true});f.tick(1)
+  const first=f.svg.innerHTML, pose={...f.styles}
+  assert.equal(f.queued(),0)
+  f.tick(10000);assert.equal(f.svg.innerHTML,first);assert.deepEqual(f.styles,pose)
+  // 16ms 内更新同样必须绘制，避免原 32ms 限速导致连线落后页面。
+  f.setTop(-200);f.win.dispatchEvent(new Event('scroll'));f.win.dispatchEvent(new Event('scroll'))
+  assert.equal(f.queued(),1);f.tick(16)
+  assert.notEqual(f.svg.innerHTML,first);assert.notDeepEqual(f.styles,pose);assert.equal(f.queued(),0)
+  f.setTop(-2000);f.win.dispatchEvent(new Event('scroll'));f.tick(17);assert.equal(f.host.hidden,true)
+  f.setTop(120);f.win.dispatchEvent(new Event('scroll'));f.tick(18)
+  assert.equal(f.svg.innerHTML,first);assert.deepEqual(f.styles,pose)
+  f.media[1].matches=true;f.media[1].dispatchEvent(new Event('change'));f.tick(19)
+  assert.equal(f.styles['--orbit-angle'],'0deg');assert.equal(f.host.dataset.renderer,'fallback')
+  f.media[0].matches=true;f.media[0].dispatchEvent(new Event('change'));f.tick(20)
+  assert.equal(f.styles['--orbit-opacity'],'1');assert.equal(f.styles['--orbit-y'],'0px')
+  f.destroy();assert.deepEqual(f.styles,{});assert.equal(f.card.dataset.orbitPhase,undefined)
+})
+
+test('吸顶舞台节点使用自然位置，端点随页面等距平移，GPU 回退不改路径', () => {
+  const f=pageOrbitFixture({sticky:true});f.tick(1)
+  const state=()=>[...f.svg.innerHTML.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1])
+  f.setTop(-600);f.win.dispatchEvent(new Event('scroll'));f.tick(2)
+  const before=state()[0]
+  f.setTop(-610);f.win.dispatchEvent(new Event('scroll'));f.tick(3)
+  const after=state()[0]
+  // 两个节点此时都高于阅读线，路径完整；sticky 标题停在 48px，轨道仍平移 10px。
+  const ys = path=>[...path.matchAll(/[ML]([-\d.]+) ([-\d.]+)/g)].map(match=>Number(match[2]))
+  ys(before).forEach((y,index)=>assert.ok(Math.abs(ys(after)[index]-(y-10))<.02))
+  f.canvases[0].fire('webglcontextlost');f.tick(4)
+  assert.equal(f.host.dataset.renderer,'fallback');assert.equal(state()[0],after)
+  f.destroy()
+})
+
+test('三窗真实明细放大使用独立画布，切换沙盒后恢复原镜头画布', () => {
+  const f = scrollingScene({real:true})
+  for (const pane of f.windows) {
+    assert.equal(pane.style['--logical-width'],'720px')
+    assert.equal(pane.style['--logical-height'],'480px')
+  }
+  f.click('[data-surface-select]',{surfaceSelect:'sandbox'});f.tick(40)
+  assert.equal(f.scene.dataset.surface,'sandbox')
+  assert.equal(f.windows[1].style['--logical-width'],'1000px')
+  f.click('[data-surface-select]',{surfaceSelect:'screenshots'});f.tick(80)
+  assert.equal(f.windows[1].style['--logical-width'],'720px')
+  assert.equal(f.scene.dataset.mode,'scroll')
+  f.destroy()
+})
+
+// 连续放大与相机使用同一帧，倒滚可复现，停止滚动后不能继续漂移。
+test('真实组件倍率随滚动连续变化，聚焦放大收敛后停帧',()=>{
+  const f=scrollingScene({real:true})
+  f.scroll(.2);f.tick(16)
+  const original=Number(f.realPanes[0].style['--detail-zoom'])
+  assert.ok(original>2/3 && original<1)
+  f.scroll(.3);f.tick(32)
+  const midway=Number(f.realPanes[0].style['--detail-zoom'])
+  assert.ok(midway>original && midway<1)
+  f.scroll(.45);f.tick(48);assert.equal(Number(f.realPanes[0].style['--detail-zoom']),1)
+  f.scroll(.2);f.tick(64);assert.equal(Number(f.realPanes[0].style['--detail-zoom']),original)
+  assert.equal(f.queued(),0)
+  f.click('[data-focus]',{focus:'receipt'});f.tick(80);f.tick(96)
+  assert.ok(Number(f.realPanes[0].style['--detail-zoom'])>original)
+  for(let time=112;time<2400;time+=16)f.tick(time)
+  assert.equal(Number(f.realPanes[0].style['--detail-zoom']),1);assert.equal(f.queued(),0)
+  f.destroy()
+})
+
+// 测试共用几何的阅读边界、移动视口和静态偏好，不复制椭圆计算实现。
+test('收尾轨道仅在可见时展开，倒滚可逆且减少动态保留完整线', () => {
+  assert.deepEqual(finaleOrbit({top:900,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:-640,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:NaN,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:0,height:640},0,900), [])
+  const entering = finaleOrbit({top:780,height:640},1440,900)
+  const reading = finaleOrbit({top:120,height:640},1440,900)
+  assert.equal(reading.length,2)
+  assert.ok(entering[0].amount < reading[0].amount)
+  assert.deepEqual(finaleOrbit({top:780,height:640},1440,900),entering)
+  const nearby = finaleOrbit({top:779.99,height:640},1440,900)
+  assert.ok(Math.abs(nearby[0].amount-entering[0].amount)<.001)
+  const phone = finaleOrbit({top:100,height:460},390,844,true)
+  for(const line of phone){
+    assert.equal(line.amount,1)
+    assert.ok(line.points.flat().every(Number.isFinite))
+    assert.ok(line.points.every(([x])=>x>=0&&x<=390))
+  }
+})
+
+test('收尾复用全页画布，GPU 失败仍显示 SVG 且离屏不维持循环', () => {
+  for(const unavailable of [false,true]){
+    const f=pageOrbitFixture({finale:true,unavailable})
+    f.tick(0);f.setTop(-2100);f.win.dispatchEvent(new Event('scroll'));f.tick(16)
+    assert.equal(f.host.dataset.renderer,unavailable?'fallback':'webgl')
+    assert.equal(f.host.hidden,false)
+    assert.equal(f.canvases.length,1)
+    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,2)
+    assert.equal(f.finale.dataset.orbitReady,'true')
+    assert.equal(f.queued(),0)
+    f.setTop(-3000);f.win.dispatchEvent(new Event('scroll'));f.tick(32)
+    assert.equal(f.host.hidden,true);assert.equal(f.queued(),0)
+    f.destroy();assert.equal(f.finale.dataset.orbitReady,undefined)
+  }
+})
+
+// 主线沿切线顺滑汇入，倾斜主辅轨道同心闭合且不进入标题的核心区域。
+test('收尾倾斜轨道同心闭合，主线顺着轨道切线自然汇入', () => {
+  const background = {left:80,top:190,width:1000,height:330}
+  const geometry = finaleGeometry({top:100,height:640},1440,background)
+  for(const points of [geometry.points,geometry.secondary]){
+    assert.deepEqual(points[0],points.at(-1))
+    assert.ok(points.every(([x,y])=>Math.abs(x-580)>230 || Math.abs(y-355)>85))
+  }
+  // 左下方接点沿弧度继续轻缓绕行，接入本身不出现先向右再折返的回钩。
+  assert.ok(geometry.entry[0]<580 && geometry.entry[1]>355)
+  assert.ok(geometry.tangent[0]>0 && geometry.tangent[1]>0)
+  const [incoming] = pageOrbitSegments([[80,30],geometry.entry],1440,900,false,geometry.tangent)
+  assert.deepEqual(incoming.points.at(-1),geometry.entry)
+  const before = incoming.points.at(-2), after=geometry.points[1],entry=geometry.entry
+  const a=[entry[0]-before[0],entry[1]-before[1]],b=[after[0]-entry[0],after[1]-entry[1]]
+  assert.ok((a[0]*b[0]+a[1]*b[1])/(Math.hypot(...a)*Math.hypot(...b))>.995)
+  assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,width:0}),[])
+  assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,top:NaN}),[])
+})
+
+// 实页装配必须使用背景的实测尺寸，而不是视口中心或隐藏标记的位置。
+test('正文末尾直接延续为环绕路径，共用一个起点和行进端点', () => {
+  const f=pageOrbitFixture({finale:true,ending:true})
+  f.setTop(-2100);f.tick(0)
+  const geometry=finaleGeometry(f.finale.getBoundingClientRect(),1440,f.endingRing.getBoundingClientRect())
+  const paths=[...f.svg.innerHTML.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1])
+  assert.equal(paths.length,3)
+  const junction=geometry.entry.map(value=>value.toFixed(2)).join(' ')
+  // 同一条 path 从下载外缘继续下行，经过圈起点并环绕；不能在圈起点再出现 M。
+  assert.ok(paths[1].startsWith('M92.00 44.00'))
+  assert.ok(paths[1].includes('L'+junction))
+  assert.equal((paths[1].match(/M/g)||[]).length,1)
+  assert.equal((f.svg.innerHTML.match(/<circle/g)||[]).length,1)
+  assert.equal(f.queued(),0)
+  f.destroy()
+})
+
+// 覆盖用户截图里的中途状态：环绕尚未开始时，不允许先画出另一个起点。
+test('下降与环绕沿同一前缀顺序推进，倒滚不分叉或产生第二个端点', () => {
+  const source=[90,80],bounds={top:170,height:640}
+  const geometry=finaleGeometry(bounds,1440)
+  const [complete]=finaleOrbit(bounds,1440,900,true,null,source)
+  const join=complete.points.findIndex(point=>point[0]===geometry.entry[0]&&point[1]===geometry.entry[1])
+  assert.ok(join>0 && join<complete.points.length-1)
+  assert.deepEqual(complete.points[0],source)
+  assert.deepEqual(complete.points.at(-1),geometry.entry)
+  for(const top of [800,650,450,170]){
+    const from=[90,top-90],rect={top,height:640}
+    const lines=finaleOrbit(rect,1440,900,false,null,from)
+    const active=lines.filter(line=>line.visible&&line.showNode!==false)
+    assert.ok(active.length<=1)
+    const prefix=trimPath(lines[0].points,lines[0].amount)
+    assert.deepEqual(prefix[0],from)
+    assert.ok(prefix.every(point=>point.every(Number.isFinite)))
+    assert.deepEqual(finaleOrbit(rect,1440,900,false,null,from),lines)
+  }
+  assert.deepEqual(finaleOrbit(bounds,1440,900,false,null,[NaN,80]),[])
+  assert.deepEqual(finaleOrbit(bounds,1440,900,false,null,[90,1000]),[])
 })

@@ -1,8 +1,11 @@
+import { detailWindowLayout, detailMagnification, mountSourceDetails } from './source-details.mjs'
 import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight, advanceMotionClock } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
+import { mountPageOrbit } from './product-orbit.mjs'
 import { mountCover } from './cover-motion.mjs'
+import { mountHeroEntrance } from './hero-entrance.mjs'
 
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 const lerp = (a, b, p) => a + (b - a) * p
@@ -18,9 +21,13 @@ export function mountScene(doc = document, win = window) {
   const captions = [...scene.querySelectorAll('[data-caption]')]
   let progress = 0, focused = null, manual = false, frame = 0, onScreen = true, tween = null, disposed = false
   let renderedWindows = sceneAt(0).windows, lastStage = -1, sandbox
-  let pendingFocus = null
+  let pendingFocus = null, detailZoom = 2 / 3, detailController
   let graphics
   let resolvedWindows = [], logicalAnchors = [], linksAlpha = 1, heldPose = false
+  const realSurface = () => scene.dataset.surface === 'screenshots'
+  // 真实明细在独立坐标视窗放大，浅化透视保证行内字段可读；沙盒保持原有布局。
+  const surfaceLayout = layout => realSurface() ? detailWindowLayout(layout, !focused) : layout
+  const anchorElement = key => board.querySelector(`[${realSurface() ? 'data-real-anchor' : 'data-anchor'}="${key}"]`)
   const staticMode = () => reduced.matches || mobile.matches || short.matches
   const targetProgress = () => {
     const rect = scene.getBoundingClientRect()
@@ -31,16 +38,17 @@ export function mountScene(doc = document, win = window) {
   }
   const measureAnchors = () => {
     logicalAnchors = keys.map(key => {
-      const element = board.querySelector(`[data-anchor="${key}"]`)
+      const element = anchorElement(key)
       if (!element || !element.offsetHeight) return null
+      if (realSurface() && element.closest('.real-interface')?.dataset.previewReady !== 'true') return null
       const viewport = element.closest('.window-viewport')
       const local = (node, x, y) => {
         for (let el = node; el && el !== viewport; el = el.offsetParent) { x += el.offsetLeft; y += el.offsetTop }
         return [x, y]
       }
-      const edge = key === 'stock' ? element.closest('tr') : element
-      const dot = key === 'receipt' ? element.querySelector('.anchor-dot') : null
-      return { source: element.textContent.trim(), left: local(edge, -5, edge.offsetHeight / 2), right: dot ? local(dot, dot.offsetWidth / 2, dot.offsetHeight / 2) : local(edge, edge.offsetWidth + 4, edge.offsetHeight / 2) }
+      const edge = key === 'stock' && !realSurface() ? element.closest('tr') : element
+      const dot = key === 'receipt' && !realSurface() ? element.querySelector('.anchor-dot') : null
+      return { source: realSurface() ? element.dataset.sourceId : element.textContent.trim(), left: local(edge, -5, edge.offsetHeight / 2), right: dot ? local(dot, dot.offsetWidth / 2, dot.offsetHeight / 2) : local(edge, edge.offsetWidth + 4, edge.offsetHeight / 2) }
     })
   }
   const drawLines = () => {
@@ -49,7 +57,7 @@ export function mountScene(doc = document, win = window) {
       const anchor = logicalAnchors[index]
       if (!anchor) return null
       if (vertical) {
-        const el = board.querySelector(`[data-anchor="${key}"]`), rect = el.getBoundingClientRect(), edge = key === 'stock' ? el.closest('tr').getBoundingClientRect() : rect
+        const el = anchorElement(key), rect = el.getBoundingClientRect(), edge = key === 'stock' && !realSurface() ? el.closest('tr').getBoundingClientRect() : rect
         return { opacity: 1, source: anchor.source, left: [edge.left - root.left - 5, rect.top + rect.height / 2 - root.top], right: [edge.right - root.left + 4, rect.top + rect.height / 2 - root.top] }
       }
       const item = resolvedWindows[index], project = ([x, y]) => projectWindowPoint(item, x * item.scale, y * (item.scaleY ?? item.scale))
@@ -98,8 +106,10 @@ export function mountScene(doc = document, win = window) {
     el.classList.toggle('is-focused', !staticMode() && focused === keys[index])
     el.classList.toggle('is-compact', !staticMode() && item.compact > .5)
   })
-  const measure = layout => {
+  const measure = source => {
+    const layout = surfaceLayout(source)
     configure(layout)
+    if (realSurface()) { measureAnchors(); return layout }
     const fitted = layout.map((item, index) => {
       const pane = windows[index].querySelector('[data-content]')
       const bottom = Math.max(0, ...[...pane.children].map(child => child.offsetHeight ? child.offsetTop - pane.offsetTop + child.offsetHeight : 0))
@@ -110,6 +120,15 @@ export function mountScene(doc = document, win = window) {
     return fitted
   }
   const place = () => {
+    if (realSurface()) {
+      const target = detailMagnification(progress, Boolean(focused), staticMode())
+      detailZoom = staticMode() || !focused ? target : Math.abs(target-detailZoom) < .001 ? target : lerp(detailZoom,target,.18)
+      // 官网展示保留项目完整布局，仅移动同一界面的镜头；端点使用相同镜头矩阵。
+      scene.querySelectorAll('.real-interface').forEach(pane => pane.style.setProperty('--detail-zoom',String(detailZoom)))
+      detailController?.camera(Math.max(0,Math.min(1,(detailZoom-2/3)*3)))
+      measureAnchors()
+      if (focused && Math.abs(target-detailZoom) >= .001) schedule()
+    }
     windows.forEach((el, index) => {
       const item = resolvedWindows[index]
       if (staticMode()) { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden') }
@@ -141,7 +160,8 @@ export function mountScene(doc = document, win = window) {
       scene.dispatchEvent(new win.CustomEvent('scene:geometry', { detail: { entry: [root.left + entry[0] + win.scrollX, root.top + entry[1] + win.scrollY], progress, manual } }))
     }
   }
-  const apply = layout => {
+  const apply = source => {
+    const layout = surfaceLayout(source)
     board.style.height = staticMode() ? '' : `${stageHeight(layout)}px`
     renderedWindows = staticMode() ? layout : measure(layout)
     if (staticMode()) { configure(layout); measureAnchors() }
@@ -212,6 +232,14 @@ export function mountScene(doc = document, win = window) {
     syncControls(); schedule()
   }
   const onClick = event => {
+    const surface = event.target.closest('[data-surface-select]')
+    if (surface) {
+      // 两种展示共享镜头但数据独立，切换不重置已填写的沙盒单据。
+      scene.dataset.surface = surface.dataset.surfaceSelect
+      scene.querySelectorAll('[data-surface-select]').forEach(button => button.setAttribute('aria-pressed', String(button === surface)))
+      tween = null; focused = null; heldPose = false; pendingFocus = null; lastStage = -1
+      syncControls(); schedule(); return
+    }
     const focus = event.target.closest('[data-focus]')
     if (focus) { move(targetProgress(), focus.dataset.focus); return }
     const stage = event.target.closest('[data-stage]')
@@ -267,6 +295,11 @@ export function mountScene(doc = document, win = window) {
   const onDetails = event => {
     onRender()
   }
+  const destroyDetails = detailController = mountSourceDetails(scene, doc.documentElement.lang, () => {
+    // 展示布局变化只更新锚点，不重新启动镜头补间，避免滚动时反馈抖动。
+    measureAnchors(); schedule()
+  }, win)
+  scene.addEventListener('load', onRender, true); scene.addEventListener('error', onRender, true)
   scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('toggle', onDetails, true)
   scene.addEventListener('focusin', onInputFocus)
@@ -293,12 +326,13 @@ export function mountScene(doc = document, win = window) {
   return () => {
     disposed = true
     if (frame) win.cancelAnimationFrame(frame)
-    observer.disconnect(); reveals.disconnect(); sandbox.destroy(); graphics.destroy()
+    observer.disconnect(); reveals.disconnect(); sandbox.destroy(); destroyDetails(); graphics.destroy()
     scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', onRender)
+    scene.removeEventListener('load', onRender, true); scene.removeEventListener('error', onRender, true)
     scene.removeEventListener('toggle', onDetails, true)
     scene.removeEventListener('focusin', onInputFocus); scene.removeEventListener('scroll', schedule, true)
     win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', onResize); doc.removeEventListener('visibilitychange', onVisibility)
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference); short.removeEventListener('change', onPreference)
   }
 }
-if (typeof document !== 'undefined') { mountCover(); mountScene() }
+if (typeof document !== 'undefined') { if (document.querySelector('.page-orbit')) mountPageOrbit(); else mountCover(); mountHeroEntrance(); mountScene() }
