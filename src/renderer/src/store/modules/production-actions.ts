@@ -245,7 +245,7 @@ export function createProductionActions(
     await perform(
       () =>
         window.nexora!.callApi('postProductionCompletion', { completionId, ...(lots ? {lots} : {}) }),
-      `完工单 #${completionId} 已确认，合格成品已入目标仓库。`
+      `完工单 #${completionId} 已确认。`
     )
   }
 
