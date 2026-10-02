@@ -6,6 +6,7 @@ import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
 import type {TransferLotLineInput,TransferLotOptions} from './transfer-lot-api'
 import type {StocktakeLotLineInput,StocktakeLotOptions} from './stocktake-lot-api'
 import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot-api'
+import type {SalesReturnLotLineInput,SalesReturnLotOptions} from './sales-return-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -911,6 +912,7 @@ export interface SalesReturnLine extends ReceiptLine {
   shipment_line_id: number
   unit_price: string
   line_total: string
+  physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface SalesReturn {
   id: number
@@ -1269,7 +1271,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   reverseShipment: { input: { shipmentId: number; reason: string }; output: Shipment }
   salesReturns: { input: undefined; output: SalesReturn[] }
   createSalesReturn: { input: { shipment_id: number; warehouse_id: number; reason: string; lines: { shipment_line_id: number; quantity: string }[] }; output: SalesReturn }
-  postSalesReturn: { input: { returnId: number }; output: SalesReturn }
+  availableSalesReturnLots: { input: { returnId: number }; output: SalesReturnLotOptions }
+  postSalesReturn: { input: { returnId: number; lines?: SalesReturnLotLineInput[] }; output: SalesReturn }
   cancelSalesReturn: { input: { returnId: number }; output: SalesReturn }
   reverseSalesReturn: { input: { returnId: number; reason: string }; output: SalesReturn }
   transfers: { input: undefined; output: Transfer[] }
