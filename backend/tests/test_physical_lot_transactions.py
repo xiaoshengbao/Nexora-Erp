@@ -27,6 +27,13 @@ def test_lot_posting_conserves_multi_lot_stock_and_reversal_lineage(monkeypatch,
         token = client.post('/api/v1/auth/login', json={
             'username': 'admin', 'password': 'secure-pass-123'}).json()['token']
         auth = {'Authorization': f'Bearer {token}'}
+        assert client.post('/api/v1/roles', headers=auth, json={
+            'code': 'sales_only_lot_test', 'label': '仅销售查看', 'permissions': ['sales.view']}).status_code == 201
+        assert client.post('/api/v1/users', headers=auth, json={
+            'username': 'lot_sales', 'password': 'secure-pass-123', 'roles': ['sales_only_lot_test']}).status_code == 201
+        sales_token = client.post('/api/v1/auth/login', json={
+            'username': 'lot_sales', 'password': 'secure-pass-123'}).json()['token']
+        sales_auth = {'Authorization': f'Bearer {sales_token}'}
         material_id = client.post('/api/v1/materials', headers=auth, json={
             'sku': 'LOT-TXN', 'name': '批次事务物料', 'unit': '件'}).json()['id']
         other_material_id = client.post('/api/v1/materials', headers=auth, json={
@@ -86,9 +93,10 @@ def test_lot_posting_conserves_multi_lot_stock_and_reversal_lineage(monkeypatch,
         allocations = list(db.scalars(select(PhysicalLotAllocation).where(
             PhysicalLotAllocation.movement_id == outbound_id).order_by(PhysicalLotAllocation.lot_id)))
         assert [Decimal(row.quantity) for row in allocations] == [Decimal('-1.125'), Decimal('-1.875')]
-        post_lot_movement(db, _movement(material_id, 1, '3.000', 9), [
+        reversal = post_lot_movement(db, _movement(material_id, 1, '3.000', 9), [
             LotPart(first_id, Decimal('1.125'), allocations[0].id),
             LotPart(second_id, Decimal('1.875'), allocations[1].id)])
+        reversal_id = reversal.id
         assert lot_balance(db, 1, first_id) == Decimal('2.000')
         assert lot_balance(db, 1, second_id) == Decimal('3.000')
 
@@ -102,3 +110,27 @@ def test_lot_posting_conserves_multi_lot_stock_and_reversal_lineage(monkeypatch,
         assert len(list(db.scalars(select(StockMovement.id)))) == 4
         assert len(list(db.scalars(select(PhysicalLotAllocation.id)))) == 6
         assert db.get(Material, material_id).sku == 'LOT-TXN'
+
+    with TestClient(app, client=('127.0.0.1', 12345)) as client:
+        path = f'/api/v1/inventory/physical-lots/{first_id}/history'
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers=sales_auth).status_code == 403
+        assert client.get('/api/v1/inventory/physical-lots/999/history', headers=auth).status_code == 404
+        assert client.get('/api/v1/inventory/physical-lots/overview', headers=auth,
+                          params={'warehouse_id': 999}).status_code == 404
+        assert client.get('/api/v1/inventory/physical-lots/overview', headers=auth,
+                          params={'material_id': 999}).status_code == 404
+        history = client.get(path, headers=auth).json()
+        assert history['lot']['code'] == 'A'
+        assert history['lot']['origin_movement_id'] == inbound_a.id
+        assert history['openings'] == []
+        assert [(row['warehouse_id'], row['quantity']) for row in history['balances']] == [(1, '2.000')]
+        assert [(row['movement_id'], row['quantity'], row['source_id']) for row in history['movements']] == [
+            (inbound_a.id, '2.000', 1), (outbound_id, '-1.125', 7), (reversal_id, '1.125', 9)]
+        assert history['movements'][-1]['original_allocation_id'] == allocations[0].id
+        second_history = client.get(f'/api/v1/inventory/physical-lots/{second_id}/history', headers=auth).json()
+        assert len(second_history['movements']) == 3
+        overview = client.get('/api/v1/inventory/physical-lots/overview', headers=auth, params={
+            'warehouse_id': 1, 'material_id': material_id}).json()
+        assert overview['warehouse_id'] == 1 and overview['material_id'] == material_id
+        assert overview['fully_allocated'] is True

@@ -66,6 +66,13 @@ export const workspaceRouteGroups = [
         icon: 'stack'
       },
       {
+        key: 'physicalLots',
+        path: '/workspace/physical-lots',
+        label: '实物批次',
+        permission: 'inventory.view',
+        icon: 'history'
+      },
+      {
         key: 'inventoryLedger',
         path: '/workspace/inventory-ledger',
         label: '库存台账',

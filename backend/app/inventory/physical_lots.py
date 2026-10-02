@@ -1,14 +1,15 @@
 """实物批次结存快照；未分配的库存必须显式显示为差额。"""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotOpening, StockMovement, Warehouse
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotOpening, StockMovement, User, Warehouse
 from app.core.orm import orm_session
 
 
@@ -83,6 +84,10 @@ def overview(warehouse_id: int | None = Query(default=None, gt=0),
     with orm_session() as db:
         warehouses = {row.id: row for row in db.scalars(select(Warehouse))}
         materials = {row.id: row for row in db.scalars(select(Material))}
+        if warehouse_id is not None and warehouse_id not in warehouses:
+            raise HTTPException(404, '仓库不存在')
+        if material_id is not None and material_id not in materials:
+            raise HTTPException(404, '物料不存在')
         lots = {row.id: row for row in db.scalars(select(PhysicalLot))}
         stock: dict[tuple[int, int], Decimal] = {}
         lot_balances: dict[tuple[int, int], Decimal] = {}
@@ -143,4 +148,51 @@ def overview(warehouse_id: int | None = Query(default=None, gt=0),
                 'material_id': material_id, 'sku': materials[material_id].sku,
                 'stock_quantity': format(expected, 'f'), 'lot_quantity': format(actual, 'f'),
                 'difference': format(expected - actual, 'f')})
-        return {'rows': rows, 'differences': differences, 'fully_allocated': not differences}
+        return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                'warehouse_id': warehouse_id, 'material_id': material_id,
+                'rows': rows, 'differences': differences, 'fully_allocated': not differences}
+
+
+@router.get('/{lot_id}/history')
+def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'))) -> dict:
+    with orm_session() as db:
+        lot = db.get(PhysicalLot, lot_id)
+        if lot is None:
+            raise HTTPException(404, '实物批次不存在')
+        material = db.get(Material, lot.material_id)
+        openings = []
+        balances: dict[int, Decimal] = {}
+        for opening, warehouse in db.execute(select(PhysicalLotOpening, Warehouse).join(
+                Warehouse, Warehouse.id == PhysicalLotOpening.warehouse_id).where(
+                    PhysicalLotOpening.lot_id == lot_id).order_by(PhysicalLotOpening.id)):
+            balances[opening.warehouse_id] = balances.get(opening.warehouse_id, Decimal(0)) + Decimal(opening.quantity)
+            openings.append({'id': opening.id, 'warehouse_id': opening.warehouse_id,
+                             'warehouse_name': warehouse.name, 'quantity': opening.quantity,
+                             'checkpoint_movement_id': opening.checkpoint_movement_id,
+                             'evidence': opening.evidence, 'created_at': opening.created_at})
+        movements = []
+        for allocation, movement, warehouse, username in db.execute(
+                select(PhysicalLotAllocation, StockMovement, Warehouse, User.username)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .join(Warehouse, Warehouse.id == StockMovement.warehouse_id)
+                .outerjoin(User, User.id == StockMovement.created_by)
+                .where(PhysicalLotAllocation.lot_id == lot_id)
+                .order_by(PhysicalLotAllocation.movement_id, PhysicalLotAllocation.id)):
+            balances[movement.warehouse_id] = balances.get(movement.warehouse_id, Decimal(0)) + Decimal(allocation.quantity)
+            movements.append({'id': allocation.id, 'movement_id': movement.id,
+                              'warehouse_id': movement.warehouse_id, 'warehouse_name': warehouse.name,
+                              'quantity': allocation.quantity, 'source_type': movement.source_type,
+                              'source_id': movement.source_id, 'source_line_id': movement.source_line_id,
+                              'created_by_name': username, 'created_at': movement.created_at,
+                              'original_allocation_id': allocation.original_allocation_id})
+        return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                'lot': {'id': lot.id, 'material_id': lot.material_id, 'code': lot.code,
+                        'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+                        'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+                        'origin_movement_id': lot.origin_movement_id,
+                        'sku': material.sku, 'material_name': material.name, 'unit': material.unit},
+                'openings': openings, 'movements': movements,
+                'balances': [{'warehouse_id': warehouse_id,
+                              'warehouse_name': db.get(Warehouse, warehouse_id).name,
+                              'quantity': format(quantity, 'f')}
+                             for warehouse_id, quantity in sorted(balances.items())]}
