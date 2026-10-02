@@ -60,8 +60,8 @@ def freeze_party(db, record):
         'email':contact.email if contact else ''})
 
 
-def write_quote(db, record, payload):
-    require_open_opportunity(db,record.opportunity_id)
+def write_quote(db, record, payload, user):
+    require_open_opportunity(db,record.opportunity_id,user)
     if payload.valid_until < today():
         raise HTTPException(422,'报价有效期不可早于当前业务日')
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
@@ -91,11 +91,11 @@ def write_quote(db, record, payload):
 @router.post('', status_code=201)
 def create_quote(payload: QuoteInput, user: dict = Depends(require('crm_quote.create'))):
     with orm_session(write=True) as db:
-        opportunity = require_open_opportunity(db,payload.opportunity_id)
+        opportunity = require_open_opportunity(db,payload.opportunity_id,user)
         record = CrmQuote(opportunity_id=opportunity.id,customer_id=opportunity.customer_id,
             status='draft',version=1,created_by=user['id'])
         try:
-            write_quote(db,record,payload)
+            write_quote(db,record,payload,user)
         except IntegrityError:
             raise HTTPException(409,'报价编号已存在') from None
         audit(db,'quote',record,'create',None,'建立报价',user['id'])
@@ -105,14 +105,14 @@ def create_quote(payload: QuoteInput, user: dict = Depends(require('crm_quote.cr
 @router.put('/{identifier}')
 def edit_quote(identifier: int, payload: QuoteEdit, user: dict = Depends(require('crm_quote.create'))):
     with orm_session(write=True) as db:
-        record = get_record(db,'quote',identifier,payload.version)
+        record = get_record(db,'quote',identifier,payload.version,user)
         if record.status not in ('draft','rejected'):
             raise HTTPException(409,'只有草稿或驳回的报价可以修订')
         if record.opportunity_id != payload.opportunity_id:
             raise HTTPException(409,'报价的所属商机不可修改')
         before = raw_data(db,'quote',record)
         try:
-            write_quote(db,record,payload)
+            write_quote(db,record,payload,user)
         except IntegrityError:
             raise HTTPException(409,'报价编号已存在') from None
         record.status = 'draft'
@@ -126,10 +126,10 @@ def edit_quote(identifier: int, payload: QuoteEdit, user: dict = Depends(require
 @router.post('/{identifier}/submit')
 def submit(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.submit'))):
     with orm_session(write=True) as db:
-        record = get_record(db,'quote',identifier,payload.version)
+        record = get_record(db,'quote',identifier,payload.version,user)
         if record.status != 'draft':
             raise HTTPException(409,'只有报价草稿可以提交')
-        require_open_opportunity(db,record.opportunity_id)
+        require_open_opportunity(db,record.opportunity_id,user)
         if record.valid_until < today():
             raise HTTPException(409,'报价已过期，请先修订有效期')
         before = raw_data(db,'quote',record)
@@ -153,7 +153,7 @@ def review(db, record, payload, user, approved):
     if user['id'] in contributors:
         raise HTTPException(409,'报价创建、修订或提交人不可审核自己的报价')
     if approved:
-        require_open_opportunity(db,record.opportunity_id)
+        require_open_opportunity(db,record.opportunity_id,user)
         require_contact(db,record.customer_id,record.contact_id)
         if record.valid_until < today():
             raise HTTPException(409,'报价已过期，不可批准')
@@ -169,19 +169,19 @@ def review(db, record, payload, user, approved):
 @router.post('/{identifier}/approve')
 def approve(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.review'))):
     with orm_session(write=True) as db:
-        return review(db,get_record(db,'quote',identifier,payload.version),payload,user,True)
+        return review(db,get_record(db,'quote',identifier,payload.version,user),payload,user,True)
 
 
 @router.post('/{identifier}/reject')
 def reject(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.review'))):
     with orm_session(write=True) as db:
-        return review(db,get_record(db,'quote',identifier,payload.version),payload,user,False)
+        return review(db,get_record(db,'quote',identifier,payload.version,user),payload,user,False)
 
 
 @router.post('/{identifier}/cancel')
 def cancel(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.cancel'))):
     with orm_session(write=True) as db:
-        record = get_record(db,'quote',identifier,payload.version)
+        record = get_record(db,'quote',identifier,payload.version,user)
         if record.status in ('cancelled','converted'):
             raise HTTPException(409,'报价已取消或已转单，不可取消')
         before = raw_data(db,'quote',record)
@@ -195,11 +195,11 @@ def cancel(identifier: int, payload: VersionInput, user: dict = Depends(require(
 def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(require('crm_quote.convert')),
             _: dict = Depends(require('sales_order.create'))):
     with orm_session(write=True) as db:
-        record = get_record(db,'quote',identifier,payload.version)
+        record = get_record(db,'quote',identifier,payload.version,user)
         if record.status != 'approved':
             raise HTTPException(409,'只有已批准且未转单的报价可以转单')
-        opportunity = get_record(db,'opportunity',record.opportunity_id,payload.opportunity_version)
-        require_open_opportunity(db,opportunity.id)
+        opportunity = get_record(db,'opportunity',record.opportunity_id,payload.opportunity_version,user)
+        require_open_opportunity(db,opportunity.id,user)
         require_contact(db,record.customer_id,record.contact_id)
         if record.valid_until < today():
             raise HTTPException(409,'报价已过期，请建立新报价并重新审核')

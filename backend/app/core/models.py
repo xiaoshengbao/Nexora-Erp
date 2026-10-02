@@ -1182,6 +1182,20 @@ class Customer(Base):
     __tablename__ = 'customers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class CustomerOwnerChange(Base):
+    __tablename__ = 'customer_owner_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
+    before_owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    after_owner_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 

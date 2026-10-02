@@ -22,6 +22,8 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
                 "username": username, "password": "secure-pass-123", "roles": [role]})
         seller, warehouse, viewer = login("seller"), login("warehouse"), login("viewer")
         customer = client.post(f"{base}/customers", headers=admin, json={"name": "客户甲"}).json()["id"]
+        assert client.put(f"{base}/customers/{customer}/owner", headers=admin, json={
+            "owner_id": 2, "version": 1, "reason": "交由销售员办理"}).status_code == 200
         supplier = client.post(f"{base}/suppliers", headers=admin, json={"name": "供应商"}).json()["id"]
         material = client.post(f"{base}/materials", headers=admin, json={
             "sku": "RETURN", "name": "退货物料", "unit": "件"}).json()["id"]

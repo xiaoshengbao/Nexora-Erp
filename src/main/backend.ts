@@ -283,6 +283,12 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'crmOptions': return { method: 'GET', path: '/api/v1/crm/options' }
     case 'crmOverview': return { method: 'GET', path: '/api/v1/crm/overview' }
+    case 'customerOwnerChanges': return { method: 'GET', path: `/api/v1/customers/${positiveId(payload,'id')}/owner-changes` }
+    case 'assignCustomerOwner': {
+      const source=payload as ErpOperations['assignCustomerOwner']['input']
+      return {method:'PUT',path:`/api/v1/customers/${positiveId(payload,'id')}/owner`,
+        body:{owner_id:positiveId(payload,'owner_id'),version:positiveId(payload,'version'),reason:source.reason}}
+    }
     case 'crmDetail':
     case 'crmChanges': {
       const { kind } = payload as ErpOperations['crmDetail']['input']

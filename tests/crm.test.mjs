@@ -63,6 +63,37 @@ test('IPC 白名单阻止路径注入、状态和金额伪造，清除表格内�
   assert.equal(requests.length,2)
 })
 
+test('客户负责人分配只转发白名单字段，编号和版本须为正整数',async t=>{
+  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});const requests=[]
+  globalThis.fetch=async(url,config)=>{requests.push({path:new URL(url).pathname,method:config.method,
+    body:config.body?JSON.parse(config.body):null});return new Response('{}',{status:200})}
+  await callBackend('assignCustomerOwner',{id:4,owner_id:7,version:2,reason:'交接依据',is_admin:true})
+  await callBackend('customerOwnerChanges',{id:4})
+  assert.deepEqual(requests[0],{path:'/api/v1/customers/4/owner',method:'PUT',
+    body:{owner_id:7,version:2,reason:'交接依据'}})
+  assert.deepEqual(requests[1],{path:'/api/v1/customers/4/owner-changes',method:'GET',body:null})
+  for(const id of [0,true,'4/../../users'])await assert.rejects(
+    callBackend('assignCustomerOwner',{id,owner_id:7,version:2,reason:'交接'}),/编号无效/)
+  await assert.rejects(callBackend('assignCustomerOwner',{id:4,owner_id:7,version:0,reason:'交接'}),/编号无效/)
+  assert.equal(requests.length,2)
+})
+
+test('归属变更刷新 CRM 并读取历史，旧账号迟到记录不会覆盖新账号',async t=>{
+  const pending=deferred();const calls=[]
+  const {state,actions}=fixture(t,async(action,data)=>{calls.push([action,data]);
+    if(action==='customerOwnerChanges')return pending.promise
+    return action==='crmOptions'?options:action==='crmOverview'?overview:{id:4,owner_id:2,version:3}})
+  state.user.value={id:1,permissions:[...permissions,'customer.assign']}
+  const old=actions.loadCustomerOwnerChanges(4)
+  state.user.value={id:2,permissions:['crm.view']};pending.resolve([{id:1}])
+  assert.equal(await old,false);assert.deepEqual(state.crmOwnerChanges.value,[])
+  assert.equal(await actions.assignCustomerOwner(4,2,2,'转交'),false)
+  state.user.value={id:1,permissions:[...permissions,'customer.assign']}
+  assert.equal(await actions.assignCustomerOwner(4,2,2,'转交'),true)
+  assert.ok(calls.some(([action,data])=>action==='assignCustomerOwner' && data.version===2))
+  assert.ok(calls.some(([action])=>action==='crmOverview'))
+})
+
 test('较旧详情、迟到错误和关闭后的结果不能覆盖当前记录',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,(action,data)=>data.id===1?pending.promise:Promise.resolve(action==='crmDetail'?{id:2}:[]))
   const first=actions.loadCrmDetail('quote',1);assert.equal(await actions.loadCrmDetail('contact',2),true)

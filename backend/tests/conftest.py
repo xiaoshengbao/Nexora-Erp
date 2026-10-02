@@ -6,6 +6,17 @@ import pytest
 @pytest.fixture
 def remove_physical_lot_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS customer_owner_changes')
+        db.execute('DROP INDEX IF EXISTS customer_owner_lookup')
+        fields = {row[1] for row in db.execute('PRAGMA table_info(customers)')}
+        if 'owner_id' in fields:
+            db.execute('ALTER TABLE customers DROP COLUMN owner_id')
+        if 'version' in fields:
+            db.execute('ALTER TABLE customers DROP COLUMN version')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='customer.assign'")
+        db.execute("DELETE FROM permissions WHERE code='customer.assign'")
+        db.execute("DELETE FROM role_permissions WHERE permission_code='customer.view_all'")
+        db.execute("DELETE FROM permissions WHERE code='customer.view_all'")
         db.execute('DROP TABLE IF EXISTS physical_lot_evidence_group_pairs')
         db.execute('DROP TABLE IF EXISTS physical_lot_evidence_groups')
         db.execute('DROP TABLE IF EXISTS physical_lot_evidence_pairs')

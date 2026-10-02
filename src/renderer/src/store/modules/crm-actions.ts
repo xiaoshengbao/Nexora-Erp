@@ -11,12 +11,12 @@ export function emptyCrmForms(): CrmForms {
 }
 
 export function createCrmActions(state: AppState, perform: (run: () => Promise<unknown>, message: string) => Promise<void>) {
-  let owner = 0; let reads = 0; let details = 0
+  let owner = 0; let reads = 0; let details = 0; let ownerReads = 0
   const can = (permission: string) => state.user.value?.permissions.includes(permission) ?? false
   const available = () => !!window.nexora && !state.connectionLost.value
   function clearCrmDetail(): void { details++; state.crmDetail.value=null; state.crmChanges.value=[] }
   function invalidate(): void {
-    reads++;clearCrmDetail();state.crmOptions.value=null;state.crmOverview.value=null;state.crmLoading.value=false;state.crmError.value=''
+    reads++;ownerReads++;clearCrmDetail();state.crmOptions.value=null;state.crmOverview.value=null;state.crmOwnerChanges.value=[];state.crmLoading.value=false;state.crmError.value=''
   }
   watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.crmForms.value=emptyCrmForms();state.crmEdit.value={}
@@ -44,6 +44,25 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
       if(session!==owner || ticket!==details || !can('crm.view'))return false
       state.crmDetail.value={kind,record};state.crmChanges.value=changes;return true
     }catch(error){if(session===owner && ticket===details)state.crmError.value=displayError(error);return false}
+  }
+  async function loadCustomerOwnerChanges(id:number): Promise<boolean> {
+    if(!can('customer.assign') || !available())return false
+    const session=owner;const ticket=++ownerReads;state.crmOwnerChanges.value=[];state.crmError.value=''
+    try{
+      const changes=await window.nexora!.callApi('customerOwnerChanges',{id})
+      if(session!==owner || ticket!==ownerReads || !can('customer.assign'))return false
+      state.crmOwnerChanges.value=changes;return true
+    }catch(error){if(session===owner && ticket===ownerReads)state.crmError.value=displayError(error);return false}
+  }
+  async function assignCustomerOwner(id:number,owner_id:number,version:number,reason:string):Promise<boolean>{
+    if(!can('customer.assign') || !available() || state.busy.value)return false
+    const session=owner;let saved=false
+    await perform(async()=>{if(session!==owner || !available())return
+      await window.nexora!.callApi('assignCustomerOwner',{id,owner_id,version,reason});saved=true
+    },'客户负责人已更新，变更依据已留存。')
+    if(!saved || session!==owner)return false
+    await loadCrm();await loadCustomerOwnerChanges(id)
+    return session===owner
   }
   async function editCrm(kind: Exclude<CrmKind,'activity'>, id: number): Promise<boolean> {
     const permission=kind==='contact'?'crm_contact.manage':kind==='opportunity'?'crm_opportunity.manage':'crm_quote.create'
@@ -107,7 +126,8 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     }
     return saved
   }
-  return {loadCrm,loadCrmDetail,clearCrmDetail,editCrm,startNewCrm,saveCrm,
+  return {loadCrm,loadCrmDetail,loadCustomerOwnerChanges,assignCustomerOwner,
+    clearCrmDetail,editCrm,startNewCrm,saveCrm,
     closeCrmActivity:(item: CrmActivity, action:'complete'|'cancel',reason:string)=>write('crm_activity.manage',
       ()=>window.nexora!.callApi('closeCrmActivity',{id:item.id,version:item.version,action,reason}),'跟进状态已登记，原记录保留。','activity'),
     reopenCrmOpportunity:(item:CrmOpportunity,reason:string)=>write('crm_opportunity.manage',

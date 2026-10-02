@@ -30,6 +30,8 @@ from app.inventory.warehouse import balance, require_warehouse
 from app.inventory.physical_lots import LotPart, post_lot_movement
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.access.security import require
+from app.sales.customer_scope import (visible_customer_ids, require_visible_shipment,
+    require_visible_return)
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -263,12 +265,15 @@ def sales_return_data(db: Session, return_id: int) -> dict:
 
 
 @router.get("/sales-returns")
-def list_sales_returns(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_sales_returns(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         ids = [
             row
             for row in db.scalars(
-                select(SalesReturn.id).select_from(SalesReturn).order_by(SalesReturn.id.desc())
+                select(SalesReturn.id).join(Shipment, Shipment.id == SalesReturn.shipment_id)
+                    .join(SalesOrder, SalesOrder.id == Shipment.sales_order_id)
+                    .where(SalesOrder.customer_id.in_(visible_customer_ids(user)))
+                    .order_by(SalesReturn.id.desc())
             )
         ]
         return [sales_return_data(db, return_id) for return_id in ids]
@@ -281,6 +286,7 @@ def create_sales_return(
     if len({line.shipment_line_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张退货单不能重复选择同一出库明细")
     with orm_session(write=True) as db:
+        require_visible_shipment(db, payload.shipment_id, user)
         require_warehouse(db, payload.warehouse_id)
         checked_return_lines(
             db, payload.shipment_id, [(line.shipment_line_id, line.quantity) for line in payload.lines]
@@ -309,11 +315,9 @@ def create_sales_return(
 
 @router.get('/sales-returns/{return_id}/available-lots')
 def available_sales_return_lots(return_id: int,
-                                _: dict = Depends(require('sales_return.post'))) -> dict:
+                                user: dict = Depends(require('sales_return.post'))) -> dict:
     with orm_session() as db:
-        sale_return = db.get(SalesReturn, return_id)
-        if sale_return is None:
-            raise HTTPException(404, '销售退货单不存在')
+        sale_return = require_visible_return(db, return_id, user)
         if sale_return.status != 'draft':
             raise HTTPException(409, '只能查询退货草稿的原出库批次')
         lines = list(db.execute(select(SalesReturnLine.id, SalesReturnLine.shipment_line_id,
@@ -346,6 +350,7 @@ def available_sales_return_lots(return_id: int,
 def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = None,
                       user: dict = Depends(require("sales_return.post"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_return(db, return_id, user)
         # 同一写事务重新核对累计已退量；两张草稿无法并发退超原出库量。
         sale_return = (
             db.execute(
@@ -444,6 +449,7 @@ def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = Non
 @router.post("/sales-returns/{return_id}/cancel")
 def cancel_sales_return(return_id: int, user: dict = Depends(require("sales_return.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_return(db, return_id, user)
         row = (
             db.execute(
                 select(SalesReturn.status).select_from(SalesReturn).where((SalesReturn.id == return_id))
@@ -468,6 +474,7 @@ def reverse_sales_return(
     return_id: int, payload: SalesReturnReverseInput, user: dict = Depends(require("sales_return.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        require_visible_return(db, return_id, user)
         from app.sales.after_sales_rules import ensure_return_reversible
         ensure_return_reversible(db, return_id)
         # 写锁内一次性核对退回仓的当前库存；不足时不能生成半套冲销流水。

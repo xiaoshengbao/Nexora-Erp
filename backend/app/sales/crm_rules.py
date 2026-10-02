@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.models import CrmContact, CrmOpportunity, CrmActivity, CrmQuote, CrmQuoteLine, CrmChange, Customer, SalesOrder, User
 from app.core.orm import model_data
+from app.sales.customer_scope import require_visible_customer, require_visible_record
 
 ENTITIES = {'contact': CrmContact, 'activity': CrmActivity, 'opportunity': CrmOpportunity, 'quote': CrmQuote}
 OPEN_STAGES = ('prospect', 'qualified', 'proposal', 'negotiation')
@@ -41,17 +42,20 @@ class VersionInput(StrictInput):
     reason: str = Field(min_length=1, max_length=500)
 
 
-def get_record(db: Session, kind: str, identifier: int, version: int | None = None):
+def get_record(db: Session, kind: str, identifier: int, version: int | None = None,
+               user: dict | None = None):
     record = db.get(ENTITIES[kind], identifier)
     if record is None:
         raise HTTPException(404, '客户关系记录不存在')
+    if user is not None:
+        require_visible_record(db, record, user)
     if version is not None and record.version != version:
         raise HTTPException(409, '记录已被其他操作更新，请刷新后重试')
     return record
 
 
-def require_customer(db: Session, identifier: int) -> Customer:
-    row = db.get(Customer, identifier)
+def require_customer(db: Session, identifier: int, user: dict | None = None) -> Customer:
+    row = require_visible_customer(db, identifier, user) if user is not None else db.get(Customer, identifier)
     if row is None:
         raise HTTPException(422, '客户不存在')
     return row
@@ -72,8 +76,8 @@ def require_contact(db: Session, customer_id: int, identifier: int | None):
     return row
 
 
-def require_open_opportunity(db: Session, identifier: int):
-    row = get_record(db, 'opportunity', identifier)
+def require_open_opportunity(db: Session, identifier: int, user: dict | None = None):
+    row = get_record(db, 'opportunity', identifier, user=user)
     if row.stage not in OPEN_STAGES:
         raise HTTPException(409, '已转单或已丢单的商机不可新增、提交或转换报价')
     return row
