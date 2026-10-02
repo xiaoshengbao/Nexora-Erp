@@ -95,8 +95,16 @@ def reclassify_legacy_lot(data: LegacyEvidenceInput,
         stock_quantity = sum((Decimal(value) for value in db.scalars(select(StockMovement.quantity).where(
             StockMovement.warehouse_id == data.warehouse_id,
             StockMovement.material_id == legacy.material_id))), Decimal(0))
-        assigned_quantity = sum((lot_balance(db, data.warehouse_id, row.id)
-            for row in db.scalars(select(PhysicalLot).where(PhysicalLot.material_id == legacy.material_id))), Decimal(0))
+        opening_quantity = db.scalars(select(PhysicalLotOpening.quantity)
+            .join(PhysicalLot, PhysicalLot.id == PhysicalLotOpening.lot_id)
+            .where(PhysicalLotOpening.warehouse_id == data.warehouse_id,
+                   PhysicalLot.material_id == legacy.material_id))
+        allocated_quantity = db.scalars(select(PhysicalLotAllocation.quantity)
+            .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+            .where(StockMovement.warehouse_id == data.warehouse_id,
+                   StockMovement.material_id == legacy.material_id))
+        # 同仓同物料的补证一出一入相抵；这里只核对原期初与库存流水分配总量。
+        assigned_quantity = sum((Decimal(value) for value in (*opening_quantity, *allocated_quantity)), Decimal(0))
         if assigned_quantity > stock_quantity:
             raise HTTPException(409, '正式库存少于批次结存，请先核对未分配出库差额')
         # 补证只在实物批次之间转移数量，不建立正式库存流水，也不改移动平均成本。
