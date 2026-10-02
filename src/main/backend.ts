@@ -4,6 +4,7 @@ import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedRe
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
 import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} from '../shared/shipment-lot-api.ts'
+import {transferLotBody,validateTransferLotOptions,validatePostedTransferLots} from '../shared/transfer-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -748,7 +749,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'transfers': return { method: 'GET', path: '/api/v1/transfers' }
     case 'createTransfer': return { method: 'POST', path: '/api/v1/transfers', body: payload }
-    case 'postTransfer': return { method: 'POST', path: `/api/v1/transfers/${positiveId(payload, 'transferId')}/post` }
+    case 'availableTransferLots': return {method: 'GET',
+      path: `/api/v1/transfers/${positiveId(payload, 'transferId')}/available-lots`}
+    case 'postTransfer': {
+      const transferId = positiveId(payload, 'transferId')
+      const source = payload as ErpOperations['postTransfer']['input']
+      return {method: 'POST', path: `/api/v1/transfers/${transferId}/post`,
+        ...(source.lines === undefined ? {} : {body: transferLotBody({lines: source.lines})})}
+    }
     case 'reverseTransfer': {
       const transferId = positiveId(payload, 'transferId')
       const fields = payload as ErpOperations['reverseTransfer']['input']
@@ -832,6 +840,14 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postShipment']['input']
     if (request.lines) validatePostedShipmentLots(data, request.shipmentId,
       shipmentLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableTransferLots') {
+    validateTransferLotOptions(data, (payload as ErpOperations['availableTransferLots']['input']).transferId)
+  }
+  if (action === 'postTransfer') {
+    const request = payload as ErpOperations['postTransfer']['input']
+    if (request.lines) validatePostedTransferLots(data, request.transferId,
+      transferLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']

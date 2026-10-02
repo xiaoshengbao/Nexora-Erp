@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.orm import orm_session, add_model
-from app.core.models import Material, StockMovement, Transfer, TransferLine, TransferReversal, User, Warehouse
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, StockMovement, Transfer, TransferLine, TransferReversal, User, Warehouse
 from app.access.security import require
+from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -66,6 +67,25 @@ class TransferReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class TransferLotPartInput(BaseModel):
+    lot_id: int = Field(gt=0)
+    quantity: Decimal
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        return TransferLineInput.valid_quantity(value)
+
+
+class TransferLotLineInput(BaseModel):
+    transfer_line_id: int = Field(gt=0)
+    lots: list[TransferLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class TransferPostInput(BaseModel):
+    lines: list[TransferLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def require_warehouse(db: Session, warehouse_id: int) -> None:
@@ -145,7 +165,21 @@ def transfer_data(db: Session, transfer_id: int) -> dict:
         .mappings()
         .all()
     )
-    return {**dict(row), "lines": [dict(line) for line in lines]}
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'transfer_out', StockMovement.source_id == transfer_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': format(-Decimal(allocation.quantity), 'f'),
+            'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+            'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+        })
+    return {**dict(row), 'lines': [
+        {**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
 
 
 @router.get("/warehouses")
@@ -216,8 +250,39 @@ def create_transfer(payload: TransferInput, user: dict = Depends(require("transf
         return transfer_data(db, cursor.id)
 
 
+@router.get('/transfers/{transfer_id}/available-lots')
+def available_transfer_lots(transfer_id: int, _: dict = Depends(require('transfer.post'))) -> dict:
+    with orm_session() as db:
+        transfer = db.get(Transfer, transfer_id)
+        if transfer is None:
+            raise HTTPException(404, '调拨单不存在')
+        if transfer.status != 'draft':
+            raise HTTPException(409, '只能查询调拨草稿的可用批次')
+        lines = list(db.execute(select(TransferLine.id, TransferLine.material_id, TransferLine.quantity)
+                                .where(TransferLine.transfer_id == transfer_id)
+                                .order_by(TransferLine.id)).mappings())
+        materials = {line['material_id'] for line in lines}
+        lots = list(db.scalars(select(PhysicalLot).where(
+            PhysicalLot.material_id.in_(materials)).order_by(PhysicalLot.id)))
+        available = {material_id: [] for material_id in materials}
+        for lot in lots:
+            quantity = lot_balance(db, transfer.from_warehouse_id, lot.id)
+            if quantity > 0:
+                available[lot.material_id].append({
+                    'lot_id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                    'quantity': format(quantity, 'f'), 'supplier_lot': lot.supplier_lot,
+                    'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+                })
+        return {'transfer_id': transfer_id, 'from_warehouse_id': transfer.from_warehouse_id,
+                'to_warehouse_id': transfer.to_warehouse_id,
+                'lines': [{'transfer_line_id': line['id'], 'material_id': line['material_id'],
+                           'quantity': line['quantity'], 'lots': available[line['material_id']]}
+                          for line in lines]}
+
+
 @router.post("/transfers/{transfer_id}/post")
-def post_transfer(transfer_id: int, user: dict = Depends(require("transfer.post"))) -> dict:
+def post_transfer(transfer_id: int, payload: TransferPostInput | None = None,
+                  user: dict = Depends(require("transfer.post"))) -> dict:
     with orm_session(write=True) as db:
         # 写锁覆盖库存检查、双向流水和状态变更，阻止并发调拨超出可用量。
         transfer = (
@@ -252,6 +317,10 @@ def post_transfer(transfer_id: int, user: dict = Depends(require("transfer.post"
             .mappings()
             .all()
         )
+        lot_lines = {line.transfer_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '批次明细必须与调拨明细逐行对应')
         for line in lines:
             quantity = Decimal(line["quantity"])
             if balance(db, transfer["from_warehouse_id"], line["material_id"]) < quantity:
@@ -259,28 +328,34 @@ def post_transfer(transfer_id: int, user: dict = Depends(require("transfer.post"
         for line in lines:
             quantity = Decimal(line["quantity"])
             # 一张单据生成等额出入两笔流水，并记录操作者与单据明细来源。
-            db.add_all(
-                [
-                    StockMovement(
-                        warehouse_id=transfer["from_warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(-quantity),
-                        source_type="transfer_out",
-                        source_id=transfer_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
-                    StockMovement(
-                        warehouse_id=transfer["to_warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(quantity),
-                        source_type="transfer_in",
-                        source_id=transfer_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
-                ]
+            outgoing = StockMovement(
+                warehouse_id=transfer["from_warehouse_id"],
+                material_id=line["material_id"],
+                quantity=str(-quantity),
+                source_type="transfer_out",
+                source_id=transfer_id,
+                source_line_id=line["id"],
+                created_by=user["id"],
             )
+            incoming = StockMovement(
+                warehouse_id=transfer["to_warehouse_id"],
+                material_id=line["material_id"],
+                quantity=str(quantity),
+                source_type="transfer_in",
+                source_id=transfer_id,
+                source_line_id=line["id"],
+                created_by=user["id"],
+            )
+            if lot_lines is None:
+                db.add_all([outgoing, incoming])
+                continue
+            parts = lot_lines[line['id']].lots
+            if len({part.lot_id for part in parts}) != len(parts):
+                raise HTTPException(422, '一行调拨不能重复选择同一实物批次')
+            if sum((part.quantity for part in parts), Decimal(0)) != quantity:
+                raise HTTPException(422, f'调拨明细 #{line["id"]} 的批次数量之和不匹配')
+            post_lot_movement(db, outgoing, [LotPart(part.lot_id, -part.quantity) for part in parts])
+            post_lot_movement(db, incoming, [LotPart(part.lot_id, part.quantity) for part in parts])
         db.execute(
             update(Transfer)
             .where((Transfer.id == transfer_id))
@@ -348,28 +423,50 @@ def reverse_transfer(
         for line in lines:
             quantity = Decimal(line["quantity"])
             # 来源类型区分退回的出入两侧，并用原调拨明细编号串起四笔流水。
-            db.add_all(
-                [
-                    StockMovement(
-                        warehouse_id=transfer["to_warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(-quantity),
-                        source_type="transfer_reversal_out",
-                        source_id=reversal_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
-                    StockMovement(
-                        warehouse_id=transfer["from_warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(quantity),
-                        source_type="transfer_reversal_in",
-                        source_id=reversal_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
-                ]
+            outgoing = StockMovement(
+                warehouse_id=transfer["to_warehouse_id"],
+                material_id=line["material_id"],
+                quantity=str(-quantity),
+                source_type="transfer_reversal_out",
+                source_id=reversal_id,
+                source_line_id=line["id"],
+                created_by=user["id"],
             )
+            incoming = StockMovement(
+                warehouse_id=transfer["from_warehouse_id"],
+                material_id=line["material_id"],
+                quantity=str(quantity),
+                source_type="transfer_reversal_in",
+                source_id=reversal_id,
+                source_line_id=line["id"],
+                created_by=user["id"],
+            )
+            source_parts = list(db.scalars(select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'transfer_out',
+                       StockMovement.source_id == transfer_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            target_parts = list(db.scalars(select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'transfer_in',
+                       StockMovement.source_id == transfer_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            if not source_parts and not target_parts:
+                db.add_all([outgoing, incoming])
+                continue
+            source_quantities = {part.lot_id: -Decimal(part.quantity) for part in source_parts}
+            target_quantities = {part.lot_id: Decimal(part.quantity) for part in target_parts}
+            if (len(source_quantities) != len(source_parts)
+                    or len(target_quantities) != len(target_parts)
+                    or source_quantities != target_quantities
+                    or sum(source_quantities.values(), Decimal(0)) != quantity):
+                raise HTTPException(409, '原调拨两侧批次分配不完整，无法冲销')
+            post_lot_movement(db, outgoing, [LotPart(
+                part.lot_id, -Decimal(part.quantity), part.id) for part in target_parts])
+            post_lot_movement(db, incoming, [LotPart(
+                part.lot_id, -Decimal(part.quantity), part.id) for part in source_parts])
         return transfer_data(db, transfer_id)
 
 

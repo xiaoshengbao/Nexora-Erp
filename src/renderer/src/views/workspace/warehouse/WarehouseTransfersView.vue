@@ -10,6 +10,12 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
+import {displayError} from '../../../utils/formatters.ts'
+import {receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
+import {outboundAvailableMilli} from '../../../../../shared/outbound-lot-api.ts'
+import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api.ts'
+import type {TransferLotLineInput, TransferLotOptions} from '../../../../../shared/transfer-lot-api'
+import type {Transfer} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
 const {
@@ -25,6 +31,7 @@ const {
   can,
   localTime,
   createTransfer,
+  loadAvailableTransferLots,
   postTransfer,
   reverseTransfer
 } = useAppStore()
@@ -41,6 +48,88 @@ const columns = [
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
+const activeTransferId = ref(0)
+const lotOptions = ref<TransferLotOptions | null>(null)
+const lotDrafts = ref<TransferLotLineInput[]>([])
+const lotLoading = ref(false)
+const lotLoadError = ref('')
+let loadTicket = 0
+const activeTransfer = computed(() => transfers.value.find(item =>
+  item.id === activeTransferId.value && item.status === 'draft') ?? null)
+
+function closeLotPost(): void {
+  loadTicket++
+  activeTransferId.value = 0
+  lotOptions.value = null
+  lotDrafts.value = []
+}
+
+async function startLotPost(transfer: Transfer): Promise<void> {
+  const ticket = ++loadTicket
+  activeTransferId.value = transfer.id
+  lotOptions.value = null
+  lotDrafts.value = []
+  lotLoadError.value = ''
+  lotLoading.value = true
+  try {
+    const result = await loadAvailableTransferLots(transfer.id)
+    if (ticket !== loadTicket || activeTransferId.value !== transfer.id) return
+    if (result.from_warehouse_id !== transfer.from_warehouse_id
+        || result.to_warehouse_id !== transfer.to_warehouse_id
+        || result.lines.length !== transfer.lines.length
+        || result.lines.some(line => !transfer.lines.some(item =>
+          item.id === line.transfer_line_id && item.material_id === line.material_id
+          && item.quantity === line.quantity)))
+      throw Error('可用批次与当前调拨单不匹配，请刷新单据。')
+    lotOptions.value = result
+    lotDrafts.value = transfer.lines.map(line => ({
+      transfer_line_id: line.id, lots: [{lot_id: 0, quantity: line.quantity}]}))
+  } catch (cause) {
+    if (ticket === loadTicket) lotLoadError.value = displayError(cause)
+  } finally {
+    if (ticket === loadTicket) lotLoading.value = false
+  }
+}
+
+function addLot(line: TransferLotLineInput): void {
+  if (line.lots.length < 20) line.lots.push({lot_id: 0, quantity: ''})
+}
+
+const lotIssue = computed(() => {
+  const transfer = activeTransfer.value, options = lotOptions.value
+  if (!transfer || !options || lotDrafts.value.length !== transfer.lines.length)
+    return '可用批次尚未读取。'
+  for (const line of transfer.lines) {
+    const draft = lotDrafts.value.find(item => item.transfer_line_id === line.id)
+    const available = options.lines.find(item => item.transfer_line_id === line.id)
+    if (!draft || !available || !draft.lots.length || draft.lots.length > 20)
+      return '每条调拨明细至少指定一个实物批次。'
+    const ids = new Set<number>()
+    let total = 0n
+    for (const part of draft.lots) {
+      const candidate = available.lots.find(item => item.lot_id === part.lot_id)
+      if (!candidate || ids.has(part.lot_id)) return `物料 ${line.sku} 的批次无效或重复。`
+      ids.add(part.lot_id)
+      const quantity = receiptLotMilli(part.quantity)
+      if (quantity === null) return '批次数量须大于零、最多三位小数且不超过一百万。'
+      if (quantity > (outboundAvailableMilli(candidate.quantity) ?? 0n))
+        return `批次 ${candidate.code} 的可用量不足，请重新读取。`
+      total += quantity
+    }
+    if (total !== receiptLotMilli(line.quantity))
+      return `物料 ${line.sku} 的批次数量之和须等于 ${line.quantity}。`
+  }
+  return ''
+})
+
+async function confirmLotPost(): Promise<void> {
+  const transfer = activeTransfer.value
+  if (!transfer || lotIssue.value || busy.value || connectionLost.value) return
+  await postTransfer(transfer.id, lotDrafts.value.map(line => ({
+    transfer_line_id: line.transfer_line_id,
+    lots: line.lots.map(part => ({lot_id: part.lot_id, quantity: part.quantity}))})))
+  if (!transfers.value.some(item => item.id === transfer.id && item.status === 'draft')) closeLotPost()
+}
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createTransfer, { busy, error, notice }, createOpen)
 }
@@ -171,6 +260,10 @@ async function submitCreate(): Promise<void> {
       <template #cell-lines="{ row: item }">
         <div v-for="line in item.lines" :key="line.id">
           {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
+          <small v-if="item.status === 'posted' && line.physical_lots?.length" class="transfer-lot-proof">
+            实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
+          </small>
+          <small v-else-if="item.status === 'posted'" class="transfer-lot-proof">旧确认未指定实物批次，两个仓库的数量在批次核对页显示为差额。</small>
         </div>
         <small v-if="item.reversal_id"
           >冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
@@ -183,11 +276,11 @@ async function submitCreate(): Promise<void> {
             v-if="item.status === 'draft' && can('transfer.post')"
             type="button"
             :disabled="busy || connectionLost"
-            @click="postTransfer(item.id)"
+            @click="startLotPost(item)"
             variant="primary"
             size="small"
           >
-            确认调拨
+            指定批次并确认
           </AppButton>
         </div>
         <form
@@ -220,5 +313,41 @@ async function submitCreate(): Promise<void> {
         }}</span>
       </template>
     </WorkspaceTable>
+    <NModal :show="!!activeTransfer" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
+      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
+        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
+      <form v-if="activeTransfer && can('transfer.post')" class="stack" @submit.prevent="confirmLotPost">
+        <h2>调拨单 #{{ activeTransfer.id }} · 指定实物批次</h2>
+        <p>从 {{ activeTransfer.from_warehouse_name }} 的实际可用批次逐行选择，批次编号随实物进入 {{ activeTransfer.to_warehouse_name }}。历史未识别期初不能当作真实来料批号。</p>
+        <p v-if="lotLoading">正在读取可用批次…</p>
+        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
+        <section v-for="line in lotDrafts" :key="line.transfer_line_id" class="stack transfer-lot-line">
+          <h3>{{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.sku }} · {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.material_name }} · {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.quantity }} {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.unit }}</h3>
+          <div v-for="(part,index) in line.lots" :key="index" class="transfer-lot-grid">
+            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
+              :options="[{label:'选择批次',value:0,disabled:true},
+                ...(lotOptions?.lines.find(item=>item.transfer_line_id===line.transfer_line_id)?.lots ?? []).map(lot=>({
+                  label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 可用 ${lot.quantity}`,
+                  value:lot.lot_id}))]" /></label>
+            <label>调拨数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
+            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
+          </div>
+          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
+        </section>
+        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
+        <div class="form-actions">
+          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认调拨并固定批次</AppButton>
+          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
+        </div>
+      </form>
+    </NModal>
   </section>
 </template>
+
+<style scoped>
+.transfer-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
+.transfer-lot-line h3{margin:0}
+.transfer-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
+.transfer-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
+@media(max-width:550px){.transfer-lot-grid{grid-template-columns:1fr}}
+</style>
