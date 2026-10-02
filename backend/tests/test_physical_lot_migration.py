@@ -14,7 +14,7 @@ from app.core.orm import add_model, orm_session
 from app.main import app
 
 
-def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_path):
+def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_path, remove_physical_lot_schema):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'old-stock.db'))
     with TestClient(app, client=('127.0.0.1', 12345)) as client:
         assert client.post('/api/v1/setup/admin', json={
@@ -39,9 +39,7 @@ def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_pa
     with orm_session() as db:
         movement_ids = list(db.scalars(select(StockMovement.id).order_by(StockMovement.id)))
     with connection() as db:
-        db.execute('DROP TABLE physical_lot_allocations')
-        db.execute('DROP TABLE physical_lot_openings')
-        db.execute('DROP TABLE physical_lots')
+        remove_physical_lot_schema(db)
         db.execute('PRAGMA user_version = 55')
     migrate()
     migrate()
@@ -128,4 +126,4 @@ def test_failed_lot_upgrade_rolls_back_all_new_tables(monkeypatch, tmp_path, rem
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name LIKE 'physical_lot_%'").fetchone()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 56
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 57

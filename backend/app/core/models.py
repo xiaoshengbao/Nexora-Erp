@@ -1020,6 +1020,19 @@ class PhysicalLotAllocation(Base):
     original_allocation_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('physical_lot_allocations.id'))
 
 
+class PhysicalLotReclassification(Base):
+    __tablename__ = 'physical_lot_reclassifications'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    legacy_lot_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lots.id'), nullable=False)
+    verified_lot_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lots.id'), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey('warehouses.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    original_reclassification_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('physical_lot_reclassifications.id'))
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class InventoryCostInput(Base):
     __tablename__ = 'inventory_cost_inputs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

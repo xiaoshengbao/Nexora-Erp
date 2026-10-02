@@ -33,15 +33,30 @@ const movement: Check = value => fields(value, {
   quantity: decimal, source_type: text, source_id: positive, source_line_id: positive,
   created_by_name: optional(text), created_at: text, original_allocation_id: optional(positive)
 })
+const reclassification: Check = value => fields(value, {
+  id: positive, warehouse_id: positive, warehouse_name: text, quantity: decimal,
+  counterpart_lot_id: positive, counterpart_lot_code: text,
+  evidence: text, original_reclassification_id: optional(positive),
+  created_by_name: text, created_at: text
+})
 const balance: Check = value => fields(value, {warehouse_id: positive, warehouse_name: text, quantity: decimal})
 const overview: Check = value => fields(value, {
   as_of: text, warehouse_id: optional(positive), material_id: optional(positive),
   rows: array(row), differences: array(difference), fully_allocated: value => typeof value === 'boolean'
 }) && object(value) && value.fully_allocated === (Array.isArray(value.differences) && value.differences.length === 0)
 const history: Check = value => fields(value, {
-  as_of: text, lot: identity, openings: array(opening), movements: array(movement), balances: array(balance)
+  as_of: text, lot: identity, openings: array(opening), movements: array(movement),
+  reclassifications: array(reclassification), balances: array(balance)
+})
+const evidence: Check = value => fields(value, {
+  id: positive, legacy_lot_id: positive, verified_lot_id: positive,
+  warehouse_id: positive, quantity: decimal, evidence: text,
+  created_by_name: text, created_at: text, verified_lot_code: text,
+  original_reclassification_id: optional(positive)
 })
 export function validatePhysicalLotResult(action: string, value: unknown): void {
-  const check = action === 'physicalLotOverview' ? overview : action === 'physicalLotHistory' ? history : null
+  const check = action === 'physicalLotOverview' ? overview
+    : action === 'physicalLotHistory' ? history
+    : action === 'physicalLotEvidence' || action === 'physicalLotEvidenceReverse' ? evidence : null
   if (check && !check(value)) throw new Error('实物批次响应格式不匹配，请核对服务端版本后重新读取。')
 }

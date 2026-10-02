@@ -54,6 +54,11 @@ test('公共按钮保留提交类型、禁用/加载保护以及图标和读屏�
   const readonly = await render(AppInput, { modelValue: 'EL-SR-000001', readonly: true })
   assert.match(readonly.match(/<input\b[^>]*>/)?.[0] ?? '', /\sreadonly(?:\s|>)/)
   assert.doesNotMatch(readonly.match(/<input\b[^>]*>/)?.[0] ?? '', /\sdisabled(?:\s|>)/)
+  const evidence = await render(AppInput, { modelValue: '', type: 'textarea', rows: 3,
+    required: true, minlength: 10, maxlength: 500, 'aria-label': '现场核对依据' })
+  const textarea = evidence.match(/<textarea\b[^>]*>/)?.[0] ?? ''
+  for (const pattern of [/rows="3"/, /required/, /minlength="10"/, /maxlength="500"/,
+    /aria-label="现场核对依据"/]) assert.match(textarea, pattern)
 })
 
 test('页面统一使用公共控件，只保留选择校验代理和表格专用滚动条', () => {

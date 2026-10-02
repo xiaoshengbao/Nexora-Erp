@@ -1,5 +1,6 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
+import {physicalLotEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
@@ -147,6 +148,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'physicalLotHistory':
       return {method: 'GET', path: `/api/v1/inventory/physical-lots/${positiveId(payload, 'lot_id')}/history`}
+    case 'physicalLotEvidence':
+      return {method: 'POST', path: '/api/v1/inventory/physical-lots/reclassifications',
+        body: physicalLotEvidenceBody(payload)}
+    case 'physicalLotEvidenceReverse':
+      return {method: 'POST',
+        path: `/api/v1/inventory/physical-lots/reclassifications/${positiveId(payload, 'record_id')}/reverse`,
+        body: physicalLotReverseBody(payload)}
     case 'inventoryWarningDetail':
     case 'saveInventoryWarning': {
       const warehouse=positiveId(payload,'warehouse_id'),material=positiveId(payload,'material_id')

@@ -49,7 +49,7 @@
 
 全应用按钮使用 `components/app/AppButton.vue` 二次封装 Naive UI `NButton`，统一主操作、次操作、文字操作与导航按钮的交互。`variant` 支持 `primary`、`secondary`、`text`、`plain`；默认 `type="button"`，提交表单须显式传 `type="submit"`，`loading` 同时禁用重复操作。导航、标签及启动卡片用 `plain` 保留专属结构样式，图标通过 `icon` 插槽传入。
 
-文本、密码、搜索和数字字段使用 `components/app/AppInput.vue` 封装 `NInput`，`required`、`min`、`max`、`step`、`pattern`、`maxlength` 等属性传给实际输入元素参与浏览器校验。金额、数量保留业务字符串；端口等数字模型及 `.number` 转成数字，清空仍为空字符串；`.trim` 保留原有去空格行为。密码提供显示/隐藏操作。复选框直接使用 `NCheckbox`，标签放在其默认插槽中，保留文字点击、键盘操作、半选及只读保护。输入主题在 `utils/app-theme.ts` 集中维护，配色使用明暗主题变量。
+文本、多行文本、密码、搜索和数字字段使用 `components/app/AppInput.vue` 封装 `NInput`，`required`、`min`、`max`、`step`、`pattern`、`minlength`、`maxlength` 等属性传给实际输入元素参与浏览器校验。金额、数量保留业务字符串；端口等数字模型及 `.number` 转成数字，清空仍为空字符串；`.trim` 保留原有去空格行为。密码提供显示/隐藏操作。复选框直接使用 `NCheckbox`，标签放在其默认插槽中，保留文字点击、键盘操作、半选及只读保护。输入主题在 `utils/app-theme.ts` 集中维护，配色使用明暗主题变量。
 
 原生控件检查已覆盖引导、登录、工作台与公共组件。仅保留 `WorkspaceSelect` 的不可见必填校验代理及 `WorkspaceTable` 专用横向滚动条；后者复用表格滚动定位和宽度计算，不属于业务表单输入。表格继续使用已有 vxe-table 公共封装，弹窗、开关和通知继续使用 Naive UI。
 
@@ -103,4 +103,4 @@
 
 `warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合，规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
 
-`warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理只读 Pinia 快照，沿用库存查看权限；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初与新流水分开展示，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。
+`warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理 Pinia 批次快照与补证写操作，查询沿用库存查看权限，现场补证另需 `physical_lot.reclassify`；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初、新流水与现场补证记录分开展示，补证与可审计冲销只转移批次归属，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。

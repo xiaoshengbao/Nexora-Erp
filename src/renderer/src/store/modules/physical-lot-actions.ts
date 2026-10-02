@@ -1,6 +1,6 @@
 import {watch} from 'vue'
 import type {AppState} from '../state'
-import type {PhysicalLotRow} from '../../../../shared/physical-lot-api'
+import type {PhysicalLotEvidenceInput,PhysicalLotEvidenceResult,PhysicalLotReverseInput,PhysicalLotRow} from '../../../../shared/physical-lot-api'
 import {displayError} from '../../utils/formatters.ts'
 
 export function createPhysicalLotActions(state: AppState) {
@@ -53,5 +53,39 @@ export function createPhysicalLotActions(state: AppState) {
       return false
     }
   }
-  return {loadPhysicalLots, loadPhysicalLotHistory, clearPhysicalLotHistory}
+  async function savePhysicalLotEvidence(input: PhysicalLotEvidenceInput): Promise<PhysicalLotEvidenceResult | null> {
+    if (!available() || !state.user.value?.permissions.includes('physical_lot.reclassify')) return null
+    const session = owner
+    state.lotError.value = ''
+    try {
+      const result = await window.nexora!.callApi('physicalLotEvidence', input)
+      if (session !== owner || !available()) return null
+      if (result.legacy_lot_id !== input.legacy_lot_id || result.warehouse_id !== input.warehouse_id
+          || Number(result.quantity) !== Number(input.quantity))
+        throw Error('批次补证响应与提交范围不一致，请重新读取。')
+      await loadPhysicalLots()
+      return result
+    } catch (cause) {
+      if (session === owner) state.lotError.value = displayError(cause)
+      return null
+    }
+  }
+  async function reversePhysicalLotEvidence(input: PhysicalLotReverseInput): Promise<PhysicalLotEvidenceResult | null> {
+    if (!available() || !state.user.value?.permissions.includes('physical_lot.reclassify')) return null
+    const session = owner
+    state.lotError.value = ''
+    try {
+      const result = await window.nexora!.callApi('physicalLotEvidenceReverse', input)
+      if (session !== owner || !available()) return null
+      if (result.original_reclassification_id !== input.record_id || !result.quantity.startsWith('-'))
+        throw Error('批次补证冲销响应与原记录不一致，请重新读取。')
+      await loadPhysicalLots()
+      return result
+    } catch (cause) {
+      if (session === owner) state.lotError.value = displayError(cause)
+      return null
+    }
+  }
+  return {loadPhysicalLots, loadPhysicalLotHistory, savePhysicalLotEvidence,
+    reversePhysicalLotEvidence, clearPhysicalLotHistory}
 }
