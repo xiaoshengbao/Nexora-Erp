@@ -66,6 +66,11 @@ def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_pa
         before = client.get(path, headers=auth).json()
         assert before['fully_allocated'] is True
         assert before['differences'] == []
+        history = client.get(f'/api/v1/inventory/physical-lots/{lots[0].id}/history', headers=auth).json()
+        assert history['lot']['source_kind'] == 'legacy'
+        assert history['lot']['origin_movement_id'] is None
+        assert history['movements'] == []
+        assert history['openings'][0]['checkpoint_movement_id'] == movement_ids[-1]
         assert {(row['warehouse_id'], row['quantity'], row['source_kind']) for row in before['rows']} == {
             (1, '2.000', 'legacy'), (warehouse_id, '3.375', 'legacy')}
         new_inbound = client.post('/api/v1/warehouse-inbounds', headers=auth, json={

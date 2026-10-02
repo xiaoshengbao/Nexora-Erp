@@ -251,4 +251,4 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 实物批次数据基础
 
-第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview`，返回逐批余额及与正式库存流水的差额；可按仓库和物料筛选。现有单据尚未写入批次分配，接口与页面仍待接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
+第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。现有单据尚未写入批次分配，批次写入与选择页面仍待接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。

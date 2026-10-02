@@ -7,6 +7,7 @@
 | `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据 |
+| `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；只读，不表示单据已支持批次录入 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库及冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
@@ -76,7 +77,7 @@
 
 `purchase/PurchaseReportsView.vue` 与 `warehouse/InventoryReportsView.vue` 共用报表表格，查询和 CSV 使用同一份服务端结果。
 
-仓库管理九个页面统一使用公共表格及台账式筛选面板。顶部保留 `NEXORA WORKSPACE` 和页面主标题，主列表设置 `showTitle=false`，仅保留说明与操作，避免重复标题；表格仍保留可访问名称，期初期末等次级列表继续显示标题。筛选面板的间距、底色、换行和明暗主题由 `WorkspaceTable` 统一管理，其他业务表格也沿用该样式。库存总览的汇总卡片放在筛选与表格之间；台账先显示筛选和流水，再显示期初期末。调拨与盘点以单据表格展示，支持按单号、仓库或物料搜索，并保留新增弹窗、权限控制、确认、取消（盘点）与冲销记录。
+仓库管理新增只读实物批次页后继续统一使用公共表格及台账式筛选面板。顶部保留 `NEXORA WORKSPACE` 和页面主标题，主列表设置 `showTitle=false`，仅保留说明与操作，避免重复标题；表格仍保留可访问名称，期初期末等次级列表继续显示标题。筛选面板的间距、底色、换行和明暗主题由 `WorkspaceTable` 统一管理，其他业务表格也沿用该样式。库存总览的汇总卡片放在筛选与表格之间；台账先显示筛选和流水，再显示期初期末。调拨与盘点以单据表格展示，支持按单号、仓库或物料搜索，并保留新增弹窗、权限控制、确认、取消（盘点）与冲销记录。
 
 用户管理单独展示 ID、账号、姓名、工号、手机号和已分配角色；创建/编辑弹窗维护资料与角色，密码通过操作列的重置弹窗修改。账号状态使用 Naive UI Switch，保存失败保留原显示，当前账号不可停用或由此重置密码。
 
@@ -101,3 +102,5 @@
 `production/QualityDispositionView.vue` 提供独立 `quality.view` 入口，`QualityEditor.vue` 编制报废及返工，`QualityEvidence.vue` 核对冻结检验、追加材料与前后变更；`quality-actions.ts` 管理 Pinia 草稿、版本、断线及权限清理。生产工单、报工与成本显示关联来源；规则见 [不合格品处置与返工](../../../../../docs/quality-rework.md)。
 
 `warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合，规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
+
+`warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理只读 Pinia 快照，沿用库存查看权限；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初与新流水分开展示，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。

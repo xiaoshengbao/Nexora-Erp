@@ -1,4 +1,5 @@
 import {createInventoryWarningActions} from './modules/inventory-warning-actions'
+import {createPhysicalLotActions} from './modules/physical-lot-actions'
 import {
   computed,
   nextTick,
@@ -256,6 +257,7 @@ function createAppStore() {
   const qualityActions = createQualityActions(state, perform)
   const afterSalesActions = createAfterSalesActions(state, perform)
   const inventoryWarningActions = createInventoryWarningActions(state, perform)
+  const physicalLotActions = createPhysicalLotActions(state)
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
@@ -332,6 +334,7 @@ function createAppStore() {
     ...afterSalesActions,
     ...equipmentActions,
     ...inventoryWarningActions,
+    ...physicalLotActions,
     ...dashboardActions,
     ...openingBalanceActions,
     ...ledgerReportActions,

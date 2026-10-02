@@ -35,6 +35,7 @@ MENU_KEYS = {
     'route:home',
     'route:inventoryLedger',
     'route:inventoryWarnings',
+    'route:physicalLots',
     'route:inventoryReports',
     'route:inventoryValuation',
     'route:materialIssues',

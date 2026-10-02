@@ -1,4 +1,5 @@
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningInput} from '../../../shared/inventory-warning-api'
+import type {PhysicalLotOverview,PhysicalLotHistory} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
@@ -102,6 +103,8 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  const lotOverview=ref<PhysicalLotOverview|null>(null),lotHistory=ref<PhysicalLotHistory|null>(null)
+  const lotLoading=ref(false),lotError=ref(''),lotWarehouseId=ref(0),lotMaterialId=ref(0)
   const warningOverview=ref<InventoryWarningOverview|null>(null),warningDetail=ref<InventoryWarningDetail|null>(null)
   const warningLoading=ref(false),warningError=ref(''),warningWarehouseId=ref(0),warningEditing=ref(false)
   const warningForm=ref<InventoryWarningInput>({warehouse_id:0,material_id:0,version:0,threshold:'',enabled:true,reason:''})
@@ -497,6 +500,7 @@ export function createAppState() {
   )
 
   return {
+    lotOverview,lotHistory,lotLoading,lotError,lotWarehouseId,lotMaterialId,
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,

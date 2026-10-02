@@ -1,4 +1,5 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
+import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -126,6 +127,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const warehouse=source?.warehouseId
       return {method:'GET',path:'/api/v1/inventory/warnings'+(warehouse===undefined?'':`?warehouse_id=${positiveId({id:warehouse},'id')}`)}
     }
+    case 'physicalLotOverview': {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('实物批次查询范围无效')
+      const source = payload as Record<string, unknown>
+      const parts: string[] = []
+      if (source.warehouse_id !== null) parts.push(`warehouse_id=${positiveId({id: source.warehouse_id}, 'id')}`)
+      if (source.material_id !== null) parts.push(`material_id=${positiveId({id: source.material_id}, 'id')}`)
+      return {method: 'GET', path: '/api/v1/inventory/physical-lots/overview' + (parts.length ? `?${parts.join('&')}` : '')}
+    }
+    case 'physicalLotHistory':
+      return {method: 'GET', path: `/api/v1/inventory/physical-lots/${positiveId(payload, 'lot_id')}/history`}
     case 'inventoryWarningDetail':
     case 'saveInventoryWarning': {
       const warehouse=positiveId(payload,'warehouse_id'),material=positiveId(payload,'material_id')
@@ -765,6 +776,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   validateInventoryWarningResult(action,data)
+  validatePhysicalLotResult(action,data)
   validateEquipmentResult(action,data)
   validateMaterialResult(action, data)
   return data
