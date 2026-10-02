@@ -5,6 +5,7 @@ import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 from typing import Iterator
 
@@ -40,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 55:
+        if version > 56:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1914,3 +1915,57 @@ def migrate() -> None:
             db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('inventory_warning.manage','维护库存预警阈值','warehouse.warnings')")
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)', [('admin','inventory_warning.manage'),('warehouse','inventory_warning.manage')])
             db.execute('PRAGMA user_version = 55')
+
+        if version < 56:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE physical_lots (
+                id INTEGER PRIMARY KEY,
+                material_id INTEGER NOT NULL REFERENCES materials(id),
+                code TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                supplier_lot TEXT,
+                manufactured_on TEXT,
+                expires_on TEXT,
+                origin_movement_id INTEGER REFERENCES stock_movements(id),
+                created_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(material_id,code))''')
+            db.execute('''CREATE TABLE physical_lot_openings (
+                id INTEGER PRIMARY KEY,
+                lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                quantity TEXT NOT NULL,
+                checkpoint_movement_id INTEGER NOT NULL,
+                evidence TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(lot_id,warehouse_id))''')
+            db.execute('''CREATE TABLE physical_lot_allocations (
+                id INTEGER PRIMARY KEY,
+                lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                movement_id INTEGER NOT NULL REFERENCES stock_movements(id),
+                quantity TEXT NOT NULL,
+                original_allocation_id INTEGER REFERENCES physical_lot_allocations(id),
+                UNIQUE(lot_id,movement_id))''')
+            db.execute('CREATE INDEX physical_lot_allocation_history ON physical_lot_allocations(lot_id,movement_id)')
+            db.execute('CREATE UNIQUE INDEX physical_lot_reversal_once ON physical_lot_allocations(original_allocation_id)')
+            # 旧流水没有真实批次证据，只对升级时的逐仓净结存建立未识别期初。
+            checkpoint = db.execute('SELECT COALESCE(MAX(id),0) FROM stock_movements').fetchone()[0]
+            balances: dict[tuple[int, int], Decimal] = {}
+            for warehouse_id, material_id, quantity in db.execute(
+                'SELECT warehouse_id,material_id,quantity FROM stock_movements ORDER BY id'
+            ):
+                key = (warehouse_id, material_id)
+                balances[key] = balances.get(key, Decimal(0)) + Decimal(quantity)
+            for (warehouse_id, material_id), quantity in sorted(balances.items()):
+                if quantity == 0:
+                    continue
+                lot = db.execute('''INSERT INTO physical_lots(material_id,code,source_kind)
+                    VALUES (?,?,'legacy')''',
+                    (material_id, f'LEGACY-W{warehouse_id}-M{material_id}'))
+                db.execute('''INSERT INTO physical_lot_openings(
+                    lot_id,warehouse_id,quantity,checkpoint_movement_id,evidence)
+                    VALUES (?,?,?,?,?)''',
+                    (lot.lastrowid, warehouse_id, str(quantity), checkpoint,
+                     '旧库存无实物批次证据；仅按升级时逐仓净结存建立未识别期初'))
+            db.execute('PRAGMA user_version = 56')

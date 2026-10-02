@@ -4,8 +4,17 @@ import pytest
 
 
 @pytest.fixture
-def remove_inventory_warning_schema():
+def remove_physical_lot_schema():
     def remove(db):
+        for table in ('physical_lot_allocations', 'physical_lot_openings', 'physical_lots'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+    return remove
+
+
+@pytest.fixture
+def remove_inventory_warning_schema(remove_physical_lot_schema):
+    def remove(db):
+        remove_physical_lot_schema(db)
         for table in ('inventory_warning_changes','inventory_warning_rules'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
         db.execute("DELETE FROM role_permissions WHERE permission_code='inventory_warning.manage'")
