@@ -33,6 +33,9 @@ export interface PhysicalLotHistory {
     quantity: string; source_type: string; source_id: number; source_line_id: number
     evidence: string; created_by_name: string; original_evidence_id: number | null
     created_at: string}[]
+  evidence_pairs: {id: number; inbound_movement_id: number; outbound_movement_id: number
+    inbound_evidence_id: number; outbound_evidence_id: number; quantity: string; evidence: string
+    original_pair_id: number | null; created_by_name: string; created_at: string}[]
   balances: {warehouse_id: number; warehouse_name: string; quantity: string}[]
 }
 export interface PhysicalLotUnallocatedMovement {
@@ -55,6 +58,19 @@ export interface PhysicalLotMovementEvidenceResult {
   original_evidence_id: number | null; created_by_name: string; created_at: string
 }
 export interface PhysicalLotMovementEvidenceReverseInput {record_id: number; reason: string}
+export interface PhysicalLotEvidencePairInput {
+  inbound_movement_id: number; outbound_movement_id: number; lot_id: number | null
+  quantity: string; evidence: string; supplier_lot: string | null
+  manufactured_on: string | null; expires_on: string | null
+}
+export interface PhysicalLotEvidencePairResult {
+  id: number; inbound_movement_id: number; outbound_movement_id: number
+  inbound_evidence_id: number; outbound_evidence_id: number
+  lot_id: number; lot_code: string; warehouse_id: number; material_id: number
+  quantity: string; evidence: string; original_pair_id: number | null
+  created_by_name: string; created_at: string
+}
+export interface PhysicalLotEvidencePairReverseInput {record_id: number; reason: string}
 export interface PhysicalLotEvidenceInput {
   legacy_lot_id: number; warehouse_id: number; quantity: string; evidence: string
   supplier_lot: string | null; manufactured_on: string | null; expires_on: string | null
@@ -73,6 +89,8 @@ export interface PhysicalLotOperations {
   physicalLotUnallocated: {input: {warehouse_id: number | null; material_id: number | null}; output: PhysicalLotUnallocatedList}
   physicalLotMovementEvidence: {input: PhysicalLotMovementEvidenceInput; output: PhysicalLotMovementEvidenceResult}
   physicalLotMovementEvidenceReverse: {input: PhysicalLotMovementEvidenceReverseInput; output: PhysicalLotMovementEvidenceResult}
+  physicalLotEvidencePair: {input: PhysicalLotEvidencePairInput; output: PhysicalLotEvidencePairResult}
+  physicalLotEvidencePairReverse: {input: PhysicalLotEvidencePairReverseInput; output: PhysicalLotEvidencePairResult}
 }
 
 function evidenceFields(source: Record<string, unknown>): Pick<PhysicalLotEvidenceInput,
@@ -120,6 +138,17 @@ export function physicalLotMovementEvidenceBody(value: unknown): Omit<PhysicalLo
   if (source.lot_id !== null && (typeof source.lot_id !== 'number'
       || !Number.isSafeInteger(source.lot_id) || source.lot_id <= 0)) throw new Error('所选批次编号无效')
   return {lot_id: source.lot_id as number | null,...evidenceFields(source)}
+}
+
+export function physicalLotEvidencePairBody(value: unknown): PhysicalLotEvidencePairInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('成对补证数据无效')
+  const source = value as Record<string, unknown>
+  const inbound = source.inbound_movement_id, outbound = source.outbound_movement_id
+  if (typeof inbound !== 'number' || !Number.isSafeInteger(inbound) || inbound <= 0
+      || typeof outbound !== 'number' || !Number.isSafeInteger(outbound) || outbound <= inbound)
+    throw new Error('须选择先入后出的两笔库存流水')
+  const {lot_id, ...evidence} = physicalLotMovementEvidenceBody(value)
+  return {inbound_movement_id: inbound, outbound_movement_id: outbound, lot_id, ...evidence}
 }
 
 export function physicalLotKindLabel(kind: string): string {

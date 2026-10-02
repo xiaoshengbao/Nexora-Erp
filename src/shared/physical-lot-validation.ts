@@ -44,6 +44,19 @@ const movementEvidence: Check = value => fields(value, {
   warehouse_id: positive, material_id: positive, quantity: decimal, evidence: text,
   original_evidence_id: optional(positive), created_by_name: text, created_at: text
 })
+const evidencePair: Check = value => fields(value, {
+  id: positive, inbound_movement_id: positive, outbound_movement_id: positive,
+  inbound_evidence_id: positive, outbound_evidence_id: positive,
+  lot_id: positive, lot_code: text, warehouse_id: positive, material_id: positive,
+  quantity: decimal, evidence: text, original_pair_id: optional(positive),
+  created_by_name: text, created_at: text
+})
+const evidencePairHistory: Check = value => fields(value, {
+  id: positive, inbound_movement_id: positive, outbound_movement_id: positive,
+  inbound_evidence_id: positive, outbound_evidence_id: positive,
+  quantity: decimal, evidence: text, original_pair_id: optional(positive),
+  created_by_name: text, created_at: text
+})
 const unallocatedRow: Check = value => fields(value, {
   movement_id: positive, warehouse_id: positive, material_id: positive,
   quantity: decimal, unallocated_quantity: decimal, source_type: text,
@@ -67,6 +80,7 @@ const overview: Check = value => fields(value, {
 const history: Check = value => fields(value, {
   as_of: text, lot: identity, openings: array(opening), movements: array(movement),
   reclassifications: array(reclassification), movement_evidence: array(movementEvidenceHistory),
+  evidence_pairs: array(evidencePairHistory),
   balances: array(balance)
 })
 const evidence: Check = value => fields(value, {
@@ -81,6 +95,8 @@ export function validatePhysicalLotResult(action: string, value: unknown): void 
     : action === 'physicalLotEvidence' || action === 'physicalLotEvidenceReverse' ? evidence : null
   const checked = check ?? (action === 'physicalLotUnallocated' ? unallocated
     : action === 'physicalLotMovementEvidence' || action === 'physicalLotMovementEvidenceReverse'
-      ? movementEvidence : null)
+      ? movementEvidence
+      : action === 'physicalLotEvidencePair' || action === 'physicalLotEvidencePairReverse'
+        ? evidencePair : null)
   if (checked && !checked(value)) throw new Error('实物批次响应格式不匹配，请核对服务端版本后重新读取。')
 }

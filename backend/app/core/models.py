@@ -1052,6 +1052,21 @@ class PhysicalLotMovementEvidence(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class PhysicalLotEvidencePair(Base):
+    __tablename__ = 'physical_lot_evidence_pairs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    inbound_movement_id: Mapped[int] = mapped_column(Integer, ForeignKey('stock_movements.id'), nullable=False)
+    outbound_movement_id: Mapped[int] = mapped_column(Integer, ForeignKey('stock_movements.id'), nullable=False)
+    inbound_evidence_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lot_movement_evidence.id'), nullable=False)
+    outbound_evidence_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lot_movement_evidence.id'), nullable=False)
+    lot_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lots.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    original_pair_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('physical_lot_evidence_pairs.id'))
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class InventoryCostInput(Base):
     __tablename__ = 'inventory_cost_inputs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
