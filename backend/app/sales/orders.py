@@ -20,8 +20,11 @@ from app.core.models import (
     StockMovement,
     User,
     Warehouse,
+    PhysicalLot,
+    PhysicalLotAllocation,
 )
 from app.inventory.warehouse import TransferLineInput, balance, require_warehouse
+from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 from app.purchase.orders import PurchaseOrderLineInput
 from app.sales.returns import returned_quantity
 from app.access.security import require
@@ -66,6 +69,25 @@ class ShipmentReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class ShipmentLotPartInput(BaseModel):
+    lot_id: int = Field(gt=0)
+    quantity: Decimal
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        return TransferLineInput.valid_quantity(value)
+
+
+class ShipmentLotLineInput(BaseModel):
+    shipment_line_id: int = Field(gt=0)
+    lots: list[ShipmentLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class ShipmentPostInput(BaseModel):
+    lines: list[ShipmentLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def shipped_quantity(db: Session, order_line_id: int) -> Decimal:
@@ -228,12 +250,26 @@ def shipment_data(db: Session, shipment_id: int) -> dict:
         .mappings()
         .all()
     )
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'shipment', StockMovement.source_id == shipment_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': format(-Decimal(allocation.quantity), 'f'),
+            'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+            'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+        })
     result_lines = []
     for item in lines:
         returned = returned_quantity(db, item["id"])
         result_lines.append(
             {
                 **dict(item),
+                'physical_lots': lots_by_line.get(item['id'], []),
                 "returned_quantity": str(returned),
                 "returnable_quantity": str(
                     Decimal(0) if row["reversal_id"] else Decimal(item["quantity"]) - returned
@@ -456,8 +492,39 @@ def create_shipment(payload: ShipmentInput, user: dict = Depends(require("shipme
         return shipment_data(db, cursor.id)
 
 
+@router.get('/shipments/{shipment_id}/available-lots')
+def available_shipment_lots(shipment_id: int, _: dict = Depends(require('shipment.post'))) -> dict:
+    with orm_session() as db:
+        shipment = db.get(Shipment, shipment_id)
+        if shipment is None:
+            raise HTTPException(404, '出库单不存在')
+        if shipment.status != 'draft':
+            raise HTTPException(409, '只能查询销售出库草稿的可用批次')
+        lines = list(db.execute(
+            select(ShipmentLine.id, ShipmentLine.quantity, SalesOrderLine.material_id)
+            .join(SalesOrderLine, SalesOrderLine.id == ShipmentLine.sales_order_line_id)
+            .where(ShipmentLine.shipment_id == shipment_id).order_by(ShipmentLine.id)).mappings())
+        materials = {line['material_id'] for line in lines}
+        lots = list(db.scalars(select(PhysicalLot).where(
+            PhysicalLot.material_id.in_(materials)).order_by(PhysicalLot.id)))
+        available = {material_id: [] for material_id in materials}
+        for lot in lots:
+            quantity = lot_balance(db, shipment.warehouse_id, lot.id)
+            if quantity > 0:
+                available[lot.material_id].append({
+                    'lot_id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                    'quantity': format(quantity, 'f'), 'supplier_lot': lot.supplier_lot,
+                    'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+                })
+        return {'shipment_id': shipment_id, 'warehouse_id': shipment.warehouse_id,
+                'lines': [{'shipment_line_id': line['id'], 'material_id': line['material_id'],
+                           'quantity': line['quantity'], 'lots': available[line['material_id']]}
+                          for line in lines]}
+
+
 @router.post("/shipments/{shipment_id}/post")
-def post_shipment(shipment_id: int, user: dict = Depends(require("shipment.post"))) -> dict:
+def post_shipment(shipment_id: int, payload: ShipmentPostInput | None = None,
+                  user: dict = Depends(require("shipment.post"))) -> dict:
     with orm_session(write=True) as db:
         from app.sales.after_sales_rules import ensure_replacement_available
         linked_shipment = db.get(Shipment, shipment_id)
@@ -504,13 +571,15 @@ def post_shipment(shipment_id: int, user: dict = Depends(require("shipment.post"
             shipment["sales_order_id"],
             [(line["material_id"], Decimal(line["quantity"])) for line in lines],
         )
+        lot_lines = {line.shipment_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '批次明细必须与销售出库明细逐行对应')
         for line in lines:
             if balance(db, shipment["warehouse_id"], line["material_id"]) < Decimal(line["quantity"]):
                 raise HTTPException(409, f"物料 #{line['material_id']} 在出库仓库的库存不足")
         for line in lines:
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=shipment["warehouse_id"],
                     material_id=line["material_id"],
                     quantity=str(-Decimal(line["quantity"])),
@@ -518,8 +587,16 @@ def post_shipment(shipment_id: int, user: dict = Depends(require("shipment.post"
                     source_id=shipment_id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line['id']].lots
+            if len({part.lot_id for part in parts}) != len(parts):
+                raise HTTPException(422, '一行销售出库不能重复选择同一实物批次')
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line['quantity']):
+                raise HTTPException(422, f'销售出库明细 #{line["id"]} 的批次数量之和不匹配')
+            post_lot_movement(db, movement, [LotPart(part.lot_id, -part.quantity) for part in parts])
         db.execute(
             update(Shipment)
             .where((Shipment.id == shipment_id))
@@ -578,9 +655,7 @@ def reverse_shipment(
         )
         for line in lines:
             # 在原出库仓追加正向库存，不改写已确认的负向出库流水。
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=shipment["warehouse_id"],
                     material_id=line["material_id"],
                     quantity=line["quantity"],
@@ -588,8 +663,21 @@ def reverse_shipment(
                     source_id=cursor.id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            allocations = list(db.scalars(
+                select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'shipment',
+                       StockMovement.source_id == shipment_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != -Decimal(line['quantity']):
+                    raise HTTPException(409, '原销售出库批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         update_order_shipment_status(db, shipment["sales_order_id"])
         return shipment_data(db, shipment_id)
 
