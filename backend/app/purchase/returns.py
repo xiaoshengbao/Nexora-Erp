@@ -26,8 +26,10 @@ from app.core.models import (
     Warehouse,
     WarehouseOutbound,
     WarehouseOutboundLine,
+    PhysicalLotAllocation,
 )
 from app.inventory.warehouse import balance
+from app.inventory.physical_lots import LotPart, post_lot_movement
 from app.access.security import require
 
 UserRu = aliased(User)
@@ -343,7 +345,8 @@ def submit_return_in_transaction(db: Session, return_id: int) -> int:
     return outbound_id
 
 
-def post_return_in_transaction(db: Session, return_id: int, actor_id: int) -> dict:
+def post_return_in_transaction(db: Session, return_id: int, actor_id: int,
+                               lot_lines: dict[int, list[LotPart]] | None = None) -> dict:
     # 必须持有 BEGIN IMMEDIATE 写锁；重查原入库可退量和原仓库余额。
     row = (
         db.execute(
@@ -406,14 +409,15 @@ def post_return_in_transaction(db: Session, return_id: int, actor_id: int) -> di
         [(line["receipt_line_id"], Decimal(line["quantity"])) for line in lines],
         exclude_return_id=return_id,
     )
+    if lot_lines is not None and set(lot_lines) != {
+            source[line['receipt_line_id']]['material_id'] for line in lines}:
+        raise HTTPException(422, '批次明细必须与采购退货明细逐行对应')
     for line in lines:
         material_id = source[line["receipt_line_id"]]["material_id"]
         quantity = Decimal(line["quantity"])
         if balance(db, outbound["warehouse_id"], material_id) < quantity:
             raise HTTPException(409, f"物料 #{material_id} 在原入库仓库库存不足；请先调回原仓库")
-        add_model(
-            db,
-            StockMovement(
+        movement = StockMovement(
                 warehouse_id=outbound["warehouse_id"],
                 material_id=material_id,
                 quantity=str(-quantity),
@@ -421,8 +425,11 @@ def post_return_in_transaction(db: Session, return_id: int, actor_id: int) -> di
                 source_id=return_id,
                 source_line_id=line["id"],
                 created_by=actor_id,
-            ),
-        )
+            )
+        if lot_lines is None:
+            db.add(movement)
+        else:
+            post_lot_movement(db, movement, lot_lines[material_id])
     db.execute(
         update(PurchaseReturn)
         .where((PurchaseReturn.id == return_id))
@@ -529,9 +536,7 @@ def reverse_purchase_return(
         )
         for line in lines:
             # 采购退货的反向实物回到原入库仓库，来源行仍指向原退货明细。
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=row["warehouse_id"],
                     material_id=line["material_id"],
                     quantity=line["quantity"],
@@ -539,6 +544,19 @@ def reverse_purchase_return(
                     source_id=cursor.id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            allocations = list(db.scalars(
+                select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'purchase_return',
+                       StockMovement.source_id == return_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != -Decimal(line['quantity']):
+                    raise HTTPException(409, '原采购退货批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         return purchase_return_data(db, return_id)

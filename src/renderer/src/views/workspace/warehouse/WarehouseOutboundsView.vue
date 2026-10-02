@@ -31,7 +31,7 @@ const lotLoading = ref(false)
 const lotLoadError = ref('')
 let loadTicket = 0
 const activeOutbound = computed(() => warehouseOutbounds.value.find(item =>
-  item.id === activeOutboundId.value && item.source_kind === 'other' && item.status === 'draft') ?? null)
+  item.id === activeOutboundId.value && item.status === 'draft') ?? null)
 const query = ref('')
 const filtered = computed(() => warehouseOutbounds.value.filter((item) =>
   [item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
@@ -249,10 +249,10 @@ async function confirmLotPost(): Promise<void> {
       <template #cell-lines="{ row: item }"
         ><div v-for="line in item.lines" :key="line.id">
           {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
-          <small v-if="item.source_kind === 'other' && item.status === 'posted' && line.physical_lots?.length" class="outbound-lot-proof">
+          <small v-if="item.status === 'posted' && line.physical_lots?.length" class="outbound-lot-proof">
             实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
           </small>
-          <small v-else-if="item.source_kind === 'other' && item.status === 'posted'" class="outbound-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+          <small v-else-if="item.status === 'posted'" class="outbound-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
         </div></template
       >
       <template #cell-actions="{ row: item }"
@@ -260,11 +260,11 @@ async function confirmLotPost(): Promise<void> {
           <AppButton
             v-if="item.status === 'draft' && can('other_outbound.post')"
             :disabled="busy || connectionLost"
-            @click="item.source_kind === 'other' ? startLotPost(item) : postWarehouseOutbound(item.id)"
+            @click="startLotPost(item)"
             variant="primary"
             size="small"
             type="button"
-            >{{ item.source_kind === 'other' ? '指定批次并确认' : '确认出库' }}</AppButton
+            >指定批次并确认</AppButton
           >
           <AppButton
             v-if="
@@ -312,7 +312,7 @@ async function confirmLotPost(): Promise<void> {
       :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
       <form v-if="activeOutbound && can('other_outbound.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>其他出库 #{{ activeOutbound.id }} · 指定实物批次</h2>
+        <h2>{{ activeOutbound.source_kind === 'purchase_return' ? '采购退货出库' : '其他出库' }} #{{ activeOutbound.id }} · 指定实物批次</h2>
         <p>从 {{ activeOutbound.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。</p>
         <p v-if="lotLoading">正在读取可用批次…</p>
         <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>

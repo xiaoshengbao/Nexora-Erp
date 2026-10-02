@@ -27,25 +27,25 @@ export function outboundAvailableMilli(value: string): bigint | null {
 // IPC 固定明细字段，并避免旧服务端忽略请求体时误报确认成功。
 export function outboundLotBody(value: unknown): {lines: OutboundLotLineInput[]} {
   if (!value || typeof value !== 'object' || !Array.isArray((value as {lines?: unknown}).lines))
-    throw Error('其他出库批次明细无效')
+    throw Error('仓库出库批次明细无效')
   const source = (value as {lines: unknown[]}).lines
-  if (source.length < 1 || source.length > 100) throw Error('其他出库批次行数无效')
+  if (source.length < 1 || source.length > 100) throw Error('仓库出库批次行数无效')
   const lineIds = new Set<number>()
   return {lines: source.map(item => {
-    if (!item || typeof item !== 'object') throw Error('其他出库批次行无效')
+    if (!item || typeof item !== 'object') throw Error('仓库出库批次行无效')
     const line = item as Record<string, unknown>
     if (!positiveId(line.outbound_line_id) || lineIds.has(line.outbound_line_id))
-      throw Error('其他出库明细编号无效')
+      throw Error('仓库出库明细编号无效')
     lineIds.add(line.outbound_line_id)
     if (!Array.isArray(line.lots) || line.lots.length < 1 || line.lots.length > 20)
-      throw Error('其他出库批次数量无效')
+      throw Error('仓库出库批次数量无效')
     const lotIds = new Set<number>()
     return {outbound_line_id: line.outbound_line_id, lots: line.lots.map(item => {
-      if (!item || typeof item !== 'object') throw Error('其他出库批次无效')
+      if (!item || typeof item !== 'object') throw Error('仓库出库批次无效')
       const part = item as Record<string, unknown>
       if (!positiveId(part.lot_id) || lotIds.has(part.lot_id)
           || typeof part.quantity !== 'string' || receiptLotMilli(part.quantity) === null)
-        throw Error('其他出库批次编号或数量无效')
+        throw Error('仓库出库批次编号或数量无效')
       lotIds.add(part.lot_id)
       return {lot_id: part.lot_id, quantity: part.quantity}
     })}
@@ -83,7 +83,7 @@ export function validateOutboundLotOptions(value: unknown, outboundId: number): 
 
 export function validatePostedOutboundLots(value: unknown, outboundId: number,
                                            requested: OutboundLotLineInput[]): void {
-  const invalid = () => { throw Error('服务端未固定本次其他出库的实物批次，请核对服务端版本和批次差额。') }
+  const invalid = () => { throw Error('服务端未固定本次仓库出库的实物批次，请核对服务端版本和批次差额。') }
   if (!value || typeof value !== 'object') return invalid()
   const result = value as Record<string, unknown>
   if (result.id !== outboundId || result.status !== 'posted' || !Array.isArray(result.lines)) return invalid()
