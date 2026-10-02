@@ -1,4 +1,5 @@
 import type { AppState } from '../state'
+import type {ReceiptLotLineInput} from '../../../../shared/receipt-lot-api'
 
 // 采购单据操作独立维护；写入后由统一入口刷新服务端快照。
 export function createPurchaseActions(
@@ -221,10 +222,10 @@ export function createPurchaseActions(
     )
   }
 
-  async function postReceipt(receiptId: number): Promise<void> {
+  async function postReceipt(receiptId: number, lines?: ReceiptLotLineInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
-      () => window.nexora!.callApi('postReceipt', { receiptId }),
+      () => window.nexora!.callApi('postReceipt', { receiptId, ...(lines ? {lines} : {}) }),
       `入库单 #${receiptId} 已确认，库存流水已生成。`
     )
   }
