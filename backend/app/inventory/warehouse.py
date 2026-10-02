@@ -1,15 +1,17 @@
 """多仓库库存与调拨；已确认流水只追加，不直接修改余额。"""
 
+import json
+
 from sqlalchemy import select, update, delete, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.orm import orm_session, add_model
-from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, StockMovement, Transfer, TransferLine, TransferReversal, User, Warehouse
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, StockMovement, Transfer, TransferLine, TransferReversal, User, Warehouse, WarehouseChange
 from app.access.security import require
 from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 
@@ -24,6 +26,8 @@ router = APIRouter(prefix="/api/v1")
 class WarehouseInput(BaseModel):
     code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=1, max_length=80)
+    version: int | None = Field(default=None, ge=1, strict=True)
+    reason: str = Field(default="", max_length=500)
 
     @field_validator("code")
     @classmethod
@@ -36,6 +40,32 @@ class WarehouseInput(BaseModel):
         if not value.strip():
             raise ValueError("仓库名称不能为空")
         return value.strip()
+
+    @field_validator("reason")
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        return value.strip()
+
+
+def warehouse_data(row: Warehouse) -> dict:
+    return {'id': row.id, 'code': row.code, 'name': row.name, 'version': row.version}
+
+
+def record_warehouse_change(db: Session, row: Warehouse, action: str,
+                            before: dict | None, actor: dict, reason: str) -> None:
+    # 仓库可在未被引用时删除；审计不能依赖仍存在的仓库行。
+    db.add(WarehouseChange(warehouse_id=row.id, action=action,
+        before_json=json.dumps(before, ensure_ascii=False) if before is not None else None,
+        after_json=json.dumps(warehouse_data(row), ensure_ascii=False) if action != 'delete' else None,
+        reason=reason, changed_by=actor['id']))
+
+
+def warehouse_change_data(change: WarehouseChange, username: str) -> dict:
+    return {'id': change.id, 'warehouse_id': change.warehouse_id, 'action': change.action,
+            'before': json.loads(change.before_json) if change.before_json else None,
+            'after': json.loads(change.after_json) if change.after_json else None,
+            'reason': change.reason, 'changed_by': change.changed_by,
+            'changed_by_name': username, 'created_at': change.created_at}
 
 
 class TransferLineInput(BaseModel):
@@ -185,24 +215,49 @@ def transfer_data(db: Session, transfer_id: int) -> dict:
 @router.get("/warehouses")
 def list_warehouses(_: dict = Depends(require("inventory.view"))) -> list[dict]:
     with orm_session() as db:
-        return [
-            dict(row)
-            for row in db.execute(
-                select(Warehouse.id, Warehouse.code, Warehouse.name)
-                .select_from(Warehouse)
-                .order_by(Warehouse.id)
-            ).mappings()
-        ]
+        return [warehouse_data(row) for row in db.scalars(select(Warehouse).order_by(Warehouse.id))]
+
+
+@router.get("/warehouses/{warehouse_id}")
+def warehouse_detail(warehouse_id: int, _: dict = Depends(require("inventory.view"))) -> dict:
+    with orm_session() as db:
+        row = db.get(Warehouse, warehouse_id)
+        if row is None:
+            raise HTTPException(404, '仓库不存在')
+        return warehouse_data(row)
+
+
+@router.get("/warehouse-changes")
+def recent_warehouse_changes(before_id: int | None = Query(default=None, gt=0),
+                             limit: int = Query(default=100, ge=1, le=500),
+                             _: dict = Depends(require("inventory.view"))) -> list[dict]:
+    with orm_session() as db:
+        statement = select(WarehouseChange, User.username).join(User, User.id == WarehouseChange.changed_by)
+        if before_id is not None:
+            statement = statement.where(WarehouseChange.id < before_id)
+        return [warehouse_change_data(change, username) for change, username in
+                db.execute(statement.order_by(WarehouseChange.id.desc()).limit(limit))]
+
+
+@router.get("/warehouses/{warehouse_id}/changes")
+def warehouse_changes(warehouse_id: int, _: dict = Depends(require("inventory.view"))) -> list[dict]:
+    with orm_session() as db:
+        rows = db.execute(select(WarehouseChange, User.username).join(User, User.id == WarehouseChange.changed_by)
+            .where(WarehouseChange.warehouse_id == warehouse_id).order_by(WarehouseChange.id.desc())).all()
+        if not rows and db.get(Warehouse, warehouse_id) is None:
+            raise HTTPException(404, '仓库不存在')
+        return [warehouse_change_data(change, username) for change, username in rows]
 
 
 @router.post("/warehouses", status_code=201)
-def create_warehouse(payload: WarehouseInput, _: dict = Depends(require("warehouse.manage"))) -> dict:
+def create_warehouse(payload: WarehouseInput, actor: dict = Depends(require("warehouse.manage"))) -> dict:
     with orm_session(write=True) as db:
         try:
-            cursor = add_model(db, Warehouse(code=payload.code, name=payload.name))
+            row = add_model(db, Warehouse(code=payload.code, name=payload.name, version=1))
         except IntegrityError:
             raise HTTPException(409, "仓库编码或名称已存在") from None
-        return {"id": cursor.id, **payload.model_dump()}
+        record_warehouse_change(db, row, 'create', None, actor, payload.reason or '新增仓库')
+        return warehouse_data(row)
 
 
 @router.get("/transfers")
@@ -472,31 +527,44 @@ def reverse_transfer(
 
 @router.put("/warehouses/{warehouse_id}")
 def update_warehouse(
-    warehouse_id: int, payload: WarehouseInput, _: dict = Depends(require("warehouse.manage"))
+    warehouse_id: int, payload: WarehouseInput, actor: dict = Depends(require("warehouse.manage"))
 ) -> dict:
     with orm_session(write=True) as db:
+        row = db.get(Warehouse, warehouse_id)
+        if row is None:
+            raise HTTPException(404, "仓库不存在")
+        if payload.version != row.version:
+            raise HTTPException(409, '仓库资料已更新或未提供版本，请重新加载后编辑')
+        if not payload.reason:
+            raise HTTPException(422, '请填写仓库资料修改原因')
+        if payload.code == row.code and payload.name == row.name:
+            raise HTTPException(409, '仓库资料没有变化')
+        before = warehouse_data(row)
+        row.code, row.name, row.version = payload.code, payload.name, row.version + 1
         try:
-            cursor = db.execute(
-                update(Warehouse)
-                .where((Warehouse.id == warehouse_id))
-                .values(code=payload.code, name=payload.name)
-            )
+            db.flush()
         except IntegrityError:
             raise HTTPException(409, "仓库编码或名称已存在") from None
-        if not cursor.rowcount:
-            raise HTTPException(404, "仓库不存在")
-        return {"id": warehouse_id, **payload.model_dump()}
+        record_warehouse_change(db, row, 'update', before, actor, payload.reason)
+        return warehouse_data(row)
 
 
 @router.delete("/warehouses/{warehouse_id}", status_code=204)
-def delete_warehouse(warehouse_id: int, _: dict = Depends(require("warehouse.manage"))) -> None:
+def delete_warehouse(warehouse_id: int, version: int = Query(ge=1),
+                     actor: dict = Depends(require("warehouse.manage"))) -> None:
     # 旧客户端建单默认引用 1 号主仓库，不能删除该兼容入口。
     if warehouse_id == 1:
         raise HTTPException(409, "默认主仓库不能删除")
     with orm_session(write=True) as db:
+        row = db.get(Warehouse, warehouse_id)
+        if row is None:
+            raise HTTPException(404, "仓库不存在")
+        if version != row.version:
+            raise HTTPException(409, '仓库资料已更新，请重新加载后删除')
+        before = warehouse_data(row)
         try:
-            cursor = db.execute(delete(Warehouse).where((Warehouse.id == warehouse_id)))
+            db.delete(row)
+            db.flush()
         except IntegrityError:
             raise HTTPException(409, "仓库已被业务单据或库存记录引用，不能删除") from None
-        if not cursor.rowcount:
-            raise HTTPException(404, "仓库不存在")
+        record_warehouse_change(db, row, 'delete', before, actor, '删除未被引用的仓库')

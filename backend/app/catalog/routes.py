@@ -1,6 +1,8 @@
 """供应商与物料基础资料接口。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from sqlalchemy import func, select
@@ -8,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import Material, Supplier, SupplierMaterial
+from app.core.models import Material, Supplier, SupplierChange, SupplierMaterial, User
 from app.core.orm import orm_session, model_data
 from app.catalog.material_rules import (CATEGORY_CODES, MATERIAL_CATEGORIES, DETAIL_FIELDS,
     allocate_material_code, reserve_legacy_code, material_data, record_material_change)
@@ -18,6 +20,8 @@ router = APIRouter(prefix="/api/v1")
 
 class SupplierInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    version: int | None = Field(default=None, ge=1, strict=True)
+    reason: str = Field(default="", max_length=500)
 
     @field_validator("name")
     @classmethod
@@ -25,6 +29,32 @@ class SupplierInput(BaseModel):
         if not value.strip():
             raise ValueError("供应商名称不能为空")
         return value.strip()
+
+    @field_validator("reason")
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        return value.strip()
+
+
+def supplier_data(row: Supplier) -> dict:
+    return {'id': row.id, 'name': row.name, 'version': row.version}
+
+
+def record_supplier_change(db: Session, row: Supplier, action: str,
+                           before: dict | None, actor: dict, reason: str) -> None:
+    # 不加供应商外键，删除未引用的档案后仍保留原编号和前后快照。
+    db.add(SupplierChange(supplier_id=row.id, action=action,
+        before_json=json.dumps(before, ensure_ascii=False) if before is not None else None,
+        after_json=json.dumps(supplier_data(row), ensure_ascii=False) if action != 'delete' else None,
+        reason=reason, changed_by=actor['id']))
+
+
+def supplier_change_data(change: SupplierChange, username: str) -> dict:
+    return {'id': change.id, 'supplier_id': change.supplier_id, 'action': change.action,
+            'before': json.loads(change.before_json) if change.before_json else None,
+            'after': json.loads(change.after_json) if change.after_json else None,
+            'reason': change.reason, 'changed_by': change.changed_by,
+            'changed_by_name': username, 'created_at': change.created_at}
 
 
 class MaterialInput(BaseModel):
@@ -72,7 +102,7 @@ def flush_catalog(db: Session, message: str) -> None:
 @router.get("/suppliers")
 def list_suppliers(_: dict = Depends(require("inventory.view"))) -> list[dict]:
     with orm_session() as db:
-        return [{'id': row.id, 'name': row.name} for row in db.scalars(select(Supplier).order_by(Supplier.name))]
+        return [supplier_data(row) for row in db.scalars(select(Supplier).order_by(Supplier.name))]
 
 
 class SupplierPageQuery(BaseModel):
@@ -92,17 +122,49 @@ def query_suppliers(payload: SupplierPageQuery,
         page = min(payload.page, max(1, (total + payload.page_size - 1) // payload.page_size))
         rows = db.scalars(select(Supplier).where(match).order_by(Supplier.name, Supplier.id)
             .limit(payload.page_size).offset((page - 1) * payload.page_size))
-        return {"items": [{'id': row.id, 'name': row.name} for row in rows], "total": total,
+        return {"items": [supplier_data(row) for row in rows], "total": total,
                 "page": page, "page_size": payload.page_size}
 
 
+@router.get("/suppliers/{supplier_id}")
+def supplier_detail(supplier_id: int, _: dict = Depends(require("inventory.view"))) -> dict:
+    with orm_session() as db:
+        row = db.get(Supplier, supplier_id)
+        if row is None:
+            raise HTTPException(404, '供应商不存在')
+        return supplier_data(row)
+
+
+@router.get("/supplier-changes")
+def recent_supplier_changes(before_id: int | None = Query(default=None, gt=0),
+                            limit: int = Query(default=100, ge=1, le=500),
+                            _: dict = Depends(require("inventory.view"))) -> list[dict]:
+    with orm_session() as db:
+        statement = select(SupplierChange, User.username).join(User, User.id == SupplierChange.changed_by)
+        if before_id is not None:
+            statement = statement.where(SupplierChange.id < before_id)
+        return [supplier_change_data(change, username) for change, username in
+                db.execute(statement.order_by(SupplierChange.id.desc()).limit(limit))]
+
+
+@router.get("/suppliers/{supplier_id}/changes")
+def supplier_changes(supplier_id: int, _: dict = Depends(require("inventory.view"))) -> list[dict]:
+    with orm_session() as db:
+        rows = db.execute(select(SupplierChange, User.username).join(User, User.id == SupplierChange.changed_by)
+            .where(SupplierChange.supplier_id == supplier_id).order_by(SupplierChange.id.desc())).all()
+        if not rows and db.get(Supplier, supplier_id) is None:
+            raise HTTPException(404, '供应商不存在')
+        return [supplier_change_data(change, username) for change, username in rows]
+
+
 @router.post("/suppliers", status_code=201)
-def create_supplier(payload: SupplierInput, _: dict = Depends(require("catalog.manage"))) -> dict:
+def create_supplier(payload: SupplierInput, actor: dict = Depends(require("catalog.manage"))) -> dict:
     with orm_session(write=True) as db:
-        supplier = Supplier(name=payload.name)
+        supplier = Supplier(name=payload.name, version=1)
         db.add(supplier)
         flush_catalog(db, "供应商已存在")
-        return {"id": supplier.id, "name": supplier.name}
+        record_supplier_change(db, supplier, 'create', None, actor, payload.reason or '新增供应商')
+        return supplier_data(supplier)
 
 
 @router.get("/material-categories")
@@ -180,24 +242,38 @@ def delete_material(material_id: int, actor: dict = Depends(require("catalog.man
 
 @router.put("/suppliers/{supplier_id}")
 def update_supplier(supplier_id: int, payload: SupplierInput,
-                    _: dict = Depends(require("catalog.manage"))) -> dict:
+                    actor: dict = Depends(require("catalog.manage"))) -> dict:
     with orm_session(write=True) as db:
         supplier = db.get(Supplier, supplier_id)
         if supplier is None:
             raise HTTPException(404, "供应商不存在")
+        if payload.version != supplier.version:
+            raise HTTPException(409, '供应商资料已更新或未提供版本，请重新加载后编辑')
+        if not payload.reason:
+            raise HTTPException(422, '请填写供应商资料修改原因')
+        if payload.name == supplier.name:
+            raise HTTPException(409, '供应商资料没有变化')
+        before = supplier_data(supplier)
         supplier.name = payload.name
+        supplier.version += 1
         flush_catalog(db, "供应商已存在")
-        return {"id": supplier_id, **payload.model_dump()}
+        record_supplier_change(db, supplier, 'update', before, actor, payload.reason)
+        return supplier_data(supplier)
 
 
 @router.delete("/suppliers/{supplier_id}", status_code=204)
-def delete_supplier(supplier_id: int, _: dict = Depends(require("catalog.manage"))) -> None:
+def delete_supplier(supplier_id: int, version: int = Query(ge=1),
+                    actor: dict = Depends(require("catalog.manage"))) -> None:
     with orm_session(write=True) as db:
         supplier = db.get(Supplier, supplier_id)
         if supplier is None:
             raise HTTPException(404, "供应商不存在")
+        if version != supplier.version:
+            raise HTTPException(409, '供应商资料已更新，请重新加载后删除')
+        before = supplier_data(supplier)
         db.delete(supplier)
         flush_catalog(db, "供应商已被业务单据引用，不能删除")
+        record_supplier_change(db, supplier, 'delete', before, actor, '删除未被引用的供应商')
 
 
 @router.get("/supplier-materials")

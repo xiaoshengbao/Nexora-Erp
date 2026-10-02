@@ -301,20 +301,23 @@ export function createWarehouseActions(
     }, `盘点单 #${stocktakeId} 已冲销，反向差异已记入库存流水。`)
   }
 
-  async function saveWarehouse(data: Omit<Warehouse, 'id'>, id?: number): Promise<boolean> {
+  async function saveWarehouse(data: Pick<Warehouse, 'code' | 'name'> & { version?: number; reason?: string }, id?: number): Promise<boolean> {
     if (!window.nexora) return false
     let saved = false
     await perform(async () => {
-      if (id) await window.nexora!.callApi('updateWarehouse', { ...data, id })
-      else await window.nexora!.callApi('createWarehouse', { ...data })
+      if (id) {
+        if (!data.version || !data.reason?.trim()) throw new Error('请重新读取仓库版本并填写修改原因。')
+        await window.nexora!.callApi('updateWarehouse', { code: data.code, name: data.name,
+          version: data.version, reason: data.reason, id })
+      } else await window.nexora!.callApi('createWarehouse', { code: data.code, name: data.name })
       saved = true
     }, '仓库已保存。')
     return saved
   }
 
-  async function deleteWarehouse(id: number): Promise<void> {
+  async function deleteWarehouse(id: number, version: number): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('deleteWarehouse', { id }), '仓库已删除。')
+    await perform(() => window.nexora!.callApi('deleteWarehouse', { id, version }), '仓库已删除。')
   }
 
   return {

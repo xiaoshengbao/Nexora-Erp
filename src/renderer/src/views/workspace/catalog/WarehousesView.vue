@@ -6,18 +6,26 @@ import AppButton from '../../../components/app/AppButton.vue'
 import { computed, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal, NPopconfirm } from 'naive-ui'
-import type { Warehouse } from '../../../../../shared/erp-api'
+import type { Warehouse, WarehouseChange } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
+import { displayError } from '../../../utils/formatters'
 import './catalog.css'
 
 const store = usePiniaAppStore()
 const { busy, connectionLost, warehouses } = storeToRefs(store)
-const { can, saveWarehouse, deleteWarehouse } = store
+const { can, saveWarehouse, deleteWarehouse, localTime } = store
 const query = ref('')
 const editingId = ref<number | undefined>()
 const showForm = ref(false)
-const form = reactive({ code: '', name: '' })
+const form = reactive({ code: '', name: '', version: 0, reason: '' })
+const detailLoading = ref(false)
+const detailError = ref('')
+const auditOpen = ref(false)
+const auditLoading = ref(false)
+const auditError = ref('')
+const auditRows = ref<WarehouseChange[]>([])
+const auditHasMore = ref(false)
 const filtered = computed(() =>
   warehouses.value.filter((item) =>
     [item.code, item.name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())
@@ -29,13 +37,55 @@ const columns = [
   { key: 'name', title: '仓库名称' },
   { key: 'actions', title: '操作' }
 ]
-function edit(item?: Warehouse): void {
-  editingId.value = item?.id
-  Object.assign(form, item ? { code: item.code, name: item.name } : { code: '', name: '' })
-  showForm.value = true
+async function edit(item?: Warehouse): Promise<void> {
+  detailError.value = ''
+  if (!item) {
+    editingId.value = undefined
+    Object.assign(form, { code: '', name: '', version: 0, reason: '' })
+    showForm.value = true
+    return
+  }
+  if (!window.nexora || connectionLost.value) return
+  const user = store.user
+  const server = store.server
+  detailLoading.value = true
+  try {
+    const latest = await window.nexora.callApi('warehouseDetail', { id: item.id })
+    if (store.user !== user || store.server !== server || connectionLost.value) return
+    editingId.value = item.id
+    Object.assign(form, { code: latest.code, name: latest.name, version: latest.version, reason: '' })
+    showForm.value = true
+  } catch (cause) {
+    detailError.value = displayError(cause)
+  } finally {
+    detailLoading.value = false
+  }
 }
 async function save(): Promise<void> {
   if (await saveWarehouse({ ...form }, editingId.value)) showForm.value = false
+}
+async function loadAudit(more = false): Promise<void> {
+  if (!window.nexora || auditLoading.value || connectionLost.value) return
+  const user = store.user
+  const server = store.server
+  auditError.value = ''
+  auditLoading.value = true
+  try {
+    const rows = await window.nexora.callApi('recentWarehouseChanges',
+      more && auditRows.value.length ? { before_id: auditRows.value[auditRows.value.length - 1].id } : {})
+    if (store.user !== user || store.server !== server || connectionLost.value) return
+    auditRows.value = more ? [...auditRows.value, ...rows] : rows
+    auditHasMore.value = rows.length === 100
+  } catch (cause) {
+    auditError.value = displayError(cause)
+  } finally {
+    auditLoading.value = false
+  }
+}
+function openAudit(): void {
+  auditRows.value = []
+  auditOpen.value = true
+  void loadAudit()
 }
 </script>
 
@@ -58,6 +108,8 @@ async function save(): Promise<void> {
           type="button"
           >新增仓库</AppButton
         >
+        <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
+          @click="openAudit">变更记录</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search"
@@ -66,6 +118,7 @@ async function save(): Promise<void> {
         <span class="muted">共 {{ warehouses.length }} 条</span>
       </template>
       <template #beforeTable>
+        <p v-if="detailError" role="alert">{{ detailError }}</p>
         <NModal
           v-model:show="showForm"
           preset="card"
@@ -91,6 +144,7 @@ async function save(): Promise<void> {
                   pattern="[A-Za-z0-9_-]+"
               /></label>
               <label>仓库名称<AppInput v-model.trim="form.name" required maxlength="80" /></label>
+              <label v-if="editingId">修改原因<AppInput v-model.trim="form.reason" required maxlength="500" /></label>
             </div>
             <div class="form-actions">
               <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
@@ -105,6 +159,22 @@ async function save(): Promise<void> {
             </div>
           </form>
         </NModal>
+        <NModal v-model:show="auditOpen" preset="card" title="仓库资料变更记录"
+          :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+          <p>升级前的修改历史无法推断；这里保留升级后新增、修改和删除的前后快照。</p>
+          <p v-if="auditError" role="alert">{{ auditError }}</p>
+          <div v-for="change in auditRows" :key="change.id" class="catalog-audit-item">
+            <strong>#{{ change.id }} · {{ change.action === 'create' ? '新增' : change.action === 'update' ? '修改' : '删除' }}
+              · 仓库 #{{ change.warehouse_id }}</strong>
+            <span>{{ change.before?.code || '无' }} · {{ change.before?.name || '无' }} →
+              {{ change.after?.code || '无' }} · {{ change.after?.name || '无' }}
+              · 版本 {{ change.before?.version || '无' }} → {{ change.after?.version || '无' }}</span>
+            <small>{{ change.reason }} · {{ change.changed_by_name }} · {{ localTime(change.created_at) }}</small>
+          </div>
+          <p v-if="!auditRows.length && !auditLoading">暂无升级后的变更记录。</p>
+          <AppButton v-if="auditHasMore" type="button" variant="secondary" :disabled="auditLoading"
+            @click="loadAudit(true)">加载更早记录</AppButton>
+        </NModal>
       </template>
       <template #cell-code="{ row: item }">{{ item.code }}</template>
       <template #cell-name="{ row: item }">{{ item.name }}</template>
@@ -112,7 +182,7 @@ async function save(): Promise<void> {
         ><div class="catalog-actions">
           <template v-if="can('warehouse.manage')">
             <AppButton
-              :disabled="busy || connectionLost"
+              :disabled="busy || connectionLost || detailLoading"
               @click="edit(item)"
               variant="text"
               type="button"
@@ -121,7 +191,7 @@ async function save(): Promise<void> {
             <NPopconfirm
               positive-text="确认"
               negative-text="取消"
-              @positive-click="deleteWarehouse(item.id)"
+              @positive-click="deleteWarehouse(item.id, item.version)"
             >
               <template #trigger
                 ><AppButton

@@ -72,20 +72,22 @@ export function createCatalogActions(
     await perform(() => window.nexora!.callApi('deleteMaterial', { id }), '物料已删除。')
   }
 
-  async function saveSupplier(data: Omit<Supplier, 'id'>, id?: number): Promise<boolean> {
+  async function saveSupplier(data: Pick<Supplier, 'name'> & { version?: number; reason?: string }, id?: number): Promise<boolean> {
     if (!window.nexora) return false
     let saved = false
     await perform(async () => {
-      if (id) await window.nexora!.callApi('updateSupplier', { ...data, id })
-      else await window.nexora!.callApi('createSupplier', { ...data })
+      if (id) {
+        if (!data.version || !data.reason?.trim()) throw new Error('请重新读取供应商版本并填写修改原因。')
+        await window.nexora!.callApi('updateSupplier', { name: data.name, version: data.version, reason: data.reason, id })
+      } else await window.nexora!.callApi('createSupplier', { name: data.name })
       saved = true
     }, '供应商已保存。')
     return saved
   }
 
-  async function deleteSupplier(id: number): Promise<void> {
+  async function deleteSupplier(id: number, version: number): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('deleteSupplier', { id }), '供应商已删除。')
+    await perform(() => window.nexora!.callApi('deleteSupplier', { id, version }), '供应商已删除。')
   }
 
   async function setSupplierMaterial(supplierId: number, materialId: number, bound: boolean): Promise<void> {

@@ -39,9 +39,15 @@ export interface PageQuery { query: string; page: number; page_size: number }
 export interface PageResult<T> { items: T[]; total: number; page: number; page_size: number }
 
 export interface SupplierMaterial { supplier_id: number; material_id: number }
-export interface Supplier { id: number; name: string }
+export interface Supplier { id: number; name: string; version: number }
 export interface Customer { id: number; name: string; owner_id: number | null; version: number }
-export interface Warehouse { id: number; code: string; name: string }
+export interface Warehouse { id: number; code: string; name: string; version: number }
+export interface MasterDataChange<T> {
+  id: number; action: 'create' | 'update' | 'delete'; before: T | null; after: T | null
+  reason: string; changed_by: number; changed_by_name: string; created_at: string
+}
+export interface SupplierChange extends MasterDataChange<Supplier> { supplier_id: number }
+export interface WarehouseChange extends MasterDataChange<Warehouse> { warehouse_id: number }
 export type LedgerCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'cost'
 export interface LedgerAccount {
   id: number; code: string; name: string; category: LedgerCategory
@@ -1102,10 +1108,16 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   querySuppliers: { input: PageQuery; output: PageResult<Supplier> }
   updateMaterial: { input: MaterialInput & { id: number; version: number }; output: Material }
   deleteMaterial: { input: { id: number }; output: void }
-  updateSupplier: { input: { id: number; name: string }; output: Supplier }
-  deleteSupplier: { input: { id: number }; output: void }
-  updateWarehouse: { input: { id: number; code: string; name: string }; output: Warehouse }
-  deleteWarehouse: { input: { id: number }; output: void }
+  supplierDetail: { input: { id: number }; output: Supplier }
+  supplierChanges: { input: { id: number }; output: SupplierChange[] }
+  recentSupplierChanges: { input: { before_id?: number }; output: SupplierChange[] }
+  updateSupplier: { input: { id: number; name: string; version: number; reason: string }; output: Supplier }
+  deleteSupplier: { input: { id: number; version: number }; output: void }
+  warehouseDetail: { input: { id: number }; output: Warehouse }
+  warehouseChanges: { input: { id: number }; output: WarehouseChange[] }
+  recentWarehouseChanges: { input: { before_id?: number }; output: WarehouseChange[] }
+  updateWarehouse: { input: { id: number; code: string; name: string; version: number; reason: string }; output: Warehouse }
+  deleteWarehouse: { input: { id: number; version: number }; output: void }
   supplierMaterials: { input: undefined; output: SupplierMaterial[] }
   bindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
   unbindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
