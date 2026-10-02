@@ -3,6 +3,7 @@
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -13,6 +14,8 @@ from app.core.models import (
     Material,
     ProductionCompletion,
     ProductionCompletionReversal,
+    PhysicalLot,
+    PhysicalLotAllocation,
     StockMovement,
     User,
     Warehouse,
@@ -20,6 +23,7 @@ from app.core.models import (
     WorkOrderLine,
 )
 from app.inventory.warehouse import balance
+from app.inventory.physical_lots import LotPart, post_lot_movement
 from app.access.security import require
 from app.production.work_orders import issued_quantity, posted_completion_totals, required_for_output
 from app.production.cost_lock import ensure_unsettled
@@ -73,6 +77,31 @@ class ReversalInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class CompletionLotInput(BaseModel):
+    quantity: Decimal
+    manufactured_on: date | None = None
+    expires_on: date | None = None
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= 0 or value > 1_000_000 or value.as_tuple().exponent < -3:
+            raise ValueError('批次数量须大于零、最多三位小数且不超过一百万')
+        return value
+
+    @field_validator('expires_on')
+    @classmethod
+    def valid_expiry(cls, value: date | None, info) -> date | None:
+        manufactured = info.data.get('manufactured_on')
+        if value is not None and manufactured is not None and value < manufactured:
+            raise ValueError('失效日期早于生产日期')
+        return value
+
+
+class CompletionPostInput(BaseModel):
+    lots: list[CompletionLotInput] = Field(min_length=0, max_length=20)
 
 
 def completion_data(db: Session, completion_id: int) -> dict:
@@ -131,6 +160,16 @@ def completion_data(db: Session, completion_id: int) -> dict:
     result = dict(row)
     if result["reversal_id"] is not None:
         result["status"] = "reversed"
+    result['physical_lots'] = [{
+        'id': lot.id, 'code': lot.code, 'quantity': allocation.quantity,
+        'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+    } for lot, allocation in db.execute(
+        select(PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.lot_id == PhysicalLot.id)
+        .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+        .where(StockMovement.source_type == 'production_completion',
+               StockMovement.source_id == completion_id)
+        .order_by(PhysicalLotAllocation.id))]
     return result
 
 
@@ -228,7 +267,8 @@ def inspect_completion(
 
 
 @router.post("/production-completions/{completion_id}/post")
-def post_completion(completion_id: int, user: dict = Depends(require("production_completion.post"))) -> dict:
+def post_completion(completion_id: int, payload: CompletionPostInput | None = None,
+                    user: dict = Depends(require("production_completion.post"))) -> dict:
     with orm_session(write=True) as db:
         # 同一写锁覆盖目标产量、净领料、合格品入库和工单状态，避免并行报工超量。
         completion = (
@@ -306,19 +346,28 @@ def post_completion(completion_id: int, user: dict = Depends(require("production
                 raise HTTPException(409, f"组件 #{line['component_material_id']} 领料不足，不能确认完工")
         accepted = Decimal(completion["accepted_quantity"])
         # 不合格品只留在质检记录中，不进入可用成品库存。
+        parts = payload.lots if payload is not None else None
+        if parts is not None and (accepted == 0 or not parts or
+                                  sum((part.quantity for part in parts), Decimal(0)) != accepted):
+            raise HTTPException(422, '完工实物批次数量之和须等于合格入库数量')
         if accepted > 0:
-            add_model(
-                db,
-                StockMovement(
-                    warehouse_id=order["warehouse_id"],
-                    material_id=order["product_material_id"],
-                    quantity=str(accepted),
-                    source_type="production_completion",
-                    source_id=completion_id,
-                    source_line_id=completion_id,
-                    created_by=user["id"],
-                ),
-            )
+            movement = StockMovement(
+                warehouse_id=order['warehouse_id'], material_id=order['product_material_id'],
+                quantity=str(accepted), source_type='production_completion',
+                source_id=completion_id, source_line_id=completion_id, created_by=user['id'])
+            if parts is None:
+                db.add(movement)
+            else:
+                lots = [add_model(db, PhysicalLot(
+                    material_id=order['product_material_id'], code=f'P{completion_id}-P{index}',
+                    source_kind='production_completion', supplier_lot=None,
+                    manufactured_on=part.manufactured_on.isoformat() if part.manufactured_on else None,
+                    expires_on=part.expires_on.isoformat() if part.expires_on else None,
+                    created_by=user['id'])) for index, part in enumerate(parts, 1)]
+                post_lot_movement(db, movement, [
+                    LotPart(lot.id, part.quantity) for lot, part in zip(lots, parts)])
+                for lot in lots:
+                    lot.origin_movement_id = movement.id
         db.execute(
             update(ProductionCompletion)
             .where((ProductionCompletion.id == completion_id))
@@ -423,18 +472,23 @@ def reverse_completion(
         )
         if accepted > 0:
             # 以冲销单为来源新增反向流水，不修改原入库流水。
-            add_model(
-                db,
-                StockMovement(
-                    warehouse_id=row["warehouse_id"],
-                    material_id=row["product_material_id"],
-                    quantity=str(-accepted),
-                    source_type="production_completion_reversal",
-                    source_id=cursor.id,
-                    source_line_id=cursor.id,
-                    created_by=user["id"],
-                ),
-            )
+            movement = StockMovement(
+                warehouse_id=row['warehouse_id'], material_id=row['product_material_id'],
+                quantity=str(-accepted), source_type='production_completion_reversal',
+                source_id=cursor.id, source_line_id=cursor.id, created_by=user['id'])
+            allocations = list(db.scalars(
+                select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'production_completion',
+                       StockMovement.source_id == completion_id)
+                .order_by(PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != accepted:
+                    raise HTTPException(409, '原完工实物批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         if row["order_status"] == "completed":
             db.execute(
                 update(WorkOrder)

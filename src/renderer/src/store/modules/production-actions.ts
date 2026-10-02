@@ -1,5 +1,6 @@
 import type { AppState } from '../state'
 import type { WorkspaceRouteKey } from '../../router/workspace-routes'
+import type {CompletionLotPartInput} from '../../../../shared/completion-lot-api'
 // 生产操作集中在业务模块；写入后仍由统一入口刷新服务端快照。
 export function createProductionActions(
   state: AppState,
@@ -238,12 +239,13 @@ export function createProductionActions(
     )
   }
 
-  async function postProductionCompletion(completionId: number): Promise<void> {
+  async function postProductionCompletion(completionId: number,
+                                          lots?: CompletionLotPartInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
       () =>
-        window.nexora!.callApi('postProductionCompletion', { completionId }),
-      `完工单 #${completionId} 已确认，合格成品已入目标仓库。`
+        window.nexora!.callApi('postProductionCompletion', { completionId, ...(lots ? {lots} : {}) }),
+      `完工单 #${completionId} 已确认。`
     )
   }
 

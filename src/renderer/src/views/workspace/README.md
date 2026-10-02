@@ -37,7 +37,7 @@
 | `production/` | `ProductionWorkOrdersView.vue` | 建立和下达生产工单 |
 | `production/` | `MaterialIssuesView.vue` | 处理生产领料 |
 | `production/` | `MaterialReturnsView.vue` | 处理生产退料 |
-| `production/` | `ProductionCompletionsView.vue` | 报工、质检与成品入库 |
+| `production/` | `ProductionCompletionsView.vue` | 报工、质检与合格成品实物批次入库；整批不合格不生成批次 |
 | `production/` | `EquipmentMaintenanceView.vue`、`EquipmentEditor.vue`、`EquipmentEvidence.vue` | 设备台账、周期计划、独立审核/执行/验收、停机、耗材原单和中文审计；跨页状态由 `equipment-actions.ts` 管理 |
 | `production/` | `ProductionCostsView.vue` | 库存领料成本、核价、费用归集、完工批次结算与冲销 |
 | `system/` | `UserManagementView.vue` | 创建账号并管理用户状态与角色 |

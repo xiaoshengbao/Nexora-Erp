@@ -37,3 +37,21 @@ test('结算请求失败保留草稿和冲销原因，成功后清理并等待�
   assert.equal(calls.length, 4)
   assert.equal(feedback.length, 2)
 })
+
+test('整批不合格完工确认不提示成品已入库', async t => {
+  const original = globalThis.window
+  t.after(() => { globalThis.window = original })
+  const calls = []
+  globalThis.window = { nexora: { async callApi(operation, payload) {
+    calls.push([operation, payload])
+    return {id: 9}
+  } } }
+  const feedback = []
+  const actions = createProductionActions({}, async (action, success) => {
+    await action()
+    feedback.push(success)
+  }, () => {})
+  await actions.postProductionCompletion(9)
+  assert.deepEqual(calls, [['postProductionCompletion', {completionId: 9}]])
+  assert.deepEqual(feedback, ['完工单 #9 已确认。'])
+})
