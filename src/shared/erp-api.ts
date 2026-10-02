@@ -1,5 +1,6 @@
 import type {InventoryWarningOperations} from './inventory-warning-api'
 import type {PhysicalLotOperations} from './physical-lot-api'
+import type {ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
@@ -398,6 +399,7 @@ export interface ReceiptLine {
 export interface ReceivedLine extends ReceiptLine {
   returned_quantity: string
   returnable_quantity: string
+  physical_lots: ReceiptPhysicalLot[]
 }
 export interface Receipt {
   id: number
@@ -1127,7 +1129,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
     input: { supplier_id: number; warehouse_id: number; purchase_order_id: number | null; reference: string; lines: { material_id: number; quantity: string }[] }
     output: Receipt
   }
-  postReceipt: { input: { receiptId: number }; output: Receipt }
+  postReceipt: { input: { receiptId: number; lines?: ReceiptLotLineInput[] }; output: Receipt }
   reverseReceipt: { input: { receiptId: number; reason: string }; output: Receipt }
   purchaseReturns: { input: undefined; output: PurchaseReturn[] }
   receivablesPayables: { input: undefined; output: ReceivablesPayables }

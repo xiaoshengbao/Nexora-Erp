@@ -3,6 +3,7 @@
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +12,8 @@ from app.access.security import require
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Material,
+    PhysicalLot,
+    PhysicalLotAllocation,
     PurchaseGoodsReceipt,
     Receipt,
     ReceiptLine,
@@ -23,6 +26,7 @@ from app.core.models import (
     Warehouse,
 )
 from app.inventory.warehouse import balance, require_warehouse
+from app.inventory.physical_lots import LotPart, post_lot_movement
 from app.purchase.orders import (
     linked_order_for_receipt,
     order_receipt_lines,
@@ -68,6 +72,34 @@ class ReceiptReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class ReceiptLotPartInput(BaseModel):
+    quantity: Decimal
+    supplier_lot: str | None = Field(default=None, max_length=100)
+    manufactured_on: date | None = None
+    expires_on: date | None = None
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= 0 or value > 1_000_000 or value.as_tuple().exponent < -3:
+            raise ValueError('批次数量须大于零、最多三位小数且不超过一百万')
+        return value
+
+    @field_validator('supplier_lot')
+    @classmethod
+    def trim_supplier_lot(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class ReceiptLotLineInput(BaseModel):
+    receipt_line_id: int = Field(gt=0)
+    lots: list[ReceiptLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class ReceiptPostInput(BaseModel):
+    lines: list[ReceiptLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def receipt_data(db: Session, receipt_id: int) -> dict:
@@ -125,6 +157,19 @@ def receipt_data(db: Session, receipt_id: int) -> dict:
         .all()
     )
     detailed_lines = []
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'receipt', StockMovement.source_id == receipt_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': allocation.quantity,
+            'supplier_lot': lot.supplier_lot, 'manufactured_on': lot.manufactured_on,
+            'expires_on': lot.expires_on,
+        })
     for line in lines:
         # 同一次读取只汇总一次已退量，可退数量只由已确认单据推导。
         returned = purchase_returned_quantity(db, line["id"])
@@ -135,6 +180,7 @@ def receipt_data(db: Session, receipt_id: int) -> dict:
                 "returnable_quantity": str(
                     Decimal(0) if row["reversal_id"] else Decimal(line["quantity"]) - returned
                 ),
+                'physical_lots': lots_by_line.get(line['id'], []),
             }
         )
     goods_receipt = (
@@ -218,7 +264,8 @@ def create_receipt(payload: ReceiptInput, user: dict = Depends(require("receipt.
 
 
 @router.post("/receipts/{receipt_id}/post")
-def post_receipt(receipt_id: int, user: dict = Depends(require("receipt.post"))) -> dict:
+def post_receipt(receipt_id: int, payload: ReceiptPostInput | None = None,
+                 user: dict = Depends(require("receipt.post"))) -> dict:
     with orm_session(write=True) as db:
         # 状态变更和库存流水写入使用同一个写事务，重复确认会返回冲突。
         row = (
@@ -235,33 +282,40 @@ def post_receipt(receipt_id: int, user: dict = Depends(require("receipt.post")))
         if row["status"] != "draft":
             raise HTTPException(409, "此入库单已经确认")
         order_id = validate_receipt_post(db, receipt_id, row["supplier_id"])
-        db.add_all(
-            [
-                StockMovement(
-                    warehouse_id=values[0],
-                    material_id=values[1],
-                    quantity=values[2],
-                    source_type=values[3],
-                    source_id=values[4],
-                    source_line_id=values[5],
-                    created_by=values[6],
-                )
-                for values in db.execute(
-                    select(
-                        ReceiptWarehouse.warehouse_id,
-                        ReceiptLine.material_id,
-                        ReceiptLine.quantity,
-                        literal("receipt"),
-                        literal(receipt_id),
-                        ReceiptLine.id,
-                        literal(user["id"]),
-                    )
-                    .select_from(ReceiptLine)
-                    .join(ReceiptWarehouse, (ReceiptWarehouse.receipt_id == ReceiptLine.receipt_id))
-                    .where((ReceiptLine.receipt_id == receipt_id))
-                )
-            ]
-        )
+        lines = list(db.execute(
+            select(ReceiptLine.id, ReceiptLine.material_id, ReceiptLine.quantity,
+                   ReceiptWarehouse.warehouse_id)
+            .join(ReceiptWarehouse, ReceiptWarehouse.receipt_id == ReceiptLine.receipt_id)
+            .where(ReceiptLine.receipt_id == receipt_id).order_by(ReceiptLine.id)
+        ))
+        lot_lines = {line.receipt_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line.id for line in lines}):
+            raise HTTPException(422, '批次明细必须与入库单明细逐行对应')
+        for line in lines:
+            movement = StockMovement(
+                warehouse_id=line.warehouse_id, material_id=line.material_id,
+                quantity=line.quantity, source_type='receipt', source_id=receipt_id,
+                source_line_id=line.id, created_by=user['id'])
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line.id].lots
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line.quantity):
+                raise HTTPException(422, f'入库明细 #{line.id} 的批次数量之和不匹配')
+            if any(part.manufactured_on and part.expires_on
+                   and part.expires_on < part.manufactured_on for part in parts):
+                raise HTTPException(422, f'入库明细 #{line.id} 的失效日期早于生产日期')
+            lots = [add_model(db, PhysicalLot(
+                material_id=line.material_id, code=f'R{receipt_id}-L{line.id}-P{index}',
+                source_kind='receipt', supplier_lot=part.supplier_lot,
+                manufactured_on=part.manufactured_on.isoformat() if part.manufactured_on else None,
+                expires_on=part.expires_on.isoformat() if part.expires_on else None,
+                created_by=user['id'])) for index, part in enumerate(parts, 1)]
+            post_lot_movement(db, movement, [
+                LotPart(lot.id, part.quantity) for lot, part in zip(lots, parts)])
+            for lot in lots:
+                lot.origin_movement_id = movement.id
         db.execute(
             update(Receipt)
             .where((Receipt.id == receipt_id))
@@ -321,18 +375,23 @@ def reverse_receipt(
         )
         for line in lines:
             # 保留原正向入库流水，再用关联原明细的负向流水抵消误入库数量。
-            add_model(
-                db,
-                StockMovement(
-                    warehouse_id=row["warehouse_id"],
-                    material_id=line["material_id"],
-                    quantity=str(-Decimal(line["quantity"])),
-                    source_type="receipt_reversal",
-                    source_id=cursor.id,
-                    source_line_id=line["id"],
-                    created_by=user["id"],
-                ),
-            )
+            movement = StockMovement(
+                warehouse_id=row['warehouse_id'], material_id=line['material_id'],
+                quantity=str(-Decimal(line['quantity'])), source_type='receipt_reversal',
+                source_id=cursor.id, source_line_id=line['id'], created_by=user['id'])
+            allocations = list(db.scalars(
+                select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'receipt', StockMovement.source_id == receipt_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != Decimal(line['quantity']):
+                    raise HTTPException(409, '原入库批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         order_id = linked_order_for_receipt(db, receipt_id)
         if order_id is not None:
             update_order_receipt_status(db, order_id)

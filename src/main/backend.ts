@@ -1,5 +1,6 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
+import {receiptLotBody,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -415,7 +416,12 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'confirmGoodsReceipt': return { method: 'POST', path: `/api/v1/purchase-goods-receipts/${positiveId(payload, 'goodsReceiptId')}/confirm` }
     case 'cancelGoodsReceipt': return { method: 'POST', path: `/api/v1/purchase-goods-receipts/${positiveId(payload, 'goodsReceiptId')}/cancel` }
     case 'createReceipt': return { method: 'POST', path: '/api/v1/receipts', body: payload }
-    case 'postReceipt': return { method: 'POST', path: `/api/v1/receipts/${positiveId(payload, 'receiptId')}/post` }
+    case 'postReceipt': {
+      const receiptId = positiveId(payload, 'receiptId')
+      const source = payload as ErpOperations['postReceipt']['input']
+      return {method: 'POST', path: `/api/v1/receipts/${receiptId}/post`,
+        ...(source.lines === undefined ? {} : {body: receiptLotBody({lines: source.lines})})}
+    }
     case 'reverseReceipt': {
       const receiptId = positiveId(payload, 'receiptId')
       const fields = payload as ErpOperations['reverseReceipt']['input']
@@ -775,6 +781,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
+  if (action === 'postReceipt') {
+    const request = payload as ErpOperations['postReceipt']['input']
+    if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)
+  }
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)
   validateEquipmentResult(action,data)

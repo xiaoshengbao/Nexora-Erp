@@ -18,7 +18,7 @@
 | `purchase/` | `PurchaseOrdersView.vue` | 建立和管理采购订单 |
 | `purchase/` | `PurchaseRequestsView.vue` | 采购申请、审批、分批转采购订单 |
 | `purchase/` | `PurchaseGoodsReceiptsView.vue` | 分批记录采购合格实收与拒收，确认后生成待入库单 |
-| `purchase/` | `PurchaseReceiptsView.vue` | 建立和确认采购入库单 |
+| `purchase/` | `PurchaseReceiptsView.vue` | 确认采购入库时逐行登记实物批次，并查看原批次及冲销状态 |
 | `purchase/` | `PurchaseReturnsView.vue` | 处理采购退货 |
 | `sales/` | `SalesOrdersView.vue` | 建立和管理销售订单；客户资料独立维护，订单弹窗提供快捷入口并保留草稿 |
 | `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，固定报价独立审核后登记接受依据转销售草稿 |
