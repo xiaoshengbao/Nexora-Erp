@@ -986,6 +986,40 @@ class StockMovement(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class PhysicalLot(Base):
+    __tablename__ = 'physical_lots'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    supplier_lot: Mapped[str | None] = mapped_column(Text)
+    manufactured_on: Mapped[str | None] = mapped_column(Text)
+    expires_on: Mapped[str | None] = mapped_column(Text)
+    origin_movement_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('stock_movements.id'))
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey('users.id'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class PhysicalLotOpening(Base):
+    __tablename__ = 'physical_lot_openings'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lot_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lots.id'), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey('warehouses.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    checkpoint_movement_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class PhysicalLotAllocation(Base):
+    __tablename__ = 'physical_lot_allocations'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lot_id: Mapped[int] = mapped_column(Integer, ForeignKey('physical_lots.id'), nullable=False)
+    movement_id: Mapped[int] = mapped_column(Integer, ForeignKey('stock_movements.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    original_allocation_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('physical_lot_allocations.id'))
+
+
 class InventoryCostInput(Base):
     __tablename__ = 'inventory_cost_inputs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

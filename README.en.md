@@ -19,7 +19,7 @@ The directory follows the active route and offers permitted pages in the same ca
 | Accounts and permissions | Users, built-in/custom roles, document action permissions, account activation, password resets, permission trees and navigation icon settings. |
 | Master data | Materials, suppliers, customers, warehouses and supplier-material relationships; server-side pagination for suppliers. |
 | Purchasing | Request approval and split orders, orders, partial receiving, warehouse-confirmed receipts, returns awaiting shipment confirmation, and reversals. |
-| Warehousing | Multi-warehouse stock, other inbounds/outbounds, transfers, stocktakes, independently approved adjustments, source movements and stock ledgers; [inventory warnings (Chinese)](docs/inventory-warnings.md) use per-warehouse thresholds, current quantities, versions and audit evidence. |
+| Warehousing | Multi-warehouse stock, other inbounds/outbounds, transfers, stocktakes, independently approved adjustments, source movements and stock ledgers; [inventory warnings (Chinese)](docs/inventory-warnings.md) use per-warehouse thresholds, current quantities, versions and audit evidence. The [physical lot foundation (Chinese)](docs/physical-lot-tracing.md) only provides unidentified historical openings and balance-difference diagnostics. |
 | Sales | [Customer relations and quotations (Chinese)](docs/customer-relations.md) add contacts, follow-ups, opportunities and independently approved quotation conversion; orders, partial shipments, linked returns and reversals; confirmation checks remaining order quantities and stock. |
 | Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion; [equipment maintenance (Chinese)](docs/equipment-maintenance.md) adds calendar plans, independent execution/acceptance, downtime and material sources. |
 | Cost and operational finance | Moving-average valuation, manual valuation of unknown costs, material/labor/overhead collection, finished-goods cost allocation, receivable/payable sources, manual payments and reversals. |
@@ -30,7 +30,7 @@ Stock and financial changes retain sources, operators and correction records. Co
 
 ## Development progress
 
-Snapshot: **2026-10-01, this inventory warning implementation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
+Snapshot: **2026-10-02, physical lot data foundation**. Work in progress is not delivered mainline functionality. Progress describes capabilities rather than an undefined percentage.
 
 | Stage | Status | Delivered / next steps |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ Snapshot: **2026-10-01, this inventory warning implementation**. Work in progres
 | [After-sales (Chinese)](docs/after-sales.md) | Basic flow implemented | Original-shipment cases, independent review, return/exchange drafts, repair custody, inspection, handover and explicit fees/corrections. |
 | [Equipment maintenance (Chinese)](docs/equipment-maintenance.md) | Basic flow implemented | Register, calendar plans, independent review/acceptance, assigned execution, downtime, material source documents and audited correction; telemetry and full asset accounting remain. |
 | [Inventory warnings (Chinese)](docs/inventory-warnings.md) | Foundation implemented | Per-warehouse thresholds, shortages, low stock, enable/disable, versions and audit; no scheduled notifications or forecasting. |
+| [Physical lot tracing (Chinese)](docs/physical-lot-tracing.md) | Data foundation | Unidentified historical openings, ORM models and read-only difference diagnostics; document lot selection, full allocation and the UI remain unfinished. |
 | Business expansion | Planned | Finite-capacity scheduling, full quality, advanced after-sales, deeper CRM/equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 
