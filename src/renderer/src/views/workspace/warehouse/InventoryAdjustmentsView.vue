@@ -7,17 +7,24 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+import { NDatePicker, NModal } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
+import {displayError} from '../../../utils/formatters.ts'
+import {datePickerString,vDateField} from '../../../utils/date-field'
+import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
+import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api.ts'
+import {signedAdjustmentMilli} from '../../../../../shared/adjustment-lot-api.ts'
+import type {AdjustmentLotLineInput,AdjustmentLotOptions,AdjustmentLotPartInput} from '../../../../../shared/adjustment-lot-api'
+import type {StockAdjustment} from '../../../../../shared/erp-api'
 
 const store = usePiniaAppStore()
 const { error, notice, user, busy, connectionLost, warehouses, materials, stockAdjustments,
   adjustmentForm, adjustmentDecisionReasons, adjustmentReversalReasons } = storeToRefs(store)
 const { can, localTime, createStockAdjustment, submitStockAdjustment,
   approveStockAdjustment, rejectStockAdjustment, cancelStockAdjustment,
-  postStockAdjustment, reverseStockAdjustment } = store
+  loadAvailableAdjustmentLots, postStockAdjustment, reverseStockAdjustment } = store
 const showForm = ref(false)
 const query = ref('')
 const filtered = computed(() => stockAdjustments.value.filter((item) =>
@@ -32,6 +39,111 @@ const columns = [
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createStockAdjustment, { busy, error, notice }, showForm)
+}
+
+const activeAdjustmentId = ref(0)
+const lotOptions = ref<AdjustmentLotOptions | null>(null)
+const lotDrafts = ref<AdjustmentLotLineInput[]>([])
+const lotLoading = ref(false)
+const lotLoadError = ref('')
+let loadTicket = 0
+const activeAdjustment = computed(() => stockAdjustments.value.find(item =>
+  item.id === activeAdjustmentId.value && item.status === 'approved') ?? null)
+const milli = (value: string): bigint => signedAdjustmentMilli(value) ?? 0n
+
+function closeLotPost(): void {
+  loadTicket++
+  activeAdjustmentId.value = 0
+  lotOptions.value = null
+  lotDrafts.value = []
+}
+
+function newPart(quantity: string, signed: bigint): AdjustmentLotPartInput {
+  return {lot_id: signed > 0n ? -1 : 0, quantity,
+    supplier_lot: null, manufactured_on: null, expires_on: null}
+}
+
+async function startLotPost(adjustment: StockAdjustment): Promise<void> {
+  const ticket = ++loadTicket
+  activeAdjustmentId.value = adjustment.id
+  lotOptions.value = null
+  lotDrafts.value = []
+  lotLoadError.value = ''
+  lotLoading.value = true
+  try {
+    const result = await loadAvailableAdjustmentLots(adjustment.id)
+    if (ticket !== loadTicket || activeAdjustmentId.value !== adjustment.id) return
+    if (result.warehouse_id !== adjustment.warehouse_id
+        || result.lines.length !== adjustment.lines.length
+        || result.lines.some(line => !adjustment.lines.some(item =>
+          item.id === line.adjustment_line_id && item.material_id === line.material_id
+          && milli(item.quantity) === milli(line.quantity))))
+      throw Error('可用批次与当前调整单不匹配，请刷新单据。')
+    lotOptions.value = result
+    lotDrafts.value = adjustment.lines.map(line => ({adjustment_line_id: line.id,
+      lots: [newPart(line.quantity.replace('-', ''), milli(line.quantity))]}))
+  } catch (cause) {
+    if (ticket === loadTicket) lotLoadError.value = displayError(cause)
+  } finally {
+    if (ticket === loadTicket) lotLoading.value = false
+  }
+}
+
+function addLot(line: AdjustmentLotLineInput): void {
+  if (line.lots.length < 20) line.lots.push(newPart('', milli(
+    activeAdjustment.value?.lines.find(item => item.id === line.adjustment_line_id)?.quantity ?? '0')))
+}
+
+const lotIssue = computed(() => {
+  const adjustment = activeAdjustment.value, options = lotOptions.value
+  if (!adjustment || !options) return '可用批次尚未读取。'
+  if (lotDrafts.value.length !== adjustment.lines.length) return '调整批次明细不完整。'
+  for (const line of adjustment.lines) {
+    const draft = lotDrafts.value.find(item => item.adjustment_line_id === line.id)
+    const available = options.lines.find(item => item.adjustment_line_id === line.id)
+    if (!draft || !available || !draft.lots.length || draft.lots.length > 20)
+      return '每条调整明细至少指定一个实物批次。'
+    const signed = milli(line.quantity)
+    const ids = new Set<number>()
+    let total = 0n
+    for (const part of draft.lots) {
+      const quantity = receiptLotMilli(part.quantity)
+      if (quantity === null) return '批次数量须大于零、最多三位小数且不超过一百万。'
+      if (part.lot_id === -1 && signed > 0n) {
+        if (part.supplier_lot && part.supplier_lot.length > 100)
+          return '来源批号不能超过 100 字。'
+        if ((part.manufactured_on && !receiptLotDate(part.manufactured_on))
+            || (part.expires_on && !receiptLotDate(part.expires_on))
+            || (part.manufactured_on && part.expires_on
+                && part.expires_on < part.manufactured_on))
+          return '调整新增批次的日期无效。'
+      } else {
+        const candidate = available.lots.find(item => item.lot_id === part.lot_id)
+        if (!candidate || ids.has(part.lot_id ?? 0)) return `物料 ${line.sku} 的批次无效或重复。`
+        ids.add(part.lot_id!)
+        if (signed < 0n && quantity > (signedAdjustmentMilli(candidate.quantity) ?? 0n))
+          return `批次 ${candidate.code} 的本仓余量不足，请重新读取。`
+      }
+      total += quantity
+    }
+    if (total !== (signed < 0n ? -signed : signed))
+      return `物料 ${line.sku} 的批次数量之和须等于调整量 ${line.quantity} 的绝对值。`
+  }
+  return ''
+})
+
+async function confirmLotPost(): Promise<void> {
+  const adjustment = activeAdjustment.value
+  if (!adjustment || lotIssue.value || busy.value || connectionLost.value) return
+  const lines = lotDrafts.value.map(line => ({adjustment_line_id: line.adjustment_line_id,
+    lots: line.lots.map(part => ({lot_id: part.lot_id === -1 ? null : part.lot_id,
+      quantity: part.quantity,
+      supplier_lot: part.lot_id === -1 ? part.supplier_lot?.trim() || null : null,
+      manufactured_on: part.lot_id === -1 ? part.manufactured_on || null : null,
+      expires_on: part.lot_id === -1 ? part.expires_on || null : null}))}))
+  await postStockAdjustment(adjustment.id, lines)
+  if (!stockAdjustments.value.some(item => item.id === adjustment.id && item.status === 'approved'))
+    closeLotPost()
 }
 </script>
 
@@ -150,6 +262,10 @@ async function submitCreate(): Promise<void> {
         ><div v-for="line in item.lines" :key="line.id">
           {{ line.material_name }} {{ line.quantity.startsWith('-') ? '' : '+'
           }}{{ line.quantity }} {{ line.unit }}
+          <small v-if="item.status === 'posted' && line.physical_lots?.length" class="adjustment-lot-proof">
+            实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
+          </small>
+          <small v-else-if="item.status === 'posted'" class="adjustment-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
         </div></template
       >
       <template #cell-actions="{ row: item }"
@@ -179,11 +295,11 @@ async function submitCreate(): Promise<void> {
           <AppButton
             v-if="item.status === 'approved' && can('adjustment.post')"
             :disabled="busy || connectionLost"
-            @click="postStockAdjustment(item.id)"
+            @click="startLotPost(item)"
             variant="primary"
             size="small"
             type="button"
-            >仓库确认</AppButton
+            >核对批次并仓库确认</AppButton
           >
           <AppButton
             v-if="
@@ -240,5 +356,56 @@ async function submitCreate(): Promise<void> {
       >
       <template #empty>{{ query ? '没有匹配的库存调整单。' : '暂无库存调整单。' }}</template>
     </WorkspaceTable>
+    <NModal :show="!!activeAdjustment" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
+      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
+        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
+      <form v-if="activeAdjustment && can('adjustment.post')" class="stack" @submit.prevent="confirmLotPost">
+        <h2>调整单 #{{ activeAdjustment.id }} · 实物批次归属</h2>
+        <p>负向调整选择本仓实际减少的已有批次；正向调整可补入已有批次，或登记明确标为“调整新增”的新批次。只填写实物标签上可核对的来源批号与日期。</p>
+        <p v-if="lotLoading">正在读取批次…</p>
+        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
+        <section v-for="line in lotDrafts" :key="line.adjustment_line_id" class="stack adjustment-lot-line">
+          <h3>{{ activeAdjustment.lines.find(item=>item.id===line.adjustment_line_id)?.sku }} · 调整量 {{ activeAdjustment.lines.find(item=>item.id===line.adjustment_line_id)?.quantity }}</h3>
+          <div v-for="(part,index) in line.lots" :key="index" class="adjustment-lot-grid">
+            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
+              :options="[{label:'选择批次',value:0,disabled:true},
+                ...(milli(activeAdjustment?.lines.find(item=>item.id===line.adjustment_line_id)?.quantity ?? '0') > 0n
+                  ? [{label:'登记调整新增批次',value:-1}] : []),
+                ...(lotOptions?.lines.find(item=>item.adjustment_line_id===line.adjustment_line_id)?.lots ?? [])
+                  .filter(lot=>milli(activeAdjustment?.lines.find(item=>item.id===line.adjustment_line_id)?.quantity ?? '0') > 0n
+                    || (signedAdjustmentMilli(lot.quantity) ?? 0n) > 0n)
+                  .map(lot=>({label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 本仓 ${lot.quantity}`,
+                    value:lot.lot_id}))]" /></label>
+            <label>批次数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
+            <template v-if="part.lot_id === -1">
+              <label>实物标签来源批号（可选）<AppInput v-model.trim="part.supplier_lot" maxlength="100" placeholder="未看到则留空" :disabled="busy" /></label>
+              <label>生产日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
+                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
+                :formatted-value="part.manufactured_on" :disabled="busy"
+                @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
+              <label>失效日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
+                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
+                :formatted-value="part.expires_on" :disabled="busy"
+                @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
+            </template>
+            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
+          </div>
+          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
+        </section>
+        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
+        <div class="form-actions">
+          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">仓库确认并固定批次</AppButton>
+          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
+        </div>
+      </form>
+    </NModal>
   </section>
 </template>
+
+<style scoped>
+.adjustment-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
+.adjustment-lot-line h3{margin:0}
+.adjustment-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
+.adjustment-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
+@media(max-width:550px){.adjustment-lot-grid{grid-template-columns:1fr}}
+</style>

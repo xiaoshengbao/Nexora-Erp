@@ -5,6 +5,7 @@ import type {OutboundLotLineInput,OutboundLotOptions} from './outbound-lot-api'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
 import type {TransferLotLineInput,TransferLotOptions} from './transfer-lot-api'
 import type {StocktakeLotLineInput,StocktakeLotOptions} from './stocktake-lot-api'
+import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -354,7 +355,7 @@ export interface StockAdjustment {
   reversal_id: number | null
   reversal_reason: string | null
   reversed_at: string | null
-  lines: ReceiptLine[]
+  lines: (ReceiptLine & {physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]})[]
 }
 export interface Stock extends MaterialSummary { quantity: string }
 export interface InventoryValuationMovement {
@@ -1127,7 +1128,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   approveStockAdjustment: { input: { adjustmentId: number }; output: StockAdjustment }
   rejectStockAdjustment: { input: { adjustmentId: number; reason: string }; output: StockAdjustment }
   cancelStockAdjustment: { input: { adjustmentId: number }; output: StockAdjustment }
-  postStockAdjustment: { input: { adjustmentId: number }; output: StockAdjustment }
+  availableAdjustmentLots: {input: {adjustmentId: number}; output: AdjustmentLotOptions}
+  postStockAdjustment: { input: { adjustmentId: number; lines?: AdjustmentLotLineInput[] }; output: StockAdjustment }
   reverseStockAdjustment: { input: { adjustmentId: number; reason: string }; output: StockAdjustment }
   createWarehouse: { input: { code: string; name: string }; output: Warehouse }
   receipts: { input: undefined; output: Receipt[] }

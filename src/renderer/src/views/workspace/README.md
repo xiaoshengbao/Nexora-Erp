@@ -73,7 +73,7 @@
 
 `warehouse/InventoryLedgerView.vue` 复用工作台表格展示服务端筛选后的期初、逐笔流水与期末。公共表格以完整占位区展示空结果或加载失败；台账查询失败时隐藏上次结果，并提供重新查询。服务端若返回默认 `Not Found`，桌面端会提示核对两端版本，不将失败误当作无流水。
 
-`warehouse/InventoryAdjustmentsView.vue` 管理独立库存调整的提交、异人审批、仓库确认、取消与冲销。
+`warehouse/InventoryAdjustmentsView.vue` 管理独立库存调整的提交、异人审批、逐批仓库确认、取消与按原批次冲销。
 
 `purchase/PurchaseReportsView.vue` 与 `warehouse/InventoryReportsView.vue` 共用报表表格，查询和 CSV 使用同一份服务端结果。
 

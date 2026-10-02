@@ -2,6 +2,7 @@ import type { ErpOperations, Warehouse } from '../../../../shared/erp-api'
 import type {OutboundLotLineInput, OutboundLotOptions} from '../../../../shared/outbound-lot-api'
 import type {TransferLotLineInput, TransferLotOptions} from '../../../../shared/transfer-lot-api'
 import type {StocktakeLotLineInput, StocktakeLotOptions} from '../../../../shared/stocktake-lot-api'
+import type {AdjustmentLotLineInput, AdjustmentLotOptions} from '../../../../shared/adjustment-lot-api'
 import type { AppState } from '../state'
 
 // 仓库与盘点操作独立维护；写入后由统一入口刷新服务端快照。
@@ -64,9 +65,22 @@ export function createWarehouseActions(
       `调整单 #${adjustmentId} 已取消。`)
   }
 
-  async function postStockAdjustment(adjustmentId: number): Promise<void> {
+  async function loadAvailableAdjustmentLots(adjustmentId: number): Promise<AdjustmentLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('adjustment.post'))
+      throw Error('当前账号无法读取调整批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableAdjustmentLots', {adjustmentId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('adjustment.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postStockAdjustment(adjustmentId: number,
+                                     lines?: AdjustmentLotLineInput[]): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('postStockAdjustment', { adjustmentId }),
+    await perform(() => window.nexora!.callApi('postStockAdjustment', { adjustmentId, lines }),
       `调整单 #${adjustmentId} 已由仓库确认。`)
   }
 
@@ -309,6 +323,7 @@ export function createWarehouseActions(
     approveStockAdjustment,
     rejectStockAdjustment,
     cancelStockAdjustment,
+    loadAvailableAdjustmentLots,
     postStockAdjustment,
     reverseStockAdjustment,
     queryLedger,

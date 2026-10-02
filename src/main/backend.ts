@@ -6,6 +6,7 @@ import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} f
 import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} from '../shared/shipment-lot-api.ts'
 import {transferLotBody,validateTransferLotOptions,validatePostedTransferLots} from '../shared/transfer-lot-api.ts'
 import {stocktakeLotBody,validateStocktakeLotOptions,validatePostedStocktakeLots} from '../shared/stocktake-lot-api.ts'
+import {adjustmentLotBody,validateAdjustmentLotOptions,validatePostedAdjustmentLots} from '../shared/adjustment-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -420,7 +421,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/stock-adjustments/${adjustmentId}/reject`, body: { reason: fields.reason } }
     }
     case 'cancelStockAdjustment': return { method: 'POST', path: `/api/v1/stock-adjustments/${positiveId(payload, 'adjustmentId')}/cancel` }
-    case 'postStockAdjustment': return { method: 'POST', path: `/api/v1/stock-adjustments/${positiveId(payload, 'adjustmentId')}/post` }
+    case 'availableAdjustmentLots': return {method: 'GET',
+      path: `/api/v1/stock-adjustments/${positiveId(payload, 'adjustmentId')}/available-lots`}
+    case 'postStockAdjustment': {
+      const adjustmentId = positiveId(payload, 'adjustmentId')
+      const source = payload as ErpOperations['postStockAdjustment']['input']
+      return {method: 'POST', path: `/api/v1/stock-adjustments/${adjustmentId}/post`,
+        ...(source.lines === undefined ? {} : {body: adjustmentLotBody({lines: source.lines})})}
+    }
     case 'reverseStockAdjustment': {
       const adjustmentId = positiveId(payload, 'adjustmentId')
       const fields = payload as ErpOperations['reverseStockAdjustment']['input']
@@ -864,6 +872,14 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postStocktake']['input']
     if (request.lines) validatePostedStocktakeLots(data, request.stocktakeId,
       stocktakeLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableAdjustmentLots') {
+    validateAdjustmentLotOptions(data, (payload as ErpOperations['availableAdjustmentLots']['input']).adjustmentId)
+  }
+  if (action === 'postStockAdjustment') {
+    const request = payload as ErpOperations['postStockAdjustment']['input']
+    if (request.lines) validatePostedAdjustmentLots(data, request.adjustmentId,
+      adjustmentLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']
