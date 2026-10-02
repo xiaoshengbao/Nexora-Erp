@@ -119,6 +119,8 @@ def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tm
                                   checkpoint_movement_id=0, evidence='旧库存未识别'))
     with connection() as db:
         before = db.execute('SELECT * FROM physical_lot_openings').fetchall()
+        db.execute('DROP TABLE physical_lot_evidence_group_pairs')
+        db.execute('DROP TABLE physical_lot_evidence_groups')
         db.execute('DROP TABLE physical_lot_evidence_pairs')
         db.execute('DROP TABLE physical_lot_movement_evidence')
         db.execute('DROP TABLE physical_lot_movement_checkpoints')
@@ -132,7 +134,7 @@ def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tm
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 59
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 60
         assert db.execute('SELECT * FROM physical_lot_openings').fetchall() == before
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='physical_lot.reclassify'").fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

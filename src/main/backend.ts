@@ -1,6 +1,6 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
-import {physicalLotEvidenceBody,physicalLotEvidencePairBody,physicalLotMovementEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
+import {physicalLotEvidenceBody,physicalLotEvidenceGroupBody,physicalLotEvidencePairBody,physicalLotMovementEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
@@ -172,6 +172,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'physicalLotEvidencePairReverse':
       return {method: 'POST',
         path: `/api/v1/inventory/physical-lots/evidence-pairs/${positiveId(payload,'record_id')}/reverse`,
+        body: physicalLotReverseBody(payload)}
+    case 'physicalLotEvidenceGroup':
+      return {method: 'POST', path: '/api/v1/inventory/physical-lots/evidence-groups',
+        body: physicalLotEvidenceGroupBody(payload)}
+    case 'physicalLotEvidenceGroupReverse':
+      return {method: 'POST',
+        path: `/api/v1/inventory/physical-lots/evidence-groups/${positiveId(payload,'record_id')}/reverse`,
         body: physicalLotReverseBody(payload)}
     case 'inventoryWarningDetail':
     case 'saveInventoryWarning': {

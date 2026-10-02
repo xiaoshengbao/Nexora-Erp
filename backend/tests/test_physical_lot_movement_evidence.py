@@ -138,6 +138,8 @@ def test_v57_without_opening_uses_conservative_checkpoint(monkeypatch, tmp_path)
             quantity='1.000', source_type='legacy_test', source_id=1, source_line_id=1))
         old_id = old.id
     with connection() as db:
+        db.execute('DROP TABLE physical_lot_evidence_group_pairs')
+        db.execute('DROP TABLE physical_lot_evidence_groups')
         db.execute('DROP TABLE physical_lot_evidence_pairs')
         db.execute('DROP TABLE physical_lot_movement_evidence')
         db.execute('DROP TABLE physical_lot_movement_checkpoints')

@@ -6,6 +6,8 @@ import pytest
 @pytest.fixture
 def remove_physical_lot_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS physical_lot_evidence_group_pairs')
+        db.execute('DROP TABLE IF EXISTS physical_lot_evidence_groups')
         db.execute('DROP TABLE IF EXISTS physical_lot_evidence_pairs')
         db.execute('DROP TABLE IF EXISTS physical_lot_movement_evidence')
         db.execute('DROP TABLE IF EXISTS physical_lot_movement_checkpoints')

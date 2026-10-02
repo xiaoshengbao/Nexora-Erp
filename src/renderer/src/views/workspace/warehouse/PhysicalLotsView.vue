@@ -2,7 +2,7 @@
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {RouterLink} from 'vue-router'
-import type {PhysicalLotRow,PhysicalLotUnallocatedMovement} from '../../../../../shared/physical-lot-api'
+import type {PhysicalLotEvidenceGroupPairInput,PhysicalLotRow,PhysicalLotUnallocatedMovement} from '../../../../../shared/physical-lot-api'
 import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import {movementTypeLabel} from '../../../utils/formatters'
@@ -46,6 +46,15 @@ const pairManufacturedOn=ref('')
 const pairExpiresOn=ref('')
 const reversingPairId=ref<number|null>(null)
 const pairReverseReason=ref('')
+const groupAnchor=ref<PhysicalLotUnallocatedMovement|null>(null)
+const groupPairs=ref<PhysicalLotEvidenceGroupPairInput[]>([])
+const groupLotId=ref(0)
+const groupEvidence=ref('')
+const groupSupplierLot=ref('')
+const groupManufacturedOn=ref('')
+const groupExpiresOn=ref('')
+const reversingGroupId=ref<number|null>(null)
+const groupReverseReason=ref('')
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
 const lotColumns=[{key:'warehouse',title:'仓库',width:'17%'},{key:'material',title:'物料 / 单位',width:'25%'},
   {key:'lot',title:'实物批次与来源',width:'28%'},{key:'quantity',title:'批次现存量',width:'14%'},
@@ -67,6 +76,8 @@ const movementEvidenceColumns=[{key:'created_at',title:'补证时间'},
   {key:'evidence',title:'核对依据与操作人'}]
 const pairColumns=[{key:'created_at',title:'补证时间'},{key:'source',title:'入库 / 出库流水'},
   {key:'quantity',title:'成对数量'},{key:'evidence',title:'核对依据与操作人'}]
+const groupColumns=[{key:'created_at',title:'补证时间'},{key:'pairs',title:'配对流水'},
+  {key:'evidence',title:'核对依据与操作人'}]
 const availableMovementLots=computed(()=>overview.value?.rows.filter(row=>
   row.warehouse_id===selectedMovement.value?.warehouse_id
   && row.material_id===selectedMovement.value?.material_id && Number(row.quantity)>0)??[])
@@ -78,6 +89,19 @@ const pairOutboundOptions=computed(()=>unallocated.value?.rows.filter(row=>pairI
 const availablePairLots=computed(()=>overview.value?.rows.filter(row=>pairInbound.value
   && row.warehouse_id===pairInbound.value.warehouse_id
   && row.material_id===pairInbound.value.material_id && Number(row.quantity)>0)??[])
+const groupInboundOptions=computed(()=>unallocated.value?.rows.filter(row=>groupAnchor.value
+  && row.warehouse_id===groupAnchor.value.warehouse_id
+  && row.material_id===groupAnchor.value.material_id
+  && Number(row.unallocated_quantity)>0)??[])
+const availableGroupLots=computed(()=>overview.value?.rows.filter(row=>groupAnchor.value
+  && row.warehouse_id===groupAnchor.value.warehouse_id
+  && row.material_id===groupAnchor.value.material_id && Number(row.quantity)>0)??[])
+function groupOutboundOptions(inboundId:number):PhysicalLotUnallocatedMovement[] {
+  return unallocated.value?.rows.filter(row=>groupAnchor.value
+    && row.warehouse_id===groupAnchor.value.warehouse_id
+    && row.material_id===groupAnchor.value.material_id
+    && row.movement_id>inboundId && Number(row.unallocated_quantity)<0)??[]
+}
 function rowRecord(value:Record<string,unknown>):PhysicalLotRow|undefined {
   return overview.value?.rows.find(row=>row.lot_id===value.lot_id && row.warehouse_id===value.warehouse_id)
 }
@@ -139,6 +163,52 @@ function selectPair(value:Record<string,unknown>):void {
   pairQuantity.value='';pairEvidence.value='';pairSupplierLot.value=''
   pairManufacturedOn.value='';pairExpiresOn.value=''
 }
+function selectGroup(value:Record<string,unknown>):void {
+  const row=unallocated.value?.rows.find(item=>item.movement_id===value.movement_id)
+  if(!row || Number(row.unallocated_quantity)<=0 || disabled.value)return
+  groupAnchor.value=row
+  groupPairs.value=[{inbound_movement_id:row.movement_id,outbound_movement_id:0,quantity:''},
+    {inbound_movement_id:row.movement_id,outbound_movement_id:0,quantity:''}]
+  groupLotId.value=0;groupEvidence.value='';groupSupplierLot.value=''
+  groupManufacturedOn.value='';groupExpiresOn.value=''
+}
+function addGroupPair():void {
+  if(groupAnchor.value && groupPairs.value.length<50)groupPairs.value.push({
+    inbound_movement_id:groupAnchor.value.movement_id,outbound_movement_id:0,quantity:''})
+}
+function removeGroupPair(index:number):void {
+  if(groupPairs.value.length>2)groupPairs.value.splice(index,1)
+}
+async function saveGroup():Promise<void> {
+  if(!groupAnchor.value || groupPairs.value.some(row=>!row.inbound_movement_id || !row.outbound_movement_id)
+    || disabled.value)return
+  preparing.value=true
+  try {
+    const result=await store.savePhysicalLotEvidenceGroup({pairs:groupPairs.value.map(row=>({...row})),
+      lot_id:groupLotId.value||null,evidence:groupEvidence.value,
+      supplier_lot:groupLotId.value?null:groupSupplierLot.value.trim()||null,
+      manufactured_on:groupLotId.value?null:groupManufacturedOn.value||null,
+      expires_on:groupLotId.value?null:groupExpiresOn.value||null})
+    if(result){groupAnchor.value=null;await store.loadPhysicalLotHistory({
+      lot_id:result.lot_id,material_id:result.material_id})}
+  }finally{preparing.value=false}
+}
+async function reverseGroup():Promise<void> {
+  const recordId=reversingGroupId.value,lot=history.value?.lot
+  if(!recordId || !lot || disabled.value)return
+  preparing.value=true
+  try {
+    const result=await store.reversePhysicalLotEvidenceGroup({record_id:recordId,
+      reason:groupReverseReason.value})
+    if(result){reversingGroupId.value=null;groupReverseReason.value=''
+      await store.loadPhysicalLotHistory({lot_id:lot.id,material_id:lot.material_id})}
+  }finally{preparing.value=false}
+}
+function canReverseGroup(value:Record<string,unknown>):boolean {
+  return store.can('physical_lot.movement_evidence') && typeof value.id==='number'
+    && value.original_group_id===null
+    && !history.value?.evidence_groups.some(item=>item.original_group_id===value.id)
+}
 async function savePair():Promise<void> {
   const row=pairInbound.value
   if(!row || !pairOutboundId.value || disabled.value)return
@@ -168,6 +238,7 @@ function canReversePair(value:Record<string,unknown>):boolean {
   return store.can('physical_lot.movement_evidence') && typeof value.id==='number'
     && value.original_pair_id===null
     && !history.value?.evidence_pairs.some(item=>item.original_pair_id===value.id)
+    && !history.value?.evidence_groups.some(item=>item.pairs.some(pair=>pair.id===value.id))
 }
 async function saveMovementEvidence():Promise<void> {
   const row=selectedMovement.value
@@ -205,18 +276,20 @@ function prepareLedger(warehouseId:number,materialId:number):void {
   Object.assign(store.ledgerQuery,{warehouse_id:warehouseId || null,material_id:materialId,
     from_date:'',to_date:'',source_type:null})
 }
-watch([warehouse,material],()=>{selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;
+watch([warehouse,material],()=>{selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
   reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
-  pairReverseReason.value='';savedLotCode.value='';refresh()})
+  reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value='';refresh()})
 watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
-  selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;reversingRecordId.value=null;
-  reversingMovementEvidenceId.value=null;reversingPairId.value=null;pairReverseReason.value='';savedLotCode.value=''
+  selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
+  reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
+  reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value=''
   if(!connectionLost.value && store.can('inventory.view'))refresh()
 })
 onMounted(()=>{refresh()})
 onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
-  selectedMovement.value=null;pairInbound.value=null;reversingRecordId.value=null;
-  reversingMovementEvidenceId.value=null;reversingPairId.value=null;pairReverseReason.value=''})
+  selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;reversingRecordId.value=null;
+  reversingMovementEvidenceId.value=null;reversingPairId.value=null;reversingGroupId.value=null;
+  pairReverseReason.value='';groupReverseReason.value=''})
 </script>
 
 <template>
@@ -263,13 +336,13 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
       </section>
       <section v-if="unallocated" aria-label="待补证的旧客户端流水" class="stack">
         <h3>待补证的旧客户端流水</h3>
-        <p class="lot-note">只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对归属同一批次，不改变正式库存或成本。</p>
+        <p class="lot-note">只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
         <p v-if="unallocated.has_more" role="status">当前只显示最近 100 笔，请按仓库或物料缩小范围。</p>
         <WorkspaceTable title="待补证流水" :show-title="false" :columns="unallocatedColumns"
           :data="unallocated.rows" :min-table-width="900">
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
           <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} #{{ row.source_id }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
-          <template #cell-action="{row}"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton></template>
+          <template #cell-action="{row}"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectGroup(row)">多笔成组</AppButton></template>
           <template #empty>当前筛选范围没有可补证的未分配流水。</template>
         </WorkspaceTable>
       </section>
@@ -287,6 +360,25 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         </template>
         <p v-if="!pairOutboundOptions.length" class="lot-muted">当前列表没有可配对的后续出库流水；请调整筛选范围。</p>
         <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled || !pairOutboundId">确认成对补证</AppButton><AppButton type="button" :disabled="disabled" @click="pairInbound=null">取消</AppButton></div>
+      </form>
+      <form v-if="groupAnchor" class="stack lot-evidence" aria-label="多笔相抵流水成组补证" @submit.prevent="saveGroup">
+        <h3>{{ warehouses.find(row=>row.id===groupAnchor?.warehouse_id)?.name || `${groupAnchor.warehouse_id} 号仓` }} · 多笔成组补证</h3>
+        <p class="lot-note">为至少三笔同仓同物料流水建立两对以上先入后出的核对关系。每对数量为正数，同一流水可分配到多对；整组一起提交或冲销，超量时全部回滚。</p>
+        <div v-for="(line,index) in groupPairs" :key="index" class="lot-group-line">
+          <label>第 {{ index+1 }} 对入库 <WorkspaceSelect v-model="line.inbound_movement_id" :disabled="disabled" :options="groupInboundOptions.map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))" @update:model-value="line.outbound_movement_id=0" /></label>
+          <label>出库 <WorkspaceSelect v-model="line.outbound_movement_id" :disabled="disabled" :options="[{value:0,label:'选择出库流水'},...groupOutboundOptions(line.inbound_movement_id).map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))]" /></label>
+          <label>归属数量 <AppInput v-model="line.quantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="disabled" /></label>
+          <AppButton v-if="groupPairs.length>2" type="button" :disabled="disabled" @click="removeGroupPair(index)">移除</AppButton>
+        </div>
+        <AppButton type="button" :disabled="disabled || groupPairs.length>=50" @click="addGroupPair">增加一对</AppButton>
+        <label>实物批次 <WorkspaceSelect v-model="groupLotId" :disabled="disabled" :options="[{value:0,label:'新建实物批次'},...availableGroupLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
+        <label>整组核对依据 <AppInput v-model="groupEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明各笔实物标签与交接记录的对应关系" :disabled="disabled" /></label>
+        <template v-if="!groupLotId">
+          <label>供应商批号（可选） <AppInput v-model="groupSupplierLot" maxlength="100" :disabled="disabled" /></label>
+          <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupManufacturedOn||null" :disabled="disabled" @update:formatted-value="value=>groupManufacturedOn=datePickerString(value)" /></label>
+          <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupExpiresOn||null" :disabled="disabled" @update:formatted-value="value=>groupExpiresOn=datePickerString(value)" /></label>
+        </template>
+        <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled || groupPairs.some(row=>!row.inbound_movement_id || !row.outbound_movement_id)">确认整组补证</AppButton><AppButton type="button" :disabled="disabled" @click="groupAnchor=null">取消</AppButton></div>
       </form>
       <form v-if="selectedMovement" class="stack lot-evidence" aria-label="旧流水逐笔补证" @submit.prevent="saveMovementEvidence">
         <h3>库存流水 #{{ selectedMovement.movement_id }} · 逐笔补证</h3>
@@ -348,6 +440,21 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
           <label>冲销原因 <AppInput v-model="pairReverseReason" type="textarea" required minlength="10" maxlength="500" rows="3" :disabled="disabled" /></label>
           <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled">确认冲销</AppButton><AppButton type="button" :disabled="disabled" @click="reversingPairId=null">取消</AppButton></div>
         </form>
+        <h4>多笔相抵流水成组补证</h4>
+        <WorkspaceTable title="成组补证记录" :show-title="false" :columns="groupColumns" :data="history.evidence_groups" :min-table-width="850">
+          <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
+          <template #cell-pairs="{row}"><span v-for="part in row.pairs" :key="part.id" class="lot-muted">入库 #{{ part.inbound_movement_id }} → 出库 #{{ part.outbound_movement_id }} · {{ part.quantity }}<br /></span></template>
+          <template #cell-evidence="{row}">{{ row.evidence }} · {{ row.created_by_name }}
+            <span v-if="row.original_group_id" class="lot-muted">冲销原成组补证 #{{ row.original_group_id }}</span>
+            <AppButton v-else-if="canReverseGroup(row)" type="button" :disabled="disabled" @click="reversingGroupId=row.id">整体冲销</AppButton>
+          </template>
+          <template #empty>该批次没有多笔相抵流水成组补证记录。</template>
+        </WorkspaceTable>
+        <form v-if="reversingGroupId" class="stack lot-evidence" aria-label="冲销成组补证" @submit.prevent="reverseGroup">
+          <h4>整体冲销成组补证 #{{ reversingGroupId }}</h4>
+          <label>冲销原因 <AppInput v-model="groupReverseReason" type="textarea" required minlength="10" maxlength="500" rows="3" :disabled="disabled" /></label>
+          <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled">确认冲销</AppButton><AppButton type="button" :disabled="disabled" @click="reversingGroupId=null">取消</AppButton></div>
+        </form>
         <h4>现场补证记录</h4>
         <WorkspaceTable title="现场补证记录" :show-title="false" :columns="evidenceColumns" :data="history.reclassifications" :min-table-width="850">
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
@@ -374,6 +481,8 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
 .lot-muted{color:#50667d;font-size:13px;overflow-wrap:anywhere}.lot-summary{font-size:13px;line-height:1.6}
 .lot-history h3,.lot-history h4{margin-bottom:0}.lot-history a{color:var(--workspace-field-accent);text-underline-offset:3px}
 .lot-evidence{padding:16px;border:1px solid var(--workspace-field-accent);border-radius:8px}.lot-evidence label{display:grid;gap:6px}.lot-evidence-actions{display:flex;gap:8px}
+.lot-group-line{display:grid;grid-template-columns:1fr 1fr minmax(150px,.65fr) auto;align-items:end;gap:8px}
+@media(max-width:900px){.lot-group-line{grid-template-columns:1fr}}
 :deep(td strong),:deep(td .lot-muted){display:block}:deep(td){font-variant-numeric:tabular-nums}
 :global(:root[data-theme='dark'] .physical-lots-page .lot-muted){color:#9aadc5}
 </style>

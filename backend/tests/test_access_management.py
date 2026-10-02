@@ -148,7 +148,7 @@ def test_legacy_permission_codes_gain_labels(monkeypatch, tmp_path, remove_v39_s
         db.execute("PRAGMA user_version = 24")
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 59
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 60
         labels = dict(db.execute("SELECT code, label FROM permissions").fetchall())
         assert labels["bom.activate"] == "启用生产物料清单版本"
         assert labels["future.view"] == "未命名权限"
@@ -280,6 +280,6 @@ def test_code_labels_are_repaired_without_overwriting_custom_names(monkeypatch, 
 
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 59
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 60
         assert db.execute("SELECT role_code, permission_code FROM role_permissions ORDER BY 1, 2").fetchall() == grants
         assert db.execute("SELECT label FROM permissions WHERE code = 'inventory.view'").fetchone()[0] == "查看仓库实时库存"

@@ -57,6 +57,19 @@ const evidencePairHistory: Check = value => fields(value, {
   quantity: decimal, evidence: text, original_pair_id: optional(positive),
   created_by_name: text, created_at: text
 })
+const evidenceGroup: Check = value => fields(value, {
+  id: positive, lot_id: positive, lot_code: text, warehouse_id: positive,
+  material_id: positive, evidence: text, original_group_id: optional(positive),
+  created_by_name: text, created_at: text, pairs: array(evidencePair)
+})
+const evidenceGroupHistoryPair: Check = value => fields(value, {
+  id: positive, inbound_movement_id: positive, outbound_movement_id: positive,
+  quantity: decimal
+})
+const evidenceGroupHistory: Check = value => fields(value, {
+  id: positive, evidence: text, original_group_id: optional(positive),
+  created_by_name: text, created_at: text, pairs: array(evidenceGroupHistoryPair)
+})
 const unallocatedRow: Check = value => fields(value, {
   movement_id: positive, warehouse_id: positive, material_id: positive,
   quantity: decimal, unallocated_quantity: decimal, source_type: text,
@@ -81,6 +94,7 @@ const history: Check = value => fields(value, {
   as_of: text, lot: identity, openings: array(opening), movements: array(movement),
   reclassifications: array(reclassification), movement_evidence: array(movementEvidenceHistory),
   evidence_pairs: array(evidencePairHistory),
+  evidence_groups: array(evidenceGroupHistory),
   balances: array(balance)
 })
 const evidence: Check = value => fields(value, {
@@ -97,6 +111,8 @@ export function validatePhysicalLotResult(action: string, value: unknown): void 
     : action === 'physicalLotMovementEvidence' || action === 'physicalLotMovementEvidenceReverse'
       ? movementEvidence
       : action === 'physicalLotEvidencePair' || action === 'physicalLotEvidencePairReverse'
-        ? evidencePair : null)
+        ? evidencePair
+        : action === 'physicalLotEvidenceGroup' || action === 'physicalLotEvidenceGroupReverse'
+          ? evidenceGroup : null)
   if (checked && !checked(value)) throw new Error('实物批次响应格式不匹配，请核对服务端版本后重新读取。')
 }

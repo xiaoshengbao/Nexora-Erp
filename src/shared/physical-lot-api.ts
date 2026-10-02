@@ -36,6 +36,10 @@ export interface PhysicalLotHistory {
   evidence_pairs: {id: number; inbound_movement_id: number; outbound_movement_id: number
     inbound_evidence_id: number; outbound_evidence_id: number; quantity: string; evidence: string
     original_pair_id: number | null; created_by_name: string; created_at: string}[]
+  evidence_groups: {id: number; evidence: string; original_group_id: number | null
+    created_by_name: string; created_at: string
+    pairs: {id: number; inbound_movement_id: number; outbound_movement_id: number
+      quantity: string}[]}[]
   balances: {warehouse_id: number; warehouse_name: string; quantity: string}[]
 }
 export interface PhysicalLotUnallocatedMovement {
@@ -71,6 +75,19 @@ export interface PhysicalLotEvidencePairResult {
   created_by_name: string; created_at: string
 }
 export interface PhysicalLotEvidencePairReverseInput {record_id: number; reason: string}
+export interface PhysicalLotEvidenceGroupPairInput {
+  inbound_movement_id: number; outbound_movement_id: number; quantity: string
+}
+export interface PhysicalLotEvidenceGroupInput {
+  pairs: PhysicalLotEvidenceGroupPairInput[]; lot_id: number | null; evidence: string
+  supplier_lot: string | null; manufactured_on: string | null; expires_on: string | null
+}
+export interface PhysicalLotEvidenceGroupResult {
+  id: number; lot_id: number; lot_code: string; warehouse_id: number; material_id: number
+  evidence: string; original_group_id: number | null; created_by_name: string
+  created_at: string; pairs: PhysicalLotEvidencePairResult[]
+}
+export interface PhysicalLotEvidenceGroupReverseInput {record_id: number; reason: string}
 export interface PhysicalLotEvidenceInput {
   legacy_lot_id: number; warehouse_id: number; quantity: string; evidence: string
   supplier_lot: string | null; manufactured_on: string | null; expires_on: string | null
@@ -91,6 +108,8 @@ export interface PhysicalLotOperations {
   physicalLotMovementEvidenceReverse: {input: PhysicalLotMovementEvidenceReverseInput; output: PhysicalLotMovementEvidenceResult}
   physicalLotEvidencePair: {input: PhysicalLotEvidencePairInput; output: PhysicalLotEvidencePairResult}
   physicalLotEvidencePairReverse: {input: PhysicalLotEvidencePairReverseInput; output: PhysicalLotEvidencePairResult}
+  physicalLotEvidenceGroup: {input: PhysicalLotEvidenceGroupInput; output: PhysicalLotEvidenceGroupResult}
+  physicalLotEvidenceGroupReverse: {input: PhysicalLotEvidenceGroupReverseInput; output: PhysicalLotEvidenceGroupResult}
 }
 
 function evidenceFields(source: Record<string, unknown>): Pick<PhysicalLotEvidenceInput,
@@ -149,6 +168,26 @@ export function physicalLotEvidencePairBody(value: unknown): PhysicalLotEvidence
     throw new Error('须选择先入后出的两笔库存流水')
   const {lot_id, ...evidence} = physicalLotMovementEvidenceBody(value)
   return {inbound_movement_id: inbound, outbound_movement_id: outbound, lot_id, ...evidence}
+}
+
+export function physicalLotEvidenceGroupBody(value: unknown): PhysicalLotEvidenceGroupInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('成组补证数据无效')
+  const source = value as Record<string, unknown>
+  if (!Array.isArray(source.pairs) || source.pairs.length < 2 || source.pairs.length > 50)
+    throw new Error('成组补证须提供 2 至 50 对流水')
+  const pairs = source.pairs.map(pair => {
+    if (!pair || typeof pair !== 'object' || Array.isArray(pair)) throw new Error('成组配对数据无效')
+    const row = pair as Record<string, unknown>
+    const parsed = physicalLotEvidencePairBody({...source,...row,lot_id:null})
+    return {inbound_movement_id:parsed.inbound_movement_id,
+      outbound_movement_id:parsed.outbound_movement_id,quantity:parsed.quantity}
+  })
+  if (new Set(pairs.map(pair => `${pair.inbound_movement_id}:${pair.outbound_movement_id}`)).size !== pairs.length
+      || new Set(pairs.flatMap(pair => [pair.inbound_movement_id,pair.outbound_movement_id])).size < 3)
+    throw new Error('成组补证须包含至少三笔流水且不得重复配对')
+  const {lot_id,...metadata} = physicalLotMovementEvidenceBody({...source,quantity:'1.000'})
+  return {pairs,lot_id,evidence:metadata.evidence,supplier_lot:metadata.supplier_lot,
+    manufactured_on:metadata.manufactured_on,expires_on:metadata.expires_on}
 }
 
 export function physicalLotKindLabel(kind: string): string {
