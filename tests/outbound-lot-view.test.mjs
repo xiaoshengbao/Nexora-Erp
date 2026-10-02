@@ -15,7 +15,7 @@ materials,warehouses,otherOutboundForm,otherOutboundReversalReasons,
 can:()=>true,localTime:value=>value,createOtherOutbound(){},loadAvailableOutboundLots(){},
 postWarehouseOutbound(){},cancelOtherOutbound(){},reverseOtherOutbound(){}}});`
 
-test('其他出库显示固定批次、旧单差额和采购退货原确认入口',async t=>{
+test('其他出库与采购退货显示批次证据、旧单差额和统一确认入口',async t=>{
   const server=await createServer({configFile:false,plugins:[{name:'outbound-lot-view-fixture',enforce:'pre',
     resolveId(id,importer){
       if(importer?.includes('/views/workspace/warehouse/WarehouseOutboundsView')
@@ -37,12 +37,16 @@ test('其他出库显示固定批次、旧单差额和采购退货原确认入�
     reversal_id:null,reversal_reason:null,purchase_return_id:null,lines:[{...line,physical_lots:[
       {id:8,code:'LEGACY-W1-M3',quantity:'1.000',source_kind:'legacy'}]}]}
   store.warehouseOutbounds=[outbound,{...outbound,id:3,lines:[line]},
-    {...outbound,id:4,source_kind:'purchase_return',reason:'purchase_return',status:'draft',lines:[line]}]
+    {...outbound,id:4,source_kind:'purchase_return',reason:'purchase_return',status:'draft',lines:[line]},
+    {...outbound,id:5,source_kind:'purchase_return',reason:'purchase_return',lines:[{
+      ...line,physical_lots:[{id:9,code:'R5-L7-P1',quantity:'1.000',source_kind:'receipt'}]}]}]
   const {default:Component}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/WarehouseOutboundsView.vue')
   const html=await renderToString(createSSRApp({render:()=>h(Component)}).use(pinia))
   assert.match(html,/LEGACY-W1-M3/)
   assert.match(html,/历史未识别/)
   assert.match(html,/旧确认未指定实物批次/)
-  assert.match(html,/确认出库/)
+  assert.match(html,/指定批次并确认/)
+  assert.match(html,/R5-L7-P1/)
+  assert.equal((html.match(/指定批次并确认/g)??[]).length,1)
   assert.equal((html.match(/旧确认未指定实物批次/g)??[]).length,1)
 })

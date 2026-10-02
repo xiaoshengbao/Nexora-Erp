@@ -21,6 +21,8 @@ from app.core.models import (
     MaintenanceJob,
     PhysicalLot,
     PhysicalLotAllocation,
+    PurchaseReturnLine,
+    ReceiptLine,
 )
 from app.inventory.warehouse import balance, require_warehouse
 from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
@@ -156,15 +158,29 @@ def outbound_data(db: Session, outbound_id: int) -> dict:
         .mappings()
         .all()
     )
+    return_line_ids: dict[int, int] = {}
+    movement_source = 'other_outbound'
+    movement_source_id = outbound_id
+    if row['source_kind'] == 'purchase_return' and row['purchase_return_id'] is not None:
+        movement_source = 'purchase_return'
+        movement_source_id = row['purchase_return_id']
+        outbound_by_material = {line['material_id']: line['id'] for line in lines}
+        return_line_ids = {return_line.id: outbound_by_material[material_id]
+                           for return_line, material_id in db.execute(
+                               select(PurchaseReturnLine, ReceiptLine.material_id)
+                               .join(ReceiptLine, ReceiptLine.id == PurchaseReturnLine.receipt_line_id)
+                               .where(PurchaseReturnLine.purchase_return_id == movement_source_id))}
     lots_by_line: dict[int, list[dict]] = {}
     for line_id, lot, allocation in db.execute(
         select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
         .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
         .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
-        .where(StockMovement.source_type == 'other_outbound', StockMovement.source_id == outbound_id)
+        .where(StockMovement.source_type == movement_source,
+               StockMovement.source_id == movement_source_id)
         .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
     ):
-        lots_by_line.setdefault(line_id, []).append({
+        outbound_line_id = return_line_ids.get(line_id, line_id)
+        lots_by_line.setdefault(outbound_line_id, []).append({
             'id': lot.id, 'code': lot.code, 'quantity': format(-Decimal(allocation.quantity), 'f'),
             'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
@@ -229,8 +245,9 @@ def available_outbound_lots(outbound_id: int, _: dict = Depends(require('other_o
         outbound = db.get(WarehouseOutbound, outbound_id)
         if outbound is None:
             raise HTTPException(404, '仓库出库单不存在')
-        if outbound.status != 'draft' or outbound.source_kind != 'other':
-            raise HTTPException(409, '只能查询其他出库草稿的可用批次')
+        if (outbound.status != 'draft' or outbound.source_kind not in ('other', 'purchase_return')
+                or (outbound.source_kind == 'purchase_return' and outbound.purchase_return_id is None)):
+            raise HTTPException(409, '只能查询待确认仓库出库单的可用批次')
         lines = list(db.scalars(select(WarehouseOutboundLine).where(
             WarehouseOutboundLine.outbound_id == outbound_id).order_by(WarehouseOutboundLine.id)))
         materials = {line.material_id for line in lines}
@@ -270,9 +287,7 @@ def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
         if not source:
             raise HTTPException(404, "仓库出库单不存在")
         if source["source_kind"] == "purchase_return":
-            if payload is not None:
-                raise HTTPException(422, '采购退货出库不接受其他出库批次明细')
-            # 采购退货仍用原退货流水及应付来源，仓库出库单只负责确认闸口。
+            # 退货流水仍由退货单生成；仓库闸口将选定批次传入同一写事务。
             from app.purchase.returns import post_return_in_transaction
 
             row = (
@@ -284,7 +299,25 @@ def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
                 .mappings()
                 .first()
             )
-            post_return_in_transaction(db, row["purchase_return_id"], user["id"])
+            if row['purchase_return_id'] is None:
+                raise HTTPException(409, '采购退货出库单缺少关联退货单')
+            lot_lines = None
+            if payload is not None:
+                outbound_lines = list(db.scalars(select(WarehouseOutboundLine).where(
+                    WarehouseOutboundLine.outbound_id == outbound_id)))
+                requested = {line.outbound_line_id: line for line in payload.lines}
+                if len(requested) != len(payload.lines) or set(requested) != {
+                        line.id for line in outbound_lines}:
+                    raise HTTPException(422, '批次明细必须与采购退货出库明细逐行对应')
+                lot_lines = {}
+                for line in outbound_lines:
+                    parts = requested[line.id].lots
+                    if len({part.lot_id for part in parts}) != len(parts):
+                        raise HTTPException(422, '一行退货不能重复选择同一实物批次')
+                    if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line.quantity):
+                        raise HTTPException(422, f'采购退货出库明细 #{line.id} 的批次数量之和不匹配')
+                    lot_lines[line.material_id] = [LotPart(part.lot_id, -part.quantity) for part in parts]
+            post_return_in_transaction(db, row["purchase_return_id"], user["id"], lot_lines)
             return outbound_data(db, outbound_id)
         if source["status"] != "draft" or source["source_kind"] != "other":
             raise HTTPException(409, "此出库单不能按其他出库确认")

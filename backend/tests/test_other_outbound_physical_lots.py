@@ -66,7 +66,7 @@ def test_other_outbound_lots_are_selected_and_reversed_atomically(monkeypatch, t
                           headers=auth).status_code == 409
         assert client.post(f'{base}/warehouse-outbounds/{purchase_return_gate}/post', headers=auth,
                            json={'lines': [{'outbound_line_id': line_a,
-                                            'lots': [{'lot_id': lot_a, 'quantity': '1.000'}]}]}).status_code == 422
+                                            'lots': [{'lot_id': lot_a, 'quantity': '1.000'}]}]}).status_code == 409
         post_url = f'{base}/warehouse-outbounds/{draft["id"]}/post'
         allocation = [
             {'outbound_line_id': line_a, 'lots': [

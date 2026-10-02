@@ -163,9 +163,9 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 另有跨模块测试把采购组件入库、跨仓调拨、生产领料与质检入库、成品销售出库、工单成本及应收应付结清串在同一测试数据库中；这验证接口和库存来源的一致性，不代替真实设备或现场业务数据验收。
 
-数据库第 32 版新增 `/api/v1/warehouse-outbounds`。其他出库草稿记录仓库、用途、原因及明细，`/post` 在仓库余额充足时原子扣减库存；其他用途出库可按实物批次逐行指定来源仓正余额，`/{id}/available-lots` 沿用 `other_outbound.post` 返回可选批次，冲销沿原分配回仓；`/cancel` 仅取消草稿，`/reverse` 追加冲销流水。重复操作返回 409，其他出库不产生采购应付。权限为 `other_outbound.view/create/post/cancel/reverse`。
+数据库第 32 版新增 `/api/v1/warehouse-outbounds`。其他出库草稿记录仓库、用途、原因及明细，`/post` 在仓库余额充足时原子扣减库存；其他用途出库和已提交采购退货可按实物批次逐行指定来源仓正余额，`/{id}/available-lots` 沿用 `other_outbound.post` 返回可选批次，冲销沿原分配回仓；`/cancel` 仅取消草稿，`/reverse` 追加冲销流水。重复操作返回 409，其他出库不产生采购应付。权限为 `other_outbound.view/create/post/cancel/reverse`。
 
-数据库第 33 版将采购退货提交与仓库出库确认分离。`POST /api/v1/purchase-returns/{id}/submit` 创建唯一待出库单并占用原入库可退量；仓库通过 `/api/v1/warehouse-outbounds/{id}/post` 在同一事务重查原入库可退量和原仓余额，确认一次才写一组退货流水、确认退货及应付冲减。取消待出库退货释放占用。旧客户端的退货 `/post` 在同一事务补建并确认关联出库单；迁移仅为历史已确认退货补单据，不重放流水。
+数据库第 33 版将采购退货提交与仓库出库确认分离。`POST /api/v1/purchase-returns/{id}/submit` 创建唯一待出库单并占用原入库可退量；仓库通过 `/api/v1/warehouse-outbounds/{id}/post` 在同一事务重查原入库可退量和原仓余额，可逐行指定批次并固定在退货流水上，确认一次才写一组退货流水、确认退货及应付冲减。取消待出库退货释放占用。旧客户端的退货 `/post` 在同一事务补建并确认关联出库单；迁移仅为历史已确认退货补单据，不重放流水。
 
 `POST /api/v1/inventory-ledger/query` 以仓库、物料、日期和来源筛选库存流水，返回每个仓库物料组合的期初、逐笔累计结余与期末。来源筛选后数量表示该来源范围内的累计变动；库存总览仍展示所有来源的实际余额。
 
@@ -251,4 +251,4 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 实物批次数据基础
 
-第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货虽共用确认路由，但不接受其他出库批次请求体；销售出库、调拨、退货及其他来源仍待逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
+第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表，共 134 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货的关联仓库出库也可提交相同批次请求体，确认和冲销都固定原分配；销售出库、调拨、销售退货及其他来源仍待逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。

@@ -137,7 +137,7 @@ export function createWarehouseActions(
   async function loadAvailableOutboundLots(outboundId: number): Promise<OutboundLotOptions> {
     if (!window.nexora || state.connectionLost.value
         || !state.user.value?.permissions.includes('other_outbound.post'))
-      throw Error('当前账号无法读取其他出库批次。')
+      throw Error('当前账号无法读取仓库出库批次。')
     const owner = state.user.value.id
     const result = await window.nexora.callApi('availableOutboundLots', {outboundId})
     if (state.connectionLost.value || state.user.value?.id !== owner
