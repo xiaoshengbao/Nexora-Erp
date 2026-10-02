@@ -5,6 +5,7 @@ import {completionLotBody,validatePostedCompletionLots} from '../shared/completi
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
 import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} from '../shared/shipment-lot-api.ts'
 import {transferLotBody,validateTransferLotOptions,validatePostedTransferLots} from '../shared/transfer-lot-api.ts'
+import {stocktakeLotBody,validateStocktakeLotOptions,validatePostedStocktakeLots} from '../shared/stocktake-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -765,7 +766,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'stocktakes': return { method: 'GET', path: '/api/v1/stocktakes' }
     case 'createStocktake': return { method: 'POST', path: '/api/v1/stocktakes', body: payload }
-    case 'postStocktake': return { method: 'POST', path: `/api/v1/stocktakes/${positiveId(payload, 'stocktakeId')}/post` }
+    case 'availableStocktakeLots': return {method: 'GET',
+      path: `/api/v1/stocktakes/${positiveId(payload, 'stocktakeId')}/available-lots`}
+    case 'postStocktake': {
+      const stocktakeId = positiveId(payload, 'stocktakeId')
+      const source = payload as ErpOperations['postStocktake']['input']
+      return {method: 'POST', path: `/api/v1/stocktakes/${stocktakeId}/post`,
+        ...(source.lines === undefined ? {} : {body: stocktakeLotBody({lines: source.lines})})}
+    }
     case 'cancelStocktake': return { method: 'POST', path: `/api/v1/stocktakes/${positiveId(payload, 'stocktakeId')}/cancel` }
     case 'reverseStocktake': {
       const stocktakeId = positiveId(payload, 'stocktakeId')
@@ -848,6 +856,14 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postTransfer']['input']
     if (request.lines) validatePostedTransferLots(data, request.transferId,
       transferLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableStocktakeLots') {
+    validateStocktakeLotOptions(data, (payload as ErpOperations['availableStocktakeLots']['input']).stocktakeId)
+  }
+  if (action === 'postStocktake') {
+    const request = payload as ErpOperations['postStocktake']['input']
+    if (request.lines) validatePostedStocktakeLots(data, request.stocktakeId,
+      stocktakeLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']

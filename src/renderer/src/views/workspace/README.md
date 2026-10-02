@@ -10,7 +10,7 @@
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；只读，不表示单据已支持批次录入 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
-| `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
+| `warehouse/` | `InventoryStocktakesView.vue` | 建立库存盘点，逐行核对盘盈/盘亏实物批次并确认，沿原批次冲销 |
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `CustomersView.vue` | 客户搜索与新增；销售查看权限可浏览，客户管理权限可新增 |

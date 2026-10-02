@@ -5,11 +5,13 @@ from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Material,
+    PhysicalLot,
+    PhysicalLotAllocation,
     StockMovement,
     Stocktake,
     StocktakeLine,
@@ -18,6 +20,8 @@ from app.core.models import (
     Warehouse,
 )
 from app.inventory.warehouse import balance, require_warehouse
+from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
+from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.access.security import require
 
 UserRu = aliased(User)
@@ -53,6 +57,26 @@ class StocktakeReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class StocktakeLotPartInput(PhysicalLotPartInput):
+    lot_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode='after')
+    def existing_lot_has_no_new_origin(self):
+        if self.lot_id is not None and any((
+            self.supplier_lot, self.manufactured_on, self.expires_on)):
+            raise ValueError('已有批次不能同时登记新批次来源字段')
+        return self
+
+
+class StocktakeLotLineInput(BaseModel):
+    stocktake_line_id: int = Field(gt=0)
+    lots: list[StocktakeLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class StocktakePostInput(BaseModel):
+    lines: list[StocktakeLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def movement_checkpoint(db: Session, warehouse_id: int, material_id: int) -> int:
@@ -117,12 +141,26 @@ def stocktake_data(db: Session, stocktake_id: int) -> dict:
         .mappings()
         .all()
     )
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'stocktake', StockMovement.source_id == stocktake_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': format(abs(Decimal(allocation.quantity)), 'f'),
+            'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+            'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+        })
     return {
         **dict(row),
         "lines": [
             {
                 **dict(line),
                 "difference": str(Decimal(line["counted_quantity"]) - Decimal(line["book_quantity"])),
+                'physical_lots': lots_by_line.get(line['id'], []),
             }
             for line in lines
         ],
@@ -176,8 +214,44 @@ def create_stocktake(payload: StocktakeInput, user: dict = Depends(require("stoc
         return stocktake_data(db, cursor.id)
 
 
+@router.get('/stocktakes/{stocktake_id}/available-lots')
+def available_stocktake_lots(stocktake_id: int, _: dict = Depends(require('stocktake.post'))) -> dict:
+    with orm_session() as db:
+        stocktake = db.get(Stocktake, stocktake_id)
+        if stocktake is None:
+            raise HTTPException(404, '盘点单不存在')
+        if stocktake.status != 'draft':
+            raise HTTPException(409, '只能查询盘点草稿的可用批次')
+        lines = list(db.execute(select(StocktakeLine.id, StocktakeLine.material_id,
+                                       StocktakeLine.book_quantity, StocktakeLine.counted_quantity)
+                                .where(StocktakeLine.stocktake_id == stocktake_id)
+                                .order_by(StocktakeLine.id)).mappings())
+        lots = list(db.scalars(select(PhysicalLot).where(
+            PhysicalLot.material_id.in_({line['material_id'] for line in lines}))
+            .order_by(PhysicalLot.id)))
+        by_material = {line['material_id']: [] for line in lines}
+        for lot in lots:
+            quantity = lot_balance(db, stocktake.warehouse_id, lot.id)
+            if quantity < 0:
+                continue
+            by_material[lot.material_id].append({
+                'lot_id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                'quantity': format(quantity, 'f'), 'supplier_lot': lot.supplier_lot,
+                'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+            })
+        return {'stocktake_id': stocktake_id, 'warehouse_id': stocktake.warehouse_id,
+                'lines': [{'stocktake_line_id': line['id'], 'material_id': line['material_id'],
+                           'book_quantity': line['book_quantity'],
+                           'counted_quantity': line['counted_quantity'],
+                           'difference': format(Decimal(line['counted_quantity'])
+                                                - Decimal(line['book_quantity']), 'f'),
+                           'lots': by_material[line['material_id']]}
+                          for line in lines]}
+
+
 @router.post("/stocktakes/{stocktake_id}/post")
-def post_stocktake(stocktake_id: int, user: dict = Depends(require("stocktake.post"))) -> dict:
+def post_stocktake(stocktake_id: int, payload: StocktakePostInput | None = None,
+                   user: dict = Depends(require("stocktake.post"))) -> dict:
     with orm_session(write=True) as db:
         # 写锁覆盖快照核对、差异流水与状态，期间入库或调拨不会被盘点吞掉。
         stocktake = (
@@ -227,22 +301,55 @@ def post_stocktake(stocktake_id: int, user: dict = Depends(require("stocktake.po
                 != line["movement_id"]
             ):
                 raise HTTPException(409, f"物料 #{line['material_id']} 的账面库存已变化，请重新盘点")
+        difference_lines = {line['id'] for line in lines if
+                            Decimal(line['counted_quantity']) != Decimal(line['book_quantity'])}
+        lot_lines = {line.stocktake_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != difference_lines):
+            raise HTTPException(422, '批次明细必须与非零盘点差异逐行对应')
         for line in lines:
             difference = Decimal(line["counted_quantity"]) - Decimal(line["book_quantity"])
             if difference:
                 # 零差异不生成虚假的库存变动；非零差异记录原单据、明细和操作者。
-                add_model(
-                    db,
-                    StockMovement(
-                        warehouse_id=stocktake["warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(difference),
-                        source_type="stocktake",
-                        source_id=stocktake_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
+                movement = StockMovement(
+                    warehouse_id=stocktake["warehouse_id"],
+                    material_id=line["material_id"],
+                    quantity=str(difference),
+                    source_type="stocktake",
+                    source_id=stocktake_id,
+                    source_line_id=line["id"],
+                    created_by=user["id"],
                 )
+                if lot_lines is None:
+                    db.add(movement)
+                    continue
+                parts = lot_lines[line['id']].lots
+                if sum((part.quantity for part in parts), Decimal(0)) != abs(difference):
+                    raise HTTPException(422, f'盘点明细 #{line["id"]} 的批次数量之和不匹配')
+                existing_ids = [part.lot_id for part in parts if part.lot_id is not None]
+                if len(set(existing_ids)) != len(existing_ids):
+                    raise HTTPException(422, '一行盘点不能重复选择同一已有实物批次')
+                if difference < 0 and any(part.lot_id is None for part in parts):
+                    raise HTTPException(422, '盘亏只能扣减已有实物批次')
+                selected = []
+                new_lots = []
+                for index, part in enumerate(parts, 1):
+                    if part.lot_id is not None:
+                        selected.append(LotPart(part.lot_id, part.quantity.copy_sign(difference)))
+                        continue
+                    lot = add_model(db, PhysicalLot(
+                        material_id=line['material_id'],
+                        code=f'ST{stocktake_id}-L{line["id"]}-P{index}',
+                        source_kind='stocktake', supplier_lot=part.supplier_lot,
+                        manufactured_on=part.manufactured_on.isoformat()
+                        if part.manufactured_on else None,
+                        expires_on=part.expires_on.isoformat() if part.expires_on else None,
+                        created_by=user['id']))
+                    selected.append(LotPart(lot.id, part.quantity))
+                    new_lots.append(lot)
+                post_lot_movement(db, movement, selected)
+                for lot in new_lots:
+                    lot.origin_movement_id = movement.id
         db.execute(
             update(Stocktake)
             .where((Stocktake.id == stocktake_id))
@@ -340,16 +447,26 @@ def reverse_stocktake(
             difference = Decimal(line["counted_quantity"]) - Decimal(line["book_quantity"])
             if difference:
                 # 冲销只追加反向流水；零差异盘点保留冲销记录但不制造零数量流水。
-                add_model(
-                    db,
-                    StockMovement(
-                        warehouse_id=stocktake["warehouse_id"],
-                        material_id=line["material_id"],
-                        quantity=str(-difference),
-                        source_type="stocktake_reversal",
-                        source_id=reversal_id,
-                        source_line_id=line["id"],
-                        created_by=user["id"],
-                    ),
+                movement = StockMovement(
+                    warehouse_id=stocktake["warehouse_id"],
+                    material_id=line["material_id"],
+                    quantity=str(-difference),
+                    source_type="stocktake_reversal",
+                    source_id=reversal_id,
+                    source_line_id=line["id"],
+                    created_by=user["id"],
                 )
+                allocations = list(db.scalars(select(PhysicalLotAllocation)
+                    .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                    .where(StockMovement.source_type == 'stocktake',
+                           StockMovement.source_id == stocktake_id,
+                           StockMovement.source_line_id == line['id'])
+                    .order_by(PhysicalLotAllocation.id)))
+                if allocations:
+                    if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != difference:
+                        raise HTTPException(409, '原盘点批次分配不完整，无法冲销')
+                    post_lot_movement(db, movement, [LotPart(
+                        part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+                else:
+                    db.add(movement)
         return stocktake_data(db, stocktake_id)

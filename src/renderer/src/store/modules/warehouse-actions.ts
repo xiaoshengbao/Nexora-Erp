@@ -1,6 +1,7 @@
 import type { ErpOperations, Warehouse } from '../../../../shared/erp-api'
 import type {OutboundLotLineInput, OutboundLotOptions} from '../../../../shared/outbound-lot-api'
 import type {TransferLotLineInput, TransferLotOptions} from '../../../../shared/transfer-lot-api'
+import type {StocktakeLotLineInput, StocktakeLotOptions} from '../../../../shared/stocktake-lot-api'
 import type { AppState } from '../state'
 
 // 仓库与盘点操作独立维护；写入后由统一入口刷新服务端快照。
@@ -249,10 +250,22 @@ export function createWarehouseActions(
     }, '盘点草稿已创建，请核对账面与实盘数量。')
   }
 
-  async function postStocktake(stocktakeId: number): Promise<void> {
+  async function loadAvailableStocktakeLots(stocktakeId: number): Promise<StocktakeLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('stocktake.post'))
+      throw Error('当前账号无法读取盘点批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableStocktakeLots', {stocktakeId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('stocktake.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postStocktake(stocktakeId: number, lines?: StocktakeLotLineInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
-      () => window.nexora!.callApi('postStocktake', { stocktakeId }),
+      () => window.nexora!.callApi('postStocktake', { stocktakeId, lines }),
       `盘点单 #${stocktakeId} 已确认，差异已记入库存流水。`
     )
   }
@@ -316,6 +329,7 @@ export function createWarehouseActions(
     postTransfer,
     reverseTransfer,
     createStocktake,
+    loadAvailableStocktakeLots,
     postStocktake,
     cancelStocktake,
     reverseStocktake
