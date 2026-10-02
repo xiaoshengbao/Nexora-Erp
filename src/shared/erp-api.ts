@@ -40,7 +40,7 @@ export interface PageResult<T> { items: T[]; total: number; page: number; page_s
 
 export interface SupplierMaterial { supplier_id: number; material_id: number }
 export interface Supplier { id: number; name: string }
-export interface Customer { id: number; name: string }
+export interface Customer { id: number; name: string; owner_id: number | null; version: number }
 export interface Warehouse { id: number; code: string; name: string }
 export type LedgerCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'cost'
 export interface LedgerAccount {

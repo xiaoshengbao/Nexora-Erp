@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 60:
+        if version > 61:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2063,3 +2063,30 @@ def migrate() -> None:
             db.execute('CREATE UNIQUE INDEX physical_lot_evidence_group_reverse_once ON physical_lot_evidence_groups(original_group_id)')
             db.execute('CREATE INDEX physical_lot_evidence_group_lot ON physical_lot_evidence_groups(lot_id,id)')
             db.execute('PRAGMA user_version = 60')
+
+        if version < 61:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 旧客户没有可核验的归属证据，保留未分配状态，由管理员逐一认领或转交。
+            customer_columns = {row['name'] for row in db.execute('PRAGMA table_info(customers)')}
+            if 'owner_id' not in customer_columns:
+                db.execute('ALTER TABLE customers ADD COLUMN owner_id INTEGER REFERENCES users(id)')
+            if 'version' not in customer_columns:
+                db.execute('ALTER TABLE customers ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version>0)')
+            db.execute('CREATE INDEX IF NOT EXISTS customer_owner_lookup ON customers(owner_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS customer_owner_changes (
+                id INTEGER PRIMARY KEY,
+                customer_id INTEGER NOT NULL REFERENCES customers(id),
+                before_owner_id INTEGER REFERENCES users(id),
+                after_owner_id INTEGER NOT NULL REFERENCES users(id),
+                version INTEGER NOT NULL CHECK(version>0),
+                reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS customer_owner_change_history ON customer_owner_changes(customer_id,id)')
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('customer.assign','分配客户负责人','sales.customer')")
+            db.execute("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES ('admin','customer.assign')")
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('customer.view_all','查看全部客户归属','sales.customer')")
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                           [(role,'customer.view_all') for role in ('admin','warehouse','finance')])
+            db.execute('PRAGMA user_version = 61')

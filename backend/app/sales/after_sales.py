@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.access.security import require
-from app.core.models import (AfterSalesCase, AfterSalesCustody, ShipmentLine, SalesReturn, SalesReturnLine,
+from app.core.models import (AfterSalesCase, AfterSalesCustody, Shipment, ShipmentLine, SalesReturn, SalesReturnLine,
     SalesReturnReversal, SalesOrder, SalesOrderLine, Material, Warehouse, WarehouseOutbound,
     WarehouseOutboundLine)
 from app.core.orm import orm_session, add_model, model_data
@@ -17,6 +17,8 @@ from app.core.period_lock import ensure_date_unlocked
 from app.inventory.warehouse import require_warehouse
 from app.sales.after_sales_rules import (now, encoded, source, remaining_quantity, check_quantity,
     case_data, audit, authors, return_effective)
+from app.sales.customer_scope import (visible_customer_ids, require_visible_shipment_line,
+    require_visible_after_sales)
 
 router = APIRouter(prefix='/api/v1/after-sales')
 
@@ -158,28 +160,36 @@ def apply_input(db, row, payload):
 
 
 @router.get('')
-def overview(_: dict=Depends(require('after_sales.view'))):
+def overview(user: dict=Depends(require('after_sales.view'))):
     with orm_session() as db:
         sources = []
-        for identifier in db.scalars(select(ShipmentLine.id).order_by(ShipmentLine.id.desc())):
+        for identifier in db.scalars(select(ShipmentLine.id).join(Shipment,
+                Shipment.id == ShipmentLine.shipment_id).join(SalesOrder,
+                SalesOrder.id == Shipment.sales_order_id).where(
+                SalesOrder.customer_id.in_(visible_customer_ids(user))).order_by(ShipmentLine.id.desc())):
             item = source(db,identifier)
             if item['valid']:
                 sources.append({**item,'remaining_quantity':str(remaining_quantity(db,identifier))})
         return dict(sources=sources, cases=[case_data(db,row) for row in db.scalars(
-            select(AfterSalesCase).order_by(AfterSalesCase.id.desc()))],
+            select(AfterSalesCase).join(ShipmentLine,
+                ShipmentLine.id == AfterSalesCase.shipment_line_id).join(Shipment,
+                Shipment.id == ShipmentLine.shipment_id).join(SalesOrder,
+                SalesOrder.id == Shipment.sales_order_id).where(
+                SalesOrder.customer_id.in_(visible_customer_ids(user))).order_by(AfterSalesCase.id.desc()))],
             materials=[dict(id=row.id,sku=row.sku,name=row.name,unit=row.unit) for row in db.scalars(select(Material))],
             warehouses=[dict(id=row.id,name=row.name) for row in db.scalars(select(Warehouse))])
 
 
 @router.get('/cases/{case_id}')
-def detail(case_id: int, _: dict=Depends(require('after_sales.view'))):
+def detail(case_id: int, user: dict=Depends(require('after_sales.view'))):
     with orm_session() as db:
-        return case_data(db,get_case(db,case_id))
+        return case_data(db,require_visible_after_sales(db,get_case(db,case_id),user))
 
 
 @router.post('/cases',status_code=201)
 def create(payload: CaseInput, user: dict=Depends(require('after_sales.create'))):
     with orm_session(write=True) as db:
+        require_visible_shipment_line(db, payload.shipment_line_id, user)
         row=AfterSalesCase(status='draft',version=1,created_by=user['id'])
         apply_input(db,row,payload)
         add_model(db,row)
@@ -190,7 +200,10 @@ def create(payload: CaseInput, user: dict=Depends(require('after_sales.create'))
 @router.put('/cases/{case_id}')
 def edit(case_id: int,payload: CaseEdit,user: dict=Depends(require('after_sales.create'))):
     with orm_session(write=True) as db:
-        row=get_case(db,case_id,payload.version)
+        row=require_visible_after_sales(db,get_case(db,case_id),user)
+        if row.version != payload.version:
+            raise HTTPException(409,'售后版本已变化，请刷新后核对；本次输入未生效')
+        require_visible_shipment_line(db, payload.shipment_line_id, user)
         if row.status not in ('draft','rejected'):
             raise HTTPException(409,'只有草稿或驳回申请可修订')
         before=model_data(row)
@@ -218,7 +231,10 @@ def change(case_id: int, action: Literal['submit','approve','reject','process','
     if action!='inspect' and payload.inspection_result is not None:
         raise HTTPException(422,'只有维修检验操作可填写检验结果')
     with orm_session(write=True) as db:
-        row=get_case(db,case_id,payload.version); before=model_data(row)
+        row=require_visible_after_sales(db,get_case(db,case_id),user)
+        if row.version != payload.version:
+            raise HTTPException(409,'售后版本已变化，请刷新后核对；本次输入未生效')
+        before=model_data(row)
         if action=='submit' and row.status=='draft':
             check_quantity(db,row)
             original=source(db,row.shipment_line_id,writable=True)

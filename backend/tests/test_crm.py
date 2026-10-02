@@ -36,6 +36,8 @@ def seeded(monkeypatch, tmp_path):
             assert client.post(B+'/users',headers=admin,json={'username':name,'password':'secure-pass-123','roles':[role]}).status_code == 201
         customer = client.post(B+'/customers',headers=admin,json={'name':'客户甲'}).json()['id']
         other = client.post(B+'/customers',headers=admin,json={'name':'客户乙'}).json()['id']
+        assert client.put(B+f'/customers/{customer}/owner',headers=admin,json={
+            'owner_id':3,'version':1,'reason':'分配销售负责人'}).status_code == 200
         materials = [client.post(B+'/materials',headers=admin,json={'sku':f'C{i}','name':f'物料{i}','unit':'件'}).json()['id'] for i in range(2)]
         yield client,admin,login('reviewer'),login('seller'),login('viewer'),customer,other,materials
 
@@ -68,6 +70,110 @@ def approved(seed,data):
     assert quote.status_code == 201,quote.text
     quote = action(client,admin,quote.json(),'submit')
     return action(client,reviewer,quote,'approve')
+
+
+def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
+    client,admin,reviewer,seller,_,customer,other,materials = seeded
+    assert client.post(B+'/customers',headers=seller,json={
+        'name':'不可伪造归属','owner_id':1}).status_code == 422
+    own_contact = client.post(C+'/contacts',headers=admin,
+        json={'customer_id':customer,'name':'销售员客户联系人'}).json()
+    other_contact = client.post(C+'/contacts',headers=admin,
+        json={'customer_id':other,'name':'其他客户联系人'}).json()
+    other_opportunity=client.post(C+'/opportunities',headers=admin,json={
+        'customer_id':other,'contact_id':other_contact['id'],'title':'其他客户商机',
+        'owner_id':1,'estimated_amount':'2','expected_close_date':'2030-01-31'}).json()
+    other_quote_input={'opportunity_id':other_opportunity['id'],'contact_id':other_contact['id'],
+        'reference':'Q-OTHER','valid_until':'2030-01-31',
+        'lines':[{'material_id':materials[0],'quantity':'1','unit_price':'2'}]}
+    other_quote=client.post(C+'/quotes',headers=admin,json=other_quote_input).json()
+    assert {row['id'] for row in client.get(C+'/options',headers=seller).json()['customers']} == {customer}
+    assert {row['id'] for row in client.get(B+'/customers',headers=seller).json()} == {customer}
+    assert {row['id'] for row in client.get(C+'/options',headers=reviewer).json()['customers']} == {customer,other}
+    assert [row['id'] for row in client.get(C+'/overview',headers=seller).json()['contacts']] == [own_contact['id']]
+    assert client.get(C+'/overview',headers=seller).json()['opportunities'] == []
+    assert client.get(C+'/overview',headers=seller).json()['quotes'] == []
+    for path in (f'/records/contact/{other_contact["id"]}',
+                 f'/records/contact/{other_contact["id"]}/changes'):
+        assert client.get(C+path,headers=seller).status_code == 404
+    assert client.get(C+f'/records/quote/{other_quote["id"]}',headers=seller).status_code == 404
+    assert client.get(C+f'/records/quote/{other_quote["id"]}/changes',headers=seller).status_code == 404
+    assert client.post(C+'/quotes',headers=seller,json=other_quote_input).status_code == 404
+    assert client.post(C+f'/quotes/{other_quote["id"]}/submit',headers=seller,
+        json={'version':1,'reason':'越权提交'}).status_code == 404
+    assert client.put(C+f'/contacts/{other_contact["id"]}',headers=seller,json={
+        'customer_id':other,'name':'越权修订','version':1,'reason':'尝试'}).status_code == 404
+    assert client.post(C+'/contacts',headers=seller,
+        json={'customer_id':other,'name':'越权新增'}).status_code == 404
+    order_input={'customer_id':other,'reference':'隔离验证',
+        'lines':[{'material_id':materials[0],'quantity':'1','unit_price':'2'}]}
+    order=client.post(B+'/sales-orders',headers=admin,json=order_input).json()
+    assert client.post(B+'/sales-orders',headers=seller,json=order_input).status_code == 404
+    assert all(row['id'] != order['id'] for row in client.get(B+'/sales-orders',headers=seller).json())
+    assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=seller).status_code == 404
+    assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
+    supplier=client.post(B+'/suppliers',headers=admin,json={'name':'隔离测试供货方'}).json()['id']
+    receipt=client.post(B+'/receipts',headers=admin,json={'supplier_id':supplier,
+        'lines':[{'material_id':materials[0],'quantity':'2'}]}).json()
+    assert client.post(B+f'/receipts/{receipt["id"]}/post',headers=admin).status_code == 200
+    shipment_input={'sales_order_id':order['id'],'warehouse_id':1,
+        'lines':[{'material_id':materials[0],'quantity':'1'}]}
+    shipment=client.post(B+'/shipments',headers=admin,json=shipment_input).json()
+    assert client.post(B+'/shipments',headers=seller,json=shipment_input).status_code == 404
+    assert all(row['id'] != shipment['id'] for row in client.get(B+'/shipments',headers=seller).json())
+    assert client.post(B+f'/shipments/{shipment["id"]}/cancel',headers=seller).status_code == 404
+    assert client.post(B+f'/shipments/{shipment["id"]}/post',headers=admin).status_code == 200
+    return_input={'shipment_id':shipment['id'],'warehouse_id':1,'reason':'客户退货',
+        'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'1'}]}
+    sales_return=client.post(B+'/sales-returns',headers=admin,json=return_input).json()
+    assert client.post(B+'/sales-returns',headers=seller,json=return_input).status_code == 404
+    assert all(row['id'] != sales_return['id'] for row in client.get(B+'/sales-returns',headers=seller).json())
+    assert client.post(B+f'/sales-returns/{sales_return["id"]}/cancel',headers=seller).status_code == 404
+    case_input={'shipment_line_id':shipment['lines'][0]['id'],'reference':'AF-OTHER',
+        'kind':'repair','quantity':'1','complaint':'客户报告异常','solution':'核查后维修',
+        'charge_mode':'free','fee_amount':'0','customer_acceptance':'已取得客户书面同意',
+        'warehouse_id':None,'parts':[],'reason':'客户申请'}
+    case=client.post(B+'/after-sales/cases',headers=admin,json=case_input).json()
+    assert client.post(B+'/after-sales/cases',headers=seller,json=case_input).status_code == 404
+    assert client.get(B+'/after-sales',headers=seller).json()['sources'] == []
+    assert client.get(B+'/after-sales',headers=seller).json()['cases'] == []
+    assert client.get(B+f'/after-sales/cases/{case["id"]}',headers=seller).status_code == 404
+    assert client.put(B+f'/customers/{customer}/owner',headers=seller,json={
+        'owner_id':1,'version':2,'reason':'越权'}).status_code == 403
+    assert client.put(B+f'/customers/{customer}/owner',headers=admin,json={
+        'owner_id':1,'version':1,'reason':'过期版本'}).status_code == 409
+    assert client.put(B+f'/customers/{customer}/owner',headers=admin,json={
+        'owner_id':999,'version':2,'reason':'账号不存在'}).status_code == 422
+    transferred=client.put(B+f'/customers/{customer}/owner',headers=admin,json={
+        'owner_id':1,'version':2,'reason':'客户正式移交'}).json()
+    assert transferred['owner_id'] == 1 and transferred['version'] == 3
+    assert client.get(C+f'/records/contact/{own_contact["id"]}',headers=seller).status_code == 404
+    assert client.get(C+'/overview',headers=seller).json()['contacts'] == []
+    changes=client.get(B+f'/customers/{customer}/owner-changes',headers=admin).json()
+    assert [(row['before_owner_id'],row['after_owner_id'],row['reason']) for row in changes] == [
+        (3,1,'客户正式移交'),(1,3,'分配销售负责人'),(None,1,'建立客户')]
+
+
+def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded):
+    client,admin,_,seller,_,customer,other,_ = seeded
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        names=db.execute('SELECT id,name FROM customers ORDER BY id').fetchall()
+        db.execute('DROP TABLE customer_owner_changes')
+        db.execute('DROP INDEX customer_owner_lookup')
+        db.execute('ALTER TABLE customers DROP COLUMN owner_id')
+        db.execute('ALTER TABLE customers DROP COLUMN version')
+        for code in ('customer.assign','customer.view_all'):
+            db.execute('DELETE FROM role_permissions WHERE permission_code=?',(code,))
+            db.execute('DELETE FROM permissions WHERE code=?',(code,))
+        db.execute('PRAGMA user_version=60')
+    migrate();migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 61
+        assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
+        assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
+        assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+    assert client.get(C+'/options',headers=seller).json()['customers'] == []
+    assert {row['id'] for row in client.get(C+'/options',headers=admin).json()['customers']} == {customer,other}
 
 
 def test_complete_crm_workflow_keeps_snapshot_and_does_not_post_stock(seeded):
@@ -321,17 +427,18 @@ def test_duplicate_quote_edit_rolls_back_reference_lines_and_audit(seeded):
 
 def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_crm_schema):
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        before = db.execute('SELECT * FROM customers ORDER BY id').fetchall()
+        before = db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall()
         remove_crm_schema(db)
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 60
-        assert db.execute('SELECT * FROM customers ORDER BY id').fetchall() == before
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 61
+        assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
+        assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='seller' AND permission_code='crm.view'").fetchone()[0] == 1
         assert not db.execute("SELECT 1 FROM role_permissions WHERE role_code='seller' AND permission_code='crm_quote.review'").fetchone()
-        assert len(Base.metadata.tables) == 140
+        assert len(Base.metadata.tables) == 141
 
 
 def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm_schema,monkeypatch):

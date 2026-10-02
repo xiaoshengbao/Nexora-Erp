@@ -13,14 +13,23 @@ import CrmEvidence from './CrmEvidence.vue'
 import { crmKindLabel,crmQuoteLabel,crmActivityLabel,crmStageLabel,crmCommandLabel,quoteActions } from './crm-display'
 
 const store=usePiniaAppStore()
-const {crmOverview:overview,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,busy,user,connectionLost,error}=storeToRefs(store)
+const {crmOverview:overview,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,crmOwnerChanges:ownerChanges,busy,user,connectionLost,error}=storeToRefs(store)
 const mode=ref<CrmKind>('activity');const editor=ref<CrmKind|null>(null);const customer=ref(0);const query=ref('')
+const ownerModal=ref(false);const ownerCustomer=ref(0);const nextOwner=ref(0);const ownerReason=ref('')
 const preparing=ref(false);const reason=ref('');const acceptance=ref('')
 type Command=CrmQuoteAction|'convert'|'complete'|'cancelActivity'|'reopen'
 const command=ref<{kind:CrmKind;record:CrmRecord;action:Command}|null>(null)
 const disabled=computed(()=>busy.value || loading.value || connectionLost.value || preparing.value)
 const permission=(kind:CrmKind)=>kind==='contact'?'crm_contact.manage':kind==='activity'?'crm_activity.manage':kind==='opportunity'?'crm_opportunity.manage':'crm_quote.create'
 const customers=computed(()=>[{label:'全部客户',value:0},...(options.value?.customers??[]).map(row=>({label:row.name,value:row.id}))])
+const ownerCustomerRecord=computed(()=>options.value?.customers.find(row=>row.id===ownerCustomer.value))
+const ownerName=(id:number|null)=>id===null?'未分配':options.value?.owners.find(row=>row.id===id)?.name??`账号 #${id}`
+watch(ownerCustomer,id=>{nextOwner.value=ownerCustomerRecord.value?.owner_id??0;ownerReason.value='';if(id)void store.loadCustomerOwnerChanges(id)})
+async function saveOwner():Promise<void>{
+  const row=ownerCustomerRecord.value
+  if(!row || !nextOwner.value || !ownerReason.value.trim() || disabled.value)return
+  if(await store.assignCustomerOwner(row.id,nextOwner.value,row.version,ownerReason.value.trim()))ownerReason.value=''
+}
 function rowTitle(row:CrmRecord):string {return 'reference' in row?row.reference:'title' in row?row.title:'subject' in row?row.subject:row.name}
 function rowStatus(row:CrmRecord):string {return 'stage' in row?crmStageLabel[row.stage]:'due_date' in row?crmActivityLabel[row.status]:'lines' in row?crmQuoteLabel[row.status]:row.is_active?'启用':'停用'}
 function deadline(row:CrmRecord):string{return 'valid_until' in row?row.valid_until:'expected_close_date' in row?row.expected_close_date:'due_date' in row?row.due_date:'—'}
@@ -75,7 +84,7 @@ async function execute():Promise<void>{
     : await store.changeCrmQuote(task.record as CrmQuote,task.action as CrmQuoteAction,reason.value)
   if(saved)command.value=null
 }
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=null;query.value='';customer.value=0;reason.value='';acceptance.value='';if(store.can('crm.view'))void store.loadCrm()})
+watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=null;ownerModal.value=false;ownerCustomer.value=0;query.value='';customer.value=0;reason.value='';acceptance.value='';if(store.can('crm.view'))void store.loadCrm()})
 watch(connectionLost,lost=>{command.value=null;reason.value='';acceptance.value='';if(!lost)void store.loadCrm()})
 onMounted(()=>void store.loadCrm())
 onUnmounted(()=>store.clearCrmDetail())
@@ -84,6 +93,7 @@ onUnmounted(()=>store.clearCrmDetail())
   <section class="stack crm-workspace">
     <div class="crm-toolbar"><AppButton v-for="kind in (['contact','activity','opportunity','quote'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy" @click="selectMode(kind)">{{ crmKindLabel[kind] }}</AppButton>
       <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
+      <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click="ownerModal=true">分配客户负责人</AppButton>
       <AppButton v-if="store.can(permission(mode))" :disabled="disabled || !options" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></div>
     <p>按客户追踪联系人、跟进和商机；报价经独立审核后，登记客户接受依据并转销售订单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
@@ -129,6 +139,22 @@ onUnmounted(()=>store.clearCrmDetail())
         <label>{{ command.action==='complete'?'实际跟进结果':'操作原因' }}<AppInput v-model.trim="reason" required maxlength="500" :disabled="busy" /></label>
         <p v-if="error" role="alert">{{ error }} 当前输入已保留；关闭后刷新资料，核对最新版本再重试。</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || (command.action==='convert' && !acceptance.trim())">{{ busy?'正在处理…':`确认${crmCommandLabel[command.action]}` }}</AppButton>
+      </form>
+    </NModal>
+    <NModal :show="ownerModal" preset="card" title="分配客户负责人" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)ownerModal=false}">
+      <form class="crm-operation" @submit.prevent="saveOwner">
+        <p>旧客户保持未分配，须根据实际业务依据由管理员指定负责人。转交后原负责人立即失去该客户的 CRM 访问权。</p>
+        <label>客户<WorkspaceSelect v-model="ownerCustomer" :options="(options?.customers??[]).map(row=>({label:row.name,value:row.id}))" required :disabled="disabled" /></label>
+        <template v-if="ownerCustomerRecord">
+          <p>当前负责人：{{ ownerName(ownerCustomerRecord.owner_id) }} · 归属版本 {{ ownerCustomerRecord.version }}</p>
+          <label>新负责人<WorkspaceSelect v-model="nextOwner" :options="(options?.owners??[]).map(row=>({label:row.name,value:row.id}))" required :disabled="disabled" /></label>
+          <label>分配或转交依据<AppInput v-model.trim="ownerReason" required maxlength="500" :disabled="disabled" /></label>
+          <p v-if="error || failure" role="alert">{{ error || failure }} 请刷新客户资料并核对版本。</p>
+          <AppButton type="submit" variant="primary" :disabled="disabled || !nextOwner || nextOwner===ownerCustomerRecord.owner_id || !ownerReason.trim()">确认分配</AppButton>
+          <h3>归属变更记录</h3>
+          <p v-if="!ownerChanges.length">暂无变更记录。</p>
+          <ul v-else><li v-for="change in ownerChanges" :key="change.id">v{{ change.version }} · {{ ownerName(change.before_owner_id) }} → {{ ownerName(change.after_owner_id) }} · {{ change.reason }} · 操作账号 #{{ change.changed_by }} · {{ change.created_at }}</li></ul>
+        </template>
       </form>
     </NModal>
   </section>

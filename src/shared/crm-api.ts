@@ -42,8 +42,12 @@ export interface CrmQuote extends CrmBase, CrmQuoteInput {
 export type CrmRecord = CrmContact | CrmActivity | CrmOpportunity | CrmQuote
 export interface CrmOverview { contacts: CrmContact[]; activities: CrmActivity[]; opportunities: CrmOpportunity[]; quotes: CrmQuote[] }
 export interface CrmOptions {
-  customers: {id: number; name: string}[]; materials: {id: number; sku: string; name: string; unit: string}[]
+  customers: {id: number; name: string; owner_id: number | null; version: number}[]; materials: {id: number; sku: string; name: string; unit: string}[]
   owners: {id: number; name: string}[]
+}
+export interface CustomerOwnerChange {
+  id: number; customer_id: number; before_owner_id: number | null; after_owner_id: number
+  version: number; reason: string; changed_by: number; created_at: string
 }
 export interface CrmChange {
   id: number; entity_kind: CrmKind; entity_id: number; action: string; reason: string
@@ -57,6 +61,8 @@ export interface CrmEditTarget {kind: CrmKind; id: number; version: number; reas
 export interface CrmOperations {
   crmOptions: {input: undefined; output: CrmOptions}
   crmOverview: {input: undefined; output: CrmOverview}
+  customerOwnerChanges: {input: {id: number}; output: CustomerOwnerChange[]}
+  assignCustomerOwner: {input: {id: number; owner_id: number; version: number; reason: string}; output: CrmOptions['customers'][number]}
   crmDetail: {input: {kind: CrmKind; id: number}; output: CrmRecord}
   crmChanges: {input: {kind: CrmKind; id: number}; output: CrmChange[]}
   saveCrmContact: {input: CrmContactInput & Partial<CrmVersion> & {id?: number}; output: CrmContact}

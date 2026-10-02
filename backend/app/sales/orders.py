@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Customer,
+    CustomerOwnerChange,
     Material,
     SalesOrder,
     SalesOrderLine,
@@ -28,6 +29,8 @@ from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 from app.purchase.orders import PurchaseOrderLineInput
 from app.sales.returns import returned_quantity
 from app.access.security import require
+from app.sales.customer_scope import (visible_customers, visible_customer_ids,
+    require_visible_customer, require_visible_order, require_visible_shipment)
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -36,6 +39,7 @@ router = APIRouter(prefix="/api/v1")
 
 
 class CustomerInput(BaseModel):
+    model_config = {'extra': 'forbid'}
     name: str = Field(min_length=1, max_length=120)
 
     @field_validator("name")
@@ -43,6 +47,20 @@ class CustomerInput(BaseModel):
     def trim_name(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("客户名称不能为空")
+        return value.strip()
+
+
+class CustomerOwnerInput(BaseModel):
+    model_config = {'extra': 'forbid'}
+    owner_id: int = Field(strict=True, gt=0)
+    version: int = Field(strict=True, gt=0)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason')
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError('请填写归属变更原因')
         return value.strip()
 
 
@@ -332,33 +350,75 @@ def update_order_shipment_status(db: Session, order_id: int) -> None:
 
 
 @router.get("/customers")
-def list_customers(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_customers(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         return [
             dict(row)
             for row in db.execute(
-                select(Customer.id, Customer.name).select_from(Customer).order_by(Customer.name)
+                visible_customers(select(Customer.id, Customer.name, Customer.owner_id, Customer.version)
+                    .select_from(Customer).order_by(Customer.name), user)
             ).mappings()
         ]
 
 
 @router.post("/customers", status_code=201)
-def create_customer(payload: CustomerInput, _: dict = Depends(require("customer.manage"))) -> dict:
+def create_customer(payload: CustomerInput, user: dict = Depends(require("customer.manage"))) -> dict:
     with orm_session(write=True) as db:
         try:
-            cursor = add_model(db, Customer(name=payload.name))
+            cursor = add_model(db, Customer(name=payload.name, owner_id=user['id'], version=1))
+            db.add(CustomerOwnerChange(customer_id=cursor.id, before_owner_id=None,
+                after_owner_id=user['id'], version=1, reason='建立客户', changed_by=user['id']))
         except IntegrityError:
             raise HTTPException(409, "客户名称已存在") from None
-        return {"id": cursor.id, "name": payload.name}
+        return {"id": cursor.id, "name": payload.name, "owner_id": user['id'], "version": 1}
+
+
+@router.put('/customers/{customer_id}/owner')
+def assign_customer_owner(customer_id: int, payload: CustomerOwnerInput,
+                          user: dict = Depends(require('customer.assign'))) -> dict:
+    with orm_session(write=True) as db:
+        customer = db.get(Customer, customer_id)
+        if customer is None:
+            raise HTTPException(404, '客户不存在')
+        if customer.version != payload.version:
+            raise HTTPException(409, '客户归属版本已变化，请刷新后重试')
+        owner = db.get(User, payload.owner_id)
+        if owner is None or not owner.is_active:
+            raise HTTPException(422, '负责人须为启用的账号')
+        if customer.owner_id == owner.id:
+            raise HTTPException(409, '客户已归属该负责人')
+        previous = customer.owner_id
+        customer.owner_id = owner.id
+        customer.version += 1
+        db.add(CustomerOwnerChange(customer_id=customer.id, before_owner_id=previous,
+            after_owner_id=owner.id, version=customer.version, reason=payload.reason,
+            changed_by=user['id']))
+        return {'id': customer.id, 'name': customer.name,
+                'owner_id': customer.owner_id, 'version': customer.version}
+
+
+@router.get('/customers/{customer_id}/owner-changes')
+def customer_owner_changes(customer_id: int,
+                           user: dict = Depends(require('customer.assign'))) -> list[dict]:
+    with orm_session() as db:
+        require_visible_customer(db, customer_id, user)
+        return [{'id': row.id, 'customer_id': row.customer_id,
+                 'before_owner_id': row.before_owner_id, 'after_owner_id': row.after_owner_id,
+                 'version': row.version, 'reason': row.reason, 'changed_by': row.changed_by,
+                 'created_at': row.created_at}
+                for row in db.scalars(select(CustomerOwnerChange)
+                    .where(CustomerOwnerChange.customer_id == customer_id)
+                    .order_by(CustomerOwnerChange.id.desc()))]
 
 
 @router.get("/sales-orders")
-def list_sales_orders(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_sales_orders(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         ids = [
             row
             for row in db.scalars(
-                select(SalesOrder.id).select_from(SalesOrder).order_by(SalesOrder.id.desc())
+                select(SalesOrder.id).where(SalesOrder.customer_id.in_(visible_customer_ids(user)))
+                    .order_by(SalesOrder.id.desc())
             )
         ]
         return [sales_order_data(db, order_id) for order_id in ids]
@@ -407,11 +467,13 @@ def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id
 @router.post("/sales-orders", status_code=201)
 def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("sales_order.create"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_customer(db, payload.customer_id, user)
         return create_sales_order_in_session(db, payload, user["id"])
 
 @router.post("/sales-orders/{order_id}/confirm")
 def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order.confirm"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_order(db, order_id, user)
         from app.sales.after_sales_rules import ensure_replacement_available
         ensure_replacement_available(db, order_id)
         row = (
@@ -434,6 +496,7 @@ def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order
 @router.post("/sales-orders/{order_id}/cancel")
 def cancel_sales_order(order_id: int, user: dict = Depends(require("sales_order.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_order(db, order_id, user)
         row = (
             db.execute(select(SalesOrder.status).select_from(SalesOrder).where((SalesOrder.id == order_id)))
             .mappings()
@@ -453,10 +516,12 @@ def cancel_sales_order(order_id: int, user: dict = Depends(require("sales_order.
 
 
 @router.get("/shipments")
-def list_shipments(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_shipments(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         ids = [
-            row for row in db.scalars(select(Shipment.id).select_from(Shipment).order_by(Shipment.id.desc()))
+            row for row in db.scalars(select(Shipment.id).join(SalesOrder,
+                SalesOrder.id == Shipment.sales_order_id).where(
+                    SalesOrder.customer_id.in_(visible_customer_ids(user))).order_by(Shipment.id.desc()))
         ]
         return [shipment_data(db, shipment_id) for shipment_id in ids]
 
@@ -466,6 +531,7 @@ def create_shipment(payload: ShipmentInput, user: dict = Depends(require("shipme
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张出库单不能重复选择同一物料")
     with orm_session(write=True) as db:
+        require_visible_order(db, payload.sales_order_id, user)
         require_warehouse(db, payload.warehouse_id)
         order_line_ids = checked_order_lines(
             db, payload.sales_order_id, [(line.material_id, line.quantity) for line in payload.lines]
@@ -493,11 +559,9 @@ def create_shipment(payload: ShipmentInput, user: dict = Depends(require("shipme
 
 
 @router.get('/shipments/{shipment_id}/available-lots')
-def available_shipment_lots(shipment_id: int, _: dict = Depends(require('shipment.post'))) -> dict:
+def available_shipment_lots(shipment_id: int, user: dict = Depends(require('shipment.post'))) -> dict:
     with orm_session() as db:
-        shipment = db.get(Shipment, shipment_id)
-        if shipment is None:
-            raise HTTPException(404, '出库单不存在')
+        shipment = require_visible_shipment(db, shipment_id, user)
         if shipment.status != 'draft':
             raise HTTPException(409, '只能查询销售出库草稿的可用批次')
         lines = list(db.execute(
@@ -526,6 +590,7 @@ def available_shipment_lots(shipment_id: int, _: dict = Depends(require('shipmen
 def post_shipment(shipment_id: int, payload: ShipmentPostInput | None = None,
                   user: dict = Depends(require("shipment.post"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_shipment(db, shipment_id, user)
         from app.sales.after_sales_rules import ensure_replacement_available
         linked_shipment = db.get(Shipment, shipment_id)
         if linked_shipment:
@@ -611,6 +676,7 @@ def reverse_shipment(
     shipment_id: int, payload: ShipmentReverseInput, user: dict = Depends(require("shipment.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        require_visible_shipment(db, shipment_id, user)
         from app.sales.after_sales_rules import ensure_shipment_reversible
         ensure_shipment_reversible(db, shipment_id)
         # 有效销售退货依赖原出库，先处理退货再冲销出库，防止重复入库。
@@ -685,6 +751,7 @@ def reverse_shipment(
 @router.post("/shipments/{shipment_id}/cancel")
 def cancel_shipment(shipment_id: int, user: dict = Depends(require("shipment.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        require_visible_shipment(db, shipment_id, user)
         row = (
             db.execute(select(Shipment.status).select_from(Shipment).where((Shipment.id == shipment_id)))
             .mappings()

@@ -3,7 +3,7 @@ import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} 
 import { computed, ref } from 'vue'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
-import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget } from '../../../shared/crm-api'
+import type { CrmOptions, CrmOverview, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget, CustomerOwnerChange } from '../../../shared/crm-api'
 import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
 import type { AfterSalesOverview, AfterSalesEvidence, AfterSalesDraft } from '../../../shared/after-sales-api'
 import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
@@ -137,6 +137,7 @@ export function createAppState() {
   const crmOverview = ref<CrmOverview | null>(null)
   const crmDetail = ref<{kind: CrmKind; record: CrmRecord} | null>(null)
   const crmChanges = ref<CrmChange[]>([])
+  const crmOwnerChanges = ref<CustomerOwnerChange[]>([])
   const crmForms = ref<CrmForms>({contact:{customer_id:0,name:'',job_title:'',phone:'',email:'',note:'',is_active:true},
     opportunity:{customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',expected_close_date:'',note:''},
     activity:{customer_id:0,contact_id:null,opportunity_id:null,subject:'',owner_id:0,due_date:'',note:''},
@@ -508,7 +509,7 @@ export function createAppState() {
     warningOverview,warningDetail,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
     equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
-    crmOptions, crmOverview, crmDetail, crmChanges, crmForms, crmEdit, crmLoading, crmError,
+    crmOptions, crmOverview, crmDetail, crmChanges, crmOwnerChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,
     openedRouteKeys,
     expandedGroupKey,

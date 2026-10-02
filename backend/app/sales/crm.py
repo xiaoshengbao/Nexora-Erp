@@ -12,6 +12,7 @@ from app.access.security import require
 from app.core.models import CrmContact, CrmActivity, CrmOpportunity, CrmQuote, CrmChange, Customer, Material, User, SalesOrder
 from app.core.orm import orm_session, add_model, model_data
 from app.sales.crm_rules import StrictInput, VersionInput, valid_date, validate_amount, get_record, require_customer, require_contact, require_owner, record_data, raw_data, audit, copy_fields
+from app.sales.customer_scope import visible_customers
 
 router = APIRouter(prefix='/api/v1/crm')
 CONTACT_FIELDS = ('name','job_title','phone','email','note','is_active')
@@ -61,34 +62,36 @@ class ActivityInput(StrictInput):
 
 
 @router.get('/options')
-def options(_: dict = Depends(require('crm.view'))):
+def options(user: dict = Depends(require('crm.view'))):
     with orm_session() as db:
-        return {'customers': [dict(id=row.id,name=row.name) for row in db.scalars(select(Customer).order_by(Customer.name))],
+        return {'customers': [dict(id=row.id,name=row.name,owner_id=row.owner_id,version=row.version)
+            for row in db.scalars(visible_customers(select(Customer).order_by(Customer.name),user))],
             'materials': [dict(id=row.id,sku=row.sku,name=row.name,unit=row.unit) for row in db.scalars(select(Material).order_by(Material.sku))],
             'owners': [dict(id=row.id,name=row.full_name or row.username) for row in db.scalars(select(User)
                 .where(User.is_active == 1).order_by(User.username))]}
 
 
 @router.get('/overview')
-def overview(_: dict = Depends(require('crm.view'))):
+def overview(user: dict = Depends(require('crm.view'))):
     with orm_session() as db:
-        return {key: [record_data(db, kind, row) for row in db.scalars(select(model).order_by(model.id.desc()))]
+        return {key: [record_data(db, kind, row) for row in db.scalars(visible_customers(
+            select(model).join(Customer, Customer.id == model.customer_id).order_by(model.id.desc()), user))]
             for key,kind,model in (('contacts','contact',CrmContact),('activities','activity',CrmActivity),
                 ('opportunities','opportunity',CrmOpportunity),('quotes','quote',CrmQuote))}
 
 
 @router.get('/records/{kind}/{identifier}')
 def detail(kind: Literal['contact','activity','opportunity','quote'], identifier: int,
-           _: dict = Depends(require('crm.view'))):
+           user: dict = Depends(require('crm.view'))):
     with orm_session() as db:
-        return record_data(db, kind, get_record(db,kind,identifier))
+        return record_data(db, kind, get_record(db,kind,identifier,user=user))
 
 
 @router.get('/records/{kind}/{identifier}/changes')
 def changes(kind: Literal['contact','activity','opportunity','quote'], identifier: int,
-            _: dict = Depends(require('crm.view'))):
+            user: dict = Depends(require('crm.view'))):
     with orm_session() as db:
-        get_record(db,kind,identifier)
+        get_record(db,kind,identifier,user=user)
         return [{**model_data(row), 'before': json.loads(row.before_json) if row.before_json else None,
             'after': json.loads(row.after_json), 'changed_by_name': name}
             for row,name in db.execute(select(CrmChange,User.username).join(User,User.id == CrmChange.changed_by)
@@ -98,7 +101,7 @@ def changes(kind: Literal['contact','activity','opportunity','quote'], identifie
 @router.post('/contacts', status_code=201)
 def create_contact(payload: ContactInput, user: dict = Depends(require('crm_contact.manage'))):
     with orm_session(write=True) as db:
-        require_customer(db,payload.customer_id)
+        require_customer(db,payload.customer_id,user)
         row = add_model(db,CrmContact(**payload.model_dump(), version=1, created_by=user['id']))
         audit(db,'contact',row,'create',None,'建立联系人',user['id'])
         return record_data(db,'contact',row)
@@ -107,7 +110,7 @@ def create_contact(payload: ContactInput, user: dict = Depends(require('crm_cont
 @router.put('/contacts/{identifier}')
 def edit_contact(identifier: int, payload: ContactEdit, user: dict = Depends(require('crm_contact.manage'))):
     with orm_session(write=True) as db:
-        row = get_record(db,'contact',identifier,payload.version)
+        row = get_record(db,'contact',identifier,payload.version,user)
         if row.customer_id != payload.customer_id:
             raise HTTPException(409,'联系人的所属客户不可修改，请停用后另建')
         before = raw_data(db,'contact',row)
@@ -122,7 +125,7 @@ def create_opportunity(payload: OpportunityInput, user: dict = Depends(require('
     with orm_session(write=True) as db:
         if payload.stage == 'lost':
             raise HTTPException(422,'新商机须从开放阶段建立，丢单请在后续变更时填写原因')
-        require_customer(db,payload.customer_id)
+        require_customer(db,payload.customer_id,user)
         require_contact(db,payload.customer_id,payload.contact_id)
         require_owner(db,payload.owner_id)
         row = CrmOpportunity(customer_id=payload.customer_id,version=1,created_by=user['id'])
@@ -135,7 +138,7 @@ def create_opportunity(payload: OpportunityInput, user: dict = Depends(require('
 @router.put('/opportunities/{identifier}')
 def edit_opportunity(identifier: int, payload: OpportunityEdit, user: dict = Depends(require('crm_opportunity.manage'))):
     with orm_session(write=True) as db:
-        row = get_record(db,'opportunity',identifier,payload.version)
+        row = get_record(db,'opportunity',identifier,payload.version,user)
         if row.customer_id != payload.customer_id:
             raise HTTPException(409,'商机的所属客户不可修改')
         if row.stage == 'won':
@@ -157,7 +160,7 @@ def edit_opportunity(identifier: int, payload: OpportunityEdit, user: dict = Dep
 @router.post('/opportunities/{identifier}/reopen')
 def reopen(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_opportunity.manage'))):
     with orm_session(write=True) as db:
-        row = get_record(db,'opportunity',identifier,payload.version)
+        row = get_record(db,'opportunity',identifier,payload.version,user)
         if row.stage not in ('won','lost'):
             raise HTTPException(409,'只可重开已转单或已丢单的商机')
         if db.scalar(select(CrmQuote.id).join(SalesOrder,SalesOrder.id == CrmQuote.sales_order_id)
@@ -173,11 +176,11 @@ def reopen(identifier: int, payload: VersionInput, user: dict = Depends(require(
 @router.post('/activities', status_code=201)
 def create_activity(payload: ActivityInput, user: dict = Depends(require('crm_activity.manage'))):
     with orm_session(write=True) as db:
-        require_customer(db,payload.customer_id)
+        require_customer(db,payload.customer_id,user)
         require_contact(db,payload.customer_id,payload.contact_id)
         require_owner(db,payload.owner_id)
         if payload.opportunity_id:
-            opportunity = get_record(db,'opportunity',payload.opportunity_id)
+            opportunity = get_record(db,'opportunity',payload.opportunity_id,user=user)
             if opportunity.customer_id != payload.customer_id:
                 raise HTTPException(422,'跟进商机须属于该客户')
         row = add_model(db,CrmActivity(**payload.model_dump(),status='planned',result='',version=1,created_by=user['id']))
@@ -189,7 +192,7 @@ def create_activity(payload: ActivityInput, user: dict = Depends(require('crm_ac
 def close_activity(identifier: int, action: Literal['complete','cancel'], payload: VersionInput,
                    user: dict = Depends(require('crm_activity.manage'))):
     with orm_session(write=True) as db:
-        row = get_record(db,'activity',identifier,payload.version)
+        row = get_record(db,'activity',identifier,payload.version,user)
         if row.status != 'planned':
             raise HTTPException(409,'跟进已结束，不可重复处理；更正请另建跟进')
         before = raw_data(db,'activity',row)

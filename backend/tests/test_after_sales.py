@@ -39,6 +39,7 @@ def erp(monkeypatch,tmp_path):
             api('POST','users',{'username':name,'password':'secure-pass-123','roles':[role]},status=201)
             actors[name]=login(name)
         customer=api('POST','customers',{'name':'售后客户'},status=201)['id']
+        api('PUT',f'customers/{customer}/owner',{'owner_id':3,'version':1,'reason':'交由销售员办理'})
         supplier=api('POST','suppliers',{'name':'售后供货'},status=201)['id']
         material=api('POST','materials',{'sku':'AFTER','name':'售后商品','unit':'件'},status=201)['id']
         part=api('POST','materials',{'sku':'PART','name':'维修备件','unit':'件'},status=201)['id']
@@ -249,10 +250,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==60
+        assert db.execute('PRAGMA user_version').fetchone()[0]==61
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)==140
+    assert len(Base.metadata.tables)==141
 
 
 def test_exchange_cancelled_during_processing_has_a_complete_correction_path(erp):
