@@ -49,7 +49,7 @@ onUnmounted(()=>{store.clearPhysicalLotHistory()})
   <section class="stack physical-lots-page">
     <p v-if="!store.can('inventory.view')" role="status">当前账号没有库存查看权限，请联系管理员核对授权。</p>
     <template v-else>
-      <p class="lot-note">实物批次目前只用于结存核对。历史未识别期初没有真实批号，现有单据尚未录入批次；批次余额与正式库存一致也不代表所有历史流水已追溯。</p>
+      <p class="lot-note">实物批次用于核对已接入单据的实物流向。历史未识别期初没有真实批号；尚未接入的来源和旧版未指定批次的单据会显示差额。批次余额与正式库存一致也不代表所有历史流水已追溯。</p>
       <p v-if="connectionLost" role="alert">服务端连接已中断，旧批次余额与来源证据已失效；恢复后请重新读取。</p>
       <p v-if="failure" role="alert">{{ failure }} 请核对筛选范围后重试。</p>
       <WorkspaceTable title="实物批次结存" :show-title="false" :columns="lotColumns" :data="overview?.rows??[]"
