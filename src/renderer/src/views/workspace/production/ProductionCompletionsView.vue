@@ -8,15 +8,20 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
+import { NDatePicker,NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
+import {datePickerString,vDateField} from '../../../utils/date-field'
+import {completionLotDate,completionLotMilli} from '../../../../../shared/completion-lot-api.ts'
+import type {CompletionLotPartInput} from '../../../../../shared/completion-lot-api'
+import type {ProductionCompletion} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
 const {
   error,
   notice,
   busy,
+  connectionLost,
   workOrders,
   productionCompletions,
   completionForm,
@@ -35,6 +40,43 @@ const {
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
+const activeCompletionId = ref(0)
+const lotDrafts = ref<CompletionLotPartInput[]>([])
+const activeCompletion = computed(() => productionCompletions.value.find(item =>
+  item.id === activeCompletionId.value && item.status === 'inspected') ?? null)
+function startLotPost(item: ProductionCompletion): void {
+  if (Number(item.accepted_quantity) === 0) {
+    void postProductionCompletion(item.id)
+    return
+  }
+  activeCompletionId.value = item.id
+  lotDrafts.value = [{quantity: item.accepted_quantity ?? '', manufactured_on: null, expires_on: null}]
+}
+function addLot(): void {
+  if (lotDrafts.value.length < 20)
+    lotDrafts.value.push({quantity: '', manufactured_on: null, expires_on: null})
+}
+const lotIssue = computed(() => {
+  if (!activeCompletion.value) return '完工单已变化，请重新读取。'
+  const expected = completionLotMilli(activeCompletion.value.accepted_quantity ?? '')
+  if (expected === null || !lotDrafts.value.length || lotDrafts.value.length > 20)
+    return '合格入库须登记一个或多个实物批次。'
+  let total = 0n
+  for (const part of lotDrafts.value) {
+    const quantity = completionLotMilli(part.quantity)
+    if (quantity === null) return '批次数量须大于零、最多三位小数且不超过一百万。'
+    total += quantity
+    if (part.manufactured_on && !completionLotDate(part.manufactured_on)) return '生产日期无效。'
+    if (part.expires_on && !completionLotDate(part.expires_on)) return '失效日期无效。'
+    if (part.manufactured_on && part.expires_on && part.expires_on < part.manufactured_on)
+      return '失效日期不能早于生产日期。'
+  }
+  return total === expected ? '' : `批次数量之和须等于合格入库量 ${activeCompletion.value.accepted_quantity}。`
+})
+async function confirmLotPost(): Promise<void> {
+  if (!activeCompletion.value || lotIssue.value || busy.value || connectionLost.value) return
+  await postProductionCompletion(activeCompletion.value.id,lotDrafts.value.map(part => ({...part})))
+}
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createProductionCompletion, { busy, error, notice }, createOpen)
 }
@@ -188,6 +230,12 @@ const filteredRecords = computed(() =>
           <span v-if="item.qc_note">
             质检说明：{{ item.qc_note }} · 质检人 {{ item.inspected_by_name }}
           </span>
+          <span v-if="item.physical_lots?.length">
+            {{ item.status === 'reversed' ? '原实物批次' : '实物批次' }}：{{ item.physical_lots.map(lot => `${lot.code}（${lot.quantity}）`).join('、') }}
+          </span>
+          <span v-else-if="item.status === 'posted' && Number(item.accepted_quantity) > 0">
+            未登记实物批次，数量在批次核对页显示为差额。
+          </span>
           <span v-if="item.reversal_id">
             冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} ·
             {{ item.reversed_by_name }} ·
@@ -202,11 +250,11 @@ const filteredRecords = computed(() =>
             v-if="item.status === 'inspected' && can('production_completion.post')"
             type="button"
             :disabled="busy"
-            @click="postProductionCompletion(item.id)"
+            @click="startLotPost(item)"
             variant="primary"
             size="small"
           >
-            确认合格品入库
+            {{ Number(item.accepted_quantity) > 0 ? '登记批次并确认' : '确认整批不合格' }}
           </AppButton>
           <AppButton
             v-if="
@@ -280,5 +328,32 @@ const filteredRecords = computed(() =>
         </span>
       </template>
     </WorkspaceTable>
+    <NModal :show="!!activeCompletion" @update:show="value=>{if(!value) activeCompletionId=0}"
+      preset="card" :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
+        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
+      <form v-if="activeCompletion && can('production_completion.post')" class="stack"
+        @submit.prevent="confirmLotPost">
+        <h2>完工单 #{{ activeCompletion.id }} · 合格品实物批次</h2>
+        <p>按实际分开的成品批次登记，数量之和须等于合格入库量。系统生成独立内部编号供实物标识；缺少日期时留空。</p>
+        <p>{{ activeCompletion.product_name }} · {{ activeCompletion.warehouse_name }} · 合格 {{ activeCompletion.accepted_quantity }} {{ activeCompletion.product_unit }}</p>
+        <div v-for="(part,index) in lotDrafts" :key="index" class="completion-lot-grid">
+          <label>批次数量<AppInput v-model="part.quantity" inputmode="decimal" required :disabled="busy" /></label>
+          <label>生产日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.manufactured_on" :disabled="busy" @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
+          <label>失效日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.expires_on" :disabled="busy" @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
+          <AppButton v-if="lotDrafts.length>1" type="button" :disabled="busy" @click="lotDrafts.splice(index,1)">移除批次</AppButton>
+        </div>
+        <AppButton type="button" :disabled="busy || lotDrafts.length>=20" @click="addLot">添加一个批次</AppButton>
+        <p v-if="lotIssue" role="alert">{{ lotIssue }}</p>
+        <div class="form-actions">
+          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认合格品入库并固定批次</AppButton>
+          <AppButton type="button" :disabled="busy" @click="activeCompletionId=0">取消</AppButton>
+        </div>
+      </form>
+    </NModal>
   </section>
 </template>
+
+<style scoped>
+.completion-lot-grid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:12px;align-items:end}
+@media(max-width:700px){.completion-lot-grid{grid-template-columns:1fr}}
+</style>

@@ -1,6 +1,7 @@
 import type {InventoryWarningOperations} from './inventory-warning-api'
 import type {PhysicalLotOperations} from './physical-lot-api'
 import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
+import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
@@ -759,6 +760,7 @@ export interface ProductionCompletion {
   reversed_by: number | null
   reversed_by_name: string | null
   reversed_at: string | null
+  physical_lots: CompletionPhysicalLot[]
 }
 // 成本记录保留原始依据和冲销信息；材料金额随已确认退料后的净领料量计算。
 export interface ProductionCostEntry {
@@ -1219,7 +1221,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   productionCompletions: { input: undefined; output: ProductionCompletion[] }
   createProductionCompletion: { input: { work_order_id: number; reported_quantity: string; reference: string }; output: ProductionCompletion }
   inspectProductionCompletion: { input: { completionId: number; accepted_quantity: string; qc_note: string }; output: ProductionCompletion }
-  postProductionCompletion: { input: { completionId: number }; output: ProductionCompletion }
+  postProductionCompletion: { input: { completionId: number; lots?: CompletionLotPartInput[] }; output: ProductionCompletion }
   cancelProductionCompletion: { input: { completionId: number }; output: ProductionCompletion }
   reverseProductionCompletion: { input: { completionId: number; reason: string }; output: ProductionCompletion }
   productionCosts: { input: undefined; output: ProductionCostReport }

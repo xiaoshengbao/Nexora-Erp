@@ -1,6 +1,7 @@
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
+import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -647,7 +648,12 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/production-completions/${completionId}/inspect`,
         body: { accepted_quantity: fields.accepted_quantity, qc_note: fields.qc_note } }
     }
-    case 'postProductionCompletion': return { method: 'POST', path: `/api/v1/production-completions/${positiveId(payload, 'completionId')}/post` }
+    case 'postProductionCompletion': {
+      const completionId = positiveId(payload, 'completionId')
+      const source = payload as ErpOperations['postProductionCompletion']['input']
+      return { method: 'POST', path: `/api/v1/production-completions/${completionId}/post`,
+        ...(source.lots === undefined ? {} : {body: completionLotBody({lots: source.lots})}) }
+    }
     case 'cancelProductionCompletion': return { method: 'POST', path: `/api/v1/production-completions/${positiveId(payload, 'completionId')}/cancel` }
     case 'reverseProductionCompletion': {
       const completionId = positiveId(payload, 'completionId')
@@ -794,6 +800,11 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postOtherInbound']['input']
     if (request.lines) validatePostedInboundLots(data, request.inboundId,
       inboundLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'postProductionCompletion') {
+    const request = payload as ErpOperations['postProductionCompletion']['input']
+    if (request.lots) validatePostedCompletionLots(data, request.completionId,
+      completionLotBody({lots: request.lots}).lots)
   }
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)

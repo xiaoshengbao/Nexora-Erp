@@ -98,15 +98,22 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   assert.equal(buttons(await render(finance)).filter(b=>b.label==='冲销此记录').length,0)
 
   const completions='production/ProductionCompletionsView.vue'
-  assert.doesNotMatch(await render(completions),/记录质检结果|确认合格品入库|冲销已确认完工/)
+  assert.doesNotMatch(await render(completions),/记录质检结果|登记批次并确认|冲销已确认完工/)
   for(const p of ['inspect','post','cancel','reverse']) permissions.add('production_completion.'+p)
   const completionHtml=await render(completions)
-  for(const label of ['记录质检结果','确认合格品入库','冲销已确认完工']) {
+  for(const label of ['记录质检结果','登记批次并确认','冲销已确认完工']) {
     assert.equal(buttons(completionHtml).filter(b=>b.label===label).length,1,label)
   }
   assert.equal(buttons(completionHtml).filter(b=>b.label==='取消').length,2)
   assert.match(completionHtml,/max="5"/)
   assert.match(completionHtml,/required maxlength="200"/)
+  state.productionCompletions.value[1].accepted_quantity='0'
+  assert.equal(buttons(await render(completions)).filter(b=>b.label==='确认整批不合格').length,1)
+  state.productionCompletions.value[1].accepted_quantity='4'
+  state.productionCompletions.value[2].physical_lots=[{id:9,code:'P3-P1',quantity:'4'}]
+  assert.match(await render(completions),/P3-P1（4）/)
+  state.productionCompletions.value[2].physical_lots=[]
+  assert.match(await render(completions),/未登记实物批次，数量在批次核对页显示为差额/)
 
   const costs='production/ProductionCostsView.vue'
   permissions.add('production_cost.reverse')
