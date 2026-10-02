@@ -3,6 +3,7 @@ import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
+import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} from '../shared/shipment-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -720,8 +721,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'confirmSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/confirm` }
     case 'cancelSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'shipments': return { method: 'GET', path: '/api/v1/shipments' }
+    case 'availableShipmentLots': return {method: 'GET',
+      path: `/api/v1/shipments/${positiveId(payload, 'shipmentId')}/available-lots`}
     case 'createShipment': return { method: 'POST', path: '/api/v1/shipments', body: payload }
-    case 'postShipment': return { method: 'POST', path: `/api/v1/shipments/${positiveId(payload, 'shipmentId')}/post` }
+    case 'postShipment': {
+      const shipmentId=positiveId(payload,'shipmentId')
+      const source=payload as ErpOperations['postShipment']['input']
+      return {method:'POST',path:`/api/v1/shipments/${shipmentId}/post`,
+        ...(source.lines===undefined?{}:{body:shipmentLotBody({lines:source.lines})})}
+    }
     case 'cancelShipment': return { method: 'POST', path: `/api/v1/shipments/${positiveId(payload, 'shipmentId')}/cancel` }
     case 'reverseShipment': {
       const shipmentId = positiveId(payload, 'shipmentId')
@@ -816,6 +824,14 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postWarehouseOutbound']['input']
     if (request.lines) validatePostedOutboundLots(data, request.outboundId,
       outboundLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableShipmentLots') {
+    validateShipmentLotOptions(data, (payload as ErpOperations['availableShipmentLots']['input']).shipmentId)
+  }
+  if (action === 'postShipment') {
+    const request = payload as ErpOperations['postShipment']['input']
+    if (request.lines) validatePostedShipmentLots(data, request.shipmentId,
+      shipmentLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']

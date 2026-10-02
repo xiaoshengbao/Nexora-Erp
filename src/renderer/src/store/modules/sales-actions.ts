@@ -1,4 +1,5 @@
 import type { AppState } from '../state'
+import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
 
 // 销售单据操作独立维护；写入后由统一入口刷新服务端快照。
 export function createSalesActions(
@@ -97,10 +98,22 @@ export function createSalesActions(
     }, '出库单草稿已创建。')
   }
 
-  async function postShipment(shipmentId: number): Promise<void> {
+  async function loadAvailableShipmentLots(shipmentId: number): Promise<ShipmentLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('shipment.post'))
+      throw Error('当前账号无法读取销售出库批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableShipmentLots', {shipmentId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('shipment.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postShipment(shipmentId: number, lines?: ShipmentLotLineInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
-      () => window.nexora!.callApi('postShipment', { shipmentId }),
+      () => window.nexora!.callApi('postShipment', { shipmentId, lines }),
       `出库单 #${shipmentId} 已确认，仓库库存与订单进度已更新。`
     )
   }
@@ -189,6 +202,7 @@ export function createSalesActions(
     cancelSalesOrder,
     chooseShipmentOrder,
     createShipment,
+    loadAvailableShipmentLots,
     postShipment,
     cancelShipment,
     reverseShipment,

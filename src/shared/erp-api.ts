@@ -2,6 +2,7 @@ import type {InventoryWarningOperations} from './inventory-warning-api'
 import type {PhysicalLotOperations} from './physical-lot-api'
 import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
 import type {OutboundLotLineInput,OutboundLotOptions} from './outbound-lot-api'
+import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -900,6 +901,7 @@ export interface Shipment {
 export interface ShipmentLine extends ReceiptLine {
   returned_quantity: string
   returnable_quantity: string
+  physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 // 退货明细固定关联原出库行，金额沿用原销售单价，由服务端计算。
 export interface SalesReturnLine extends ReceiptLine {
@@ -1254,8 +1256,9 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
   shipments: { input: undefined; output: Shipment[] }
+  availableShipmentLots: { input: {shipmentId: number}; output: ShipmentLotOptions }
   createShipment: { input: { sales_order_id: number; warehouse_id: number; reference: string; lines: { material_id: number; quantity: string }[] }; output: Shipment }
-  postShipment: { input: { shipmentId: number }; output: Shipment }
+  postShipment: { input: { shipmentId: number; lines?: ShipmentLotLineInput[] }; output: Shipment }
   cancelShipment: { input: { shipmentId: number }; output: Shipment }
   reverseShipment: { input: { shipmentId: number; reason: string }; output: Shipment }
   salesReturns: { input: undefined; output: SalesReturn[] }
