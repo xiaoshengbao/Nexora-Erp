@@ -35,6 +35,6 @@ export interface PhysicalLotOperations {
 export function physicalLotKindLabel(kind: string): string {
   if (kind === 'legacy') return '历史未识别'
   return ({receipt: '采购入库', other_inbound: '其他入库', production_completion: '合格完工',
-    stocktake: '盘点发现', adjustment: '调整新增'} as Record<string,string>)[kind]
+    stocktake: '盘点发现', adjustment: '调整新增', sales_return: '退货新批次'} as Record<string,string>)[kind]
     ?? '已记录批次'
 }

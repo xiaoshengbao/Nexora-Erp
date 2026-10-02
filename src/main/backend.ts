@@ -7,6 +7,7 @@ import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} f
 import {transferLotBody,validateTransferLotOptions,validatePostedTransferLots} from '../shared/transfer-lot-api.ts'
 import {stocktakeLotBody,validateStocktakeLotOptions,validatePostedStocktakeLots} from '../shared/stocktake-lot-api.ts'
 import {adjustmentLotBody,validateAdjustmentLotOptions,validatePostedAdjustmentLots} from '../shared/adjustment-lot-api.ts'
+import {salesReturnLotBody,validateSalesReturnLotOptions,validatePostedSalesReturnLots} from '../shared/sales-return-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -749,7 +750,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     // 退货只能调用固定路径，单据编号先校验再拼接，避免渲染层指定任意 URL。
     case 'salesReturns': return { method: 'GET', path: '/api/v1/sales-returns' }
     case 'createSalesReturn': return { method: 'POST', path: '/api/v1/sales-returns', body: payload }
-    case 'postSalesReturn': return { method: 'POST', path: `/api/v1/sales-returns/${positiveId(payload, 'returnId')}/post` }
+    case 'availableSalesReturnLots': return {method: 'GET',
+      path: `/api/v1/sales-returns/${positiveId(payload, 'returnId')}/available-lots`}
+    case 'postSalesReturn': {
+      const returnId = positiveId(payload, 'returnId')
+      const source = payload as ErpOperations['postSalesReturn']['input']
+      return {method: 'POST', path: `/api/v1/sales-returns/${returnId}/post`,
+        ...(source.lines === undefined ? {} : {body: salesReturnLotBody({lines: source.lines})})}
+    }
     case 'cancelSalesReturn': return { method: 'POST', path: `/api/v1/sales-returns/${positiveId(payload, 'returnId')}/cancel` }
     case 'reverseSalesReturn': {
       const returnId = positiveId(payload, 'returnId')
@@ -880,6 +888,15 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postStockAdjustment']['input']
     if (request.lines) validatePostedAdjustmentLots(data, request.adjustmentId,
       adjustmentLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableSalesReturnLots') {
+    validateSalesReturnLotOptions(data,
+      (payload as ErpOperations['availableSalesReturnLots']['input']).returnId)
+  }
+  if (action === 'postSalesReturn') {
+    const request = payload as ErpOperations['postSalesReturn']['input']
+    if (request.lines) validatePostedSalesReturnLots(data, request.returnId,
+      salesReturnLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']

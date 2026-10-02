@@ -6,12 +6,14 @@ from sqlalchemy.engine import RowMapping
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Customer,
     Material,
+    PhysicalLot,
+    PhysicalLotAllocation,
     SalesOrder,
     SalesOrderLine,
     SalesReturn,
@@ -25,6 +27,8 @@ from app.core.models import (
     Warehouse,
 )
 from app.inventory.warehouse import balance, require_warehouse
+from app.inventory.physical_lots import LotPart, post_lot_movement
+from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.access.security import require
 
 UserRu = aliased(User)
@@ -69,6 +73,52 @@ class SalesReturnReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class SalesReturnLotPartInput(PhysicalLotPartInput):
+    lot_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode='after')
+    def existing_lot_has_no_new_origin(self):
+        if self.lot_id is not None and any((
+                self.supplier_lot, self.manufactured_on, self.expires_on)):
+            raise ValueError('已有批次不能同时登记新批次来源字段')
+        return self
+
+
+class SalesReturnLotLineInput(BaseModel):
+    return_line_id: int = Field(gt=0)
+    lots: list[SalesReturnLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class SalesReturnPostInput(BaseModel):
+    lines: list[SalesReturnLotLineInput] = Field(min_length=1, max_length=100)
+
+
+def source_lot_remaining(db: Session, shipment_line_id: int) -> dict[int, Decimal]:
+    """只允许回仓到原出库已确认的实物批次，并扣除未冲销的既往退货。"""
+    shipped: dict[int, Decimal] = {}
+    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
+            PhysicalLotAllocation.quantity).join(
+                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+                    StockMovement.source_type == 'shipment',
+                    StockMovement.source_line_id == shipment_line_id)):
+        shipped[lot_id] = shipped.get(lot_id, Decimal(0)) - Decimal(quantity)
+    returned: dict[int, Decimal] = {}
+    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
+            PhysicalLotAllocation.quantity).join(
+                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).join(
+                    SalesReturnLine, SalesReturnLine.id == StockMovement.source_line_id).join(
+                        SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id).outerjoin(
+                            SalesReturnReversal,
+                            SalesReturnReversal.sales_return_id == SalesReturn.id).where(
+                                StockMovement.source_type == 'sales_return',
+                                SalesReturnLine.shipment_line_id == shipment_line_id,
+                                SalesReturn.status == 'posted',
+                                SalesReturnReversal.id.is_(None))):
+        returned[lot_id] = returned.get(lot_id, Decimal(0)) + Decimal(quantity)
+    return {lot_id: quantity - returned.get(lot_id, Decimal(0))
+            for lot_id, quantity in shipped.items()}
 
 
 def returned_quantity(db: Session, shipment_line_id: int) -> Decimal:
@@ -198,7 +248,17 @@ def sales_return_data(db: Session, return_id: int) -> dict:
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
         total += line_total
-        lines.append({**dict(item), "line_total": str(line_total)})
+        lots = [{"id": lot.id, "code": lot.code, "source_kind": lot.source_kind,
+                 "quantity": format(Decimal(allocation.quantity), 'f'),
+                 "supplier_lot": lot.supplier_lot, "manufactured_on": lot.manufactured_on,
+                 "expires_on": lot.expires_on}
+                for lot, allocation in db.execute(select(PhysicalLot, PhysicalLotAllocation).join(
+                    PhysicalLotAllocation, PhysicalLotAllocation.lot_id == PhysicalLot.id).join(
+                        StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+                            StockMovement.source_type == 'sales_return',
+                            StockMovement.source_id == return_id,
+                            StockMovement.source_line_id == item['id']).order_by(PhysicalLotAllocation.id))]
+        lines.append({**dict(item), "line_total": str(line_total), "physical_lots": lots})
     return {**dict(row), "lines": lines, "total_amount": str(total)}
 
 
@@ -247,8 +307,44 @@ def create_sales_return(
         return sales_return_data(db, cursor.id)
 
 
+@router.get('/sales-returns/{return_id}/available-lots')
+def available_sales_return_lots(return_id: int,
+                                _: dict = Depends(require('sales_return.post'))) -> dict:
+    with orm_session() as db:
+        sale_return = db.get(SalesReturn, return_id)
+        if sale_return is None:
+            raise HTTPException(404, '销售退货单不存在')
+        if sale_return.status != 'draft':
+            raise HTTPException(409, '只能查询退货草稿的原出库批次')
+        lines = list(db.execute(select(SalesReturnLine.id, SalesReturnLine.shipment_line_id,
+                SalesReturnLine.quantity, SalesOrderLine.material_id).join(
+                    ShipmentLine, ShipmentLine.id == SalesReturnLine.shipment_line_id).join(
+                        SalesOrderLine, SalesOrderLine.id == ShipmentLine.sales_order_line_id).where(
+                            SalesReturnLine.sales_return_id == return_id).order_by(
+                                SalesReturnLine.id)).mappings())
+        result = []
+        for line in lines:
+            remaining = source_lot_remaining(db, line['shipment_line_id'])
+            lots = []
+            for lot_id, quantity in sorted(remaining.items()):
+                if quantity <= 0:
+                    continue
+                lot = db.get(PhysicalLot, lot_id)
+                lots.append({'lot_id': lot.id, 'code': lot.code,
+                             'source_kind': lot.source_kind, 'quantity': format(quantity, 'f'),
+                             'supplier_lot': lot.supplier_lot,
+                             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on})
+            result.append({'return_line_id': line['id'],
+                           'shipment_line_id': line['shipment_line_id'],
+                           'material_id': line['material_id'],
+                           'quantity': line['quantity'], 'lots': lots})
+        return {'return_id': return_id, 'shipment_id': sale_return.shipment_id,
+                'warehouse_id': sale_return.warehouse_id, 'lines': result}
+
+
 @router.post("/sales-returns/{return_id}/post")
-def post_sales_return(return_id: int, user: dict = Depends(require("sales_return.post"))) -> dict:
+def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = None,
+                      user: dict = Depends(require("sales_return.post"))) -> dict:
     with orm_session(write=True) as db:
         # 同一写事务重新核对累计已退量；两张草稿无法并发退超原出库量。
         sale_return = (
@@ -292,20 +388,51 @@ def post_sales_return(return_id: int, user: dict = Depends(require("sales_return
         )
         from app.sales.after_sales_rules import ensure_return_available
         ensure_return_available(db, return_id, lines)
+        lot_lines = {line.return_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '批次明细必须与销售退货明细逐行对应')
         for line in lines:
             # 原出库保留负向流水；退回的实物作为新来源入所选仓库。
-            add_model(
-                db,
-                StockMovement(
-                    warehouse_id=sale_return["warehouse_id"],
-                    material_id=source[line["shipment_line_id"]]["material_id"],
-                    quantity=line["quantity"],
-                    source_type="sales_return",
-                    source_id=return_id,
-                    source_line_id=line["id"],
-                    created_by=user["id"],
-                ),
+            movement = StockMovement(
+                warehouse_id=sale_return['warehouse_id'],
+                material_id=source[line['shipment_line_id']]['material_id'],
+                quantity=line['quantity'], source_type='sales_return',
+                source_id=return_id, source_line_id=line['id'], created_by=user['id'],
             )
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line['id']].lots
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line['quantity']):
+                raise HTTPException(422, f'销售退货明细 #{line["id"]} 的批次数量之和不匹配')
+            existing_ids = [part.lot_id for part in parts if part.lot_id is not None]
+            if len(set(existing_ids)) != len(existing_ids):
+                raise HTTPException(422, '一行销售退货不能重复选择同一原出库批次')
+            remaining = source_lot_remaining(db, line['shipment_line_id'])
+            selected = []
+            new_lots = []
+            for index, part in enumerate(parts, 1):
+                if part.lot_id is not None:
+                    if part.lot_id not in remaining:
+                        raise HTTPException(422, '退回批次不属于原出库明细')
+                    if remaining[part.lot_id] < part.quantity:
+                        raise HTTPException(409, '原出库批次剩余可退数量不足')
+                    selected.append(LotPart(part.lot_id, part.quantity))
+                    continue
+                lot = add_model(db, PhysicalLot(
+                    material_id=movement.material_id,
+                    code=f'SR{return_id}-L{line["id"]}-P{index}', source_kind='sales_return',
+                    supplier_lot=part.supplier_lot,
+                    manufactured_on=part.manufactured_on.isoformat()
+                    if part.manufactured_on else None,
+                    expires_on=part.expires_on.isoformat() if part.expires_on else None,
+                    created_by=user['id']))
+                selected.append(LotPart(lot.id, part.quantity))
+                new_lots.append(lot)
+            post_lot_movement(db, movement, selected)
+            for lot in new_lots:
+                lot.origin_movement_id = movement.id
         db.execute(
             update(SalesReturn)
             .where((SalesReturn.id == return_id))
@@ -386,16 +513,23 @@ def reverse_sales_return(
         )
         for line in lines:
             # 负向流水以原退货明细为来源行，财务则显示同额正向更正。
-            add_model(
-                db,
-                StockMovement(
-                    warehouse_id=row["warehouse_id"],
-                    material_id=line["material_id"],
-                    quantity=str(-Decimal(line["quantity"])),
-                    source_type="sales_return_reversal",
-                    source_id=cursor.id,
-                    source_line_id=line["id"],
-                    created_by=user["id"],
-                ),
+            movement = StockMovement(
+                warehouse_id=row['warehouse_id'], material_id=line['material_id'],
+                quantity=str(-Decimal(line['quantity'])),
+                source_type='sales_return_reversal', source_id=cursor.id,
+                source_line_id=line['id'], created_by=user['id'],
             )
+            allocations = list(db.scalars(select(PhysicalLotAllocation).join(
+                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+                    StockMovement.source_type == 'sales_return',
+                    StockMovement.source_id == return_id,
+                    StockMovement.source_line_id == line['id']).order_by(
+                        PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != Decimal(line['quantity']):
+                    raise HTTPException(409, '原销售退货批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         return sales_return_data(db, return_id)

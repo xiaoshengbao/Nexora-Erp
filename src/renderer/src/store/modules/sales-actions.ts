@@ -1,5 +1,6 @@
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
+import type {SalesReturnLotLineInput,SalesReturnLotOptions} from '../../../../shared/sales-return-lot-api'
 
 // 销售单据操作独立维护；写入后由统一入口刷新服务端快照。
 export function createSalesActions(
@@ -169,10 +170,22 @@ export function createSalesActions(
     }, '销售退货草稿已创建。')
   }
 
-  async function postSalesReturn(returnId: number): Promise<void> {
+  async function loadAvailableSalesReturnLots(returnId: number): Promise<SalesReturnLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('sales_return.post'))
+      throw Error('当前账号无法读取原出库批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableSalesReturnLots', {returnId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('sales_return.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postSalesReturn(returnId: number, lines?: SalesReturnLotLineInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
-      () => window.nexora!.callApi('postSalesReturn', { returnId }),
+      () => window.nexora!.callApi('postSalesReturn', { returnId, lines }),
       `销售退货单 #${returnId} 已确认，退回库存已入仓。`
     )
   }
@@ -208,6 +221,7 @@ export function createSalesActions(
     reverseShipment,
     chooseSalesReturnShipment,
     createSalesReturn,
+    loadAvailableSalesReturnLots,
     postSalesReturn,
     cancelSalesReturn,
     reverseSalesReturn
