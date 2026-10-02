@@ -49,7 +49,7 @@ test('调拨和盘点表格保留明细、冲销记录、权限及断线禁用',
   t.after(()=>server.close())
   for (const [file, kind, confirm, reversed] of [
     ['WarehouseTransfersView.vue','transfer','指定批次并确认','冲销已确认调拨'],
-    ['InventoryStocktakesView.vue','stocktake','确认差异','冲销已确认盘点']
+    ['InventoryStocktakesView.vue','stocktake','核对批次并确认','冲销已确认盘点']
   ]) {
     const {default: View} = await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/'+file)
     const {state, permissions} = await server.ssrLoadModule('\0warehouse-test-store')

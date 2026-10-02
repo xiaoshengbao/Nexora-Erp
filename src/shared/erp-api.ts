@@ -4,6 +4,7 @@ import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from '.
 import type {OutboundLotLineInput,OutboundLotOptions} from './outbound-lot-api'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
 import type {TransferLotLineInput,TransferLotOptions} from './transfer-lot-api'
+import type {StocktakeLotLineInput,StocktakeLotOptions} from './stocktake-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -957,6 +958,7 @@ export interface StocktakeLine {
   book_quantity: string
   counted_quantity: string
   difference: string
+  physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface Stocktake {
   id: number
@@ -1275,7 +1277,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   reverseTransfer: { input: { transferId: number; reason: string }; output: Transfer }
   stocktakes: { input: undefined; output: Stocktake[] }
   createStocktake: { input: { warehouse_id: number; reference: string; lines: { material_id: number; counted_quantity: string }[] }; output: Stocktake }
-  postStocktake: { input: { stocktakeId: number }; output: Stocktake }
+  availableStocktakeLots: {input: {stocktakeId: number}; output: StocktakeLotOptions}
+  postStocktake: { input: { stocktakeId: number; lines?: StocktakeLotLineInput[] }; output: Stocktake }
   cancelStocktake: { input: { stocktakeId: number }; output: Stocktake }
   reverseStocktake: { input: { stocktakeId: number; reason: string }; output: Stocktake }
   stock: { input: { warehouseId?: number } | undefined; output: Stock[] }
