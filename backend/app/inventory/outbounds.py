@@ -19,8 +19,11 @@ from app.core.models import (
     WarehouseOutboundLine,
     WarehouseOutboundReversal,
     MaintenanceJob,
+    PhysicalLot,
+    PhysicalLotAllocation,
 )
 from app.inventory.warehouse import balance, require_warehouse
+from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 
 UserCreator = aliased(User)
 UserPoster = aliased(User)
@@ -72,6 +75,25 @@ class ReverseInput(BaseModel):
         if not value.strip():
             raise ValueError("冲销原因不能为空")
         return value.strip()
+
+
+class OutboundLotPartInput(BaseModel):
+    lot_id: int = Field(gt=0)
+    quantity: Decimal
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        return OutboundLineInput.valid_quantity(value)
+
+
+class OutboundLotLineInput(BaseModel):
+    outbound_line_id: int = Field(gt=0)
+    lots: list[OutboundLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class OutboundPostInput(BaseModel):
+    lines: list[OutboundLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def outbound_data(db: Session, outbound_id: int) -> dict:
@@ -134,7 +156,21 @@ def outbound_data(db: Session, outbound_id: int) -> dict:
         .mappings()
         .all()
     )
-    return {**dict(row), "lines": [dict(line) for line in lines]}
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'other_outbound', StockMovement.source_id == outbound_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': format(-Decimal(allocation.quantity), 'f'),
+            'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+            'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+        })
+    return {**dict(row), 'lines': [
+        {**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
 
 
 @router.get("/warehouse-outbounds")
@@ -187,8 +223,37 @@ def create_outbound(payload: OutboundInput, user: dict = Depends(require("other_
         return outbound_data(db, outbound_id)
 
 
+@router.get('/warehouse-outbounds/{outbound_id}/available-lots')
+def available_outbound_lots(outbound_id: int, _: dict = Depends(require('other_outbound.post'))) -> dict:
+    with orm_session() as db:
+        outbound = db.get(WarehouseOutbound, outbound_id)
+        if outbound is None:
+            raise HTTPException(404, '仓库出库单不存在')
+        if outbound.status != 'draft' or outbound.source_kind != 'other':
+            raise HTTPException(409, '只能查询其他出库草稿的可用批次')
+        lines = list(db.scalars(select(WarehouseOutboundLine).where(
+            WarehouseOutboundLine.outbound_id == outbound_id).order_by(WarehouseOutboundLine.id)))
+        materials = {line.material_id for line in lines}
+        lots = list(db.scalars(select(PhysicalLot).where(
+            PhysicalLot.material_id.in_(materials)).order_by(PhysicalLot.id)))
+        available = {material_id: [] for material_id in materials}
+        for lot in lots:
+            quantity = lot_balance(db, outbound.warehouse_id, lot.id)
+            if quantity > 0:
+                available[lot.material_id].append({
+                    'lot_id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                    'quantity': format(quantity, 'f'), 'supplier_lot': lot.supplier_lot,
+                    'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+                })
+        return {'outbound_id': outbound_id, 'warehouse_id': outbound.warehouse_id,
+                'lines': [{'outbound_line_id': line.id, 'material_id': line.material_id,
+                           'quantity': line.quantity, 'lots': available[line.material_id]}
+                          for line in lines]}
+
+
 @router.post("/warehouse-outbounds/{outbound_id}/post")
-def post_outbound(outbound_id: int, user: dict = Depends(require("other_outbound.post"))) -> dict:
+def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
+                  user: dict = Depends(require("other_outbound.post"))) -> dict:
     with orm_session(write=True) as db:
         # 写锁覆盖各行库存检查与扣减，整单要么确认要么完全不动库存。
         source = (
@@ -205,6 +270,8 @@ def post_outbound(outbound_id: int, user: dict = Depends(require("other_outbound
         if not source:
             raise HTTPException(404, "仓库出库单不存在")
         if source["source_kind"] == "purchase_return":
+            if payload is not None:
+                raise HTTPException(422, '采购退货出库不接受其他出库批次明细')
             # 采购退货仍用原退货流水及应付来源，仓库出库单只负责确认闸口。
             from app.purchase.returns import post_return_in_transaction
 
@@ -234,13 +301,15 @@ def post_outbound(outbound_id: int, user: dict = Depends(require("other_outbound
             .mappings()
             .all()
         )
+        lot_lines = {line.outbound_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '批次明细必须与其他出库明细逐行对应')
         for line in lines:
             if balance(db, source["warehouse_id"], line["material_id"]) < Decimal(line["quantity"]):
                 raise HTTPException(409, f"物料 #{line['material_id']} 在来源仓库库存不足")
         for line in lines:
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=source["warehouse_id"],
                     material_id=line["material_id"],
                     quantity=str(-Decimal(line["quantity"])),
@@ -248,8 +317,16 @@ def post_outbound(outbound_id: int, user: dict = Depends(require("other_outbound
                     source_id=outbound_id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line['id']].lots
+            if len({part.lot_id for part in parts}) != len(parts):
+                raise HTTPException(422, '一行出库不能重复选择同一实物批次')
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line['quantity']):
+                raise HTTPException(422, f"其他出库明细 #{line['id']} 的批次数量之和不匹配")
+            post_lot_movement(db, movement, [LotPart(part.lot_id, -part.quantity) for part in parts])
         db.execute(
             update(WarehouseOutbound)
             .where((WarehouseOutbound.id == outbound_id))
@@ -329,9 +406,7 @@ def reverse_outbound(
             .select_from(WarehouseOutboundLine)
             .where((WarehouseOutboundLine.outbound_id == outbound_id))
         ).mappings():
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=source["warehouse_id"],
                     material_id=line["material_id"],
                     quantity=line["quantity"],
@@ -339,6 +414,19 @@ def reverse_outbound(
                     source_id=reversal_id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            allocations = list(db.scalars(
+                select(PhysicalLotAllocation)
+                .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+                .where(StockMovement.source_type == 'other_outbound',
+                       StockMovement.source_id == outbound_id,
+                       StockMovement.source_line_id == line['id'])
+                .order_by(PhysicalLotAllocation.id)))
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != -Decimal(line['quantity']):
+                    raise HTTPException(409, '原其他出库批次分配不完整，无法冲销')
+                post_lot_movement(db, movement, [LotPart(
+                    part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
+            else:
+                db.add(movement)
         return outbound_data(db, outbound_id)
