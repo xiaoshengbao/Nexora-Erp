@@ -3,14 +3,17 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotOpening, StockMovement, User, Warehouse
-from app.core.orm import orm_session
+from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotOpening, PhysicalLotReclassification, StockMovement, User, Warehouse
+from app.core.orm import add_model, orm_session
+from app.inventory.lot_inputs import PhysicalLotPartInput
 
 
 router = APIRouter(prefix='/api/v1/inventory/physical-lots')
@@ -23,6 +26,42 @@ class LotPart:
     original_allocation_id: int | None = None
 
 
+class LegacyEvidenceInput(PhysicalLotPartInput):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    legacy_lot_id: int = Field(gt=0, strict=True)
+    warehouse_id: int = Field(gt=0, strict=True)
+    evidence: str = Field(min_length=10, max_length=500)
+
+    @field_validator('quantity', mode='before')
+    @classmethod
+    def exact_quantity_text(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError('补证数量须使用精确十进制文本')
+        return value
+
+    @field_validator('evidence')
+    @classmethod
+    def nonblank_evidence(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError('须提供现场核对依据')
+        return value.strip()
+
+
+class ReverseEvidenceInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    reason: str = Field(min_length=10, max_length=500)
+
+
+def reclassification_data(db: Session, record: PhysicalLotReclassification, username: str) -> dict:
+    verified = db.get(PhysicalLot, record.verified_lot_id)
+    return {'id': record.id, 'legacy_lot_id': record.legacy_lot_id,
+            'verified_lot_id': record.verified_lot_id, 'warehouse_id': record.warehouse_id,
+            'quantity': record.quantity, 'evidence': record.evidence,
+            'original_reclassification_id': record.original_reclassification_id,
+            'created_by_name': username, 'created_at': record.created_at,
+            'verified_lot_code': verified.code}
+
+
 def lot_balance(db: Session, warehouse_id: int, lot_id: int) -> Decimal:
     """在同一写事务中按原始文本累计数量，避免 SQLite 对小数的浮点求和。"""
     opening = db.scalars(select(PhysicalLotOpening.quantity).where(
@@ -32,7 +71,77 @@ def lot_balance(db: Session, warehouse_id: int, lot_id: int) -> Decimal:
         StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
             StockMovement.warehouse_id == warehouse_id,
             PhysicalLotAllocation.lot_id == lot_id))
-    return sum((Decimal(value) for value in (*opening, *movement)), Decimal(0))
+    outgoing = db.scalars(select(PhysicalLotReclassification.quantity).where(
+        PhysicalLotReclassification.warehouse_id == warehouse_id,
+        PhysicalLotReclassification.legacy_lot_id == lot_id))
+    incoming = db.scalars(select(PhysicalLotReclassification.quantity).where(
+        PhysicalLotReclassification.warehouse_id == warehouse_id,
+        PhysicalLotReclassification.verified_lot_id == lot_id))
+    return (sum((Decimal(value) for value in (*opening, *movement, *incoming)), Decimal(0))
+            - sum((Decimal(value) for value in outgoing), Decimal(0)))
+
+
+@router.post('/reclassifications', status_code=201)
+def reclassify_legacy_lot(data: LegacyEvidenceInput,
+                          user: dict = Depends(require('physical_lot.reclassify'))) -> dict:
+    with orm_session(write=True) as db:
+        if db.get(Warehouse, data.warehouse_id) is None:
+            raise HTTPException(404, '仓库不存在')
+        legacy = db.get(PhysicalLot, data.legacy_lot_id)
+        if legacy is None or legacy.source_kind != 'legacy':
+            raise HTTPException(422, '须选择历史未识别批次')
+        if lot_balance(db, data.warehouse_id, legacy.id) < data.quantity:
+            raise HTTPException(409, '历史未识别批次现存量不足，请重新读取')
+        stock_quantity = sum((Decimal(value) for value in db.scalars(select(StockMovement.quantity).where(
+            StockMovement.warehouse_id == data.warehouse_id,
+            StockMovement.material_id == legacy.material_id))), Decimal(0))
+        opening_quantity = db.scalars(select(PhysicalLotOpening.quantity)
+            .join(PhysicalLot, PhysicalLot.id == PhysicalLotOpening.lot_id)
+            .where(PhysicalLotOpening.warehouse_id == data.warehouse_id,
+                   PhysicalLot.material_id == legacy.material_id))
+        allocated_quantity = db.scalars(select(PhysicalLotAllocation.quantity)
+            .join(StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id)
+            .where(StockMovement.warehouse_id == data.warehouse_id,
+                   StockMovement.material_id == legacy.material_id))
+        # 同仓同物料的补证一出一入相抵；这里只核对原期初与库存流水分配总量。
+        assigned_quantity = sum((Decimal(value) for value in (*opening_quantity, *allocated_quantity)), Decimal(0))
+        if assigned_quantity > stock_quantity:
+            raise HTTPException(409, '正式库存少于批次结存，请先核对未分配出库差额')
+        # 补证只在实物批次之间转移数量，不建立正式库存流水，也不改移动平均成本。
+        verified = add_model(db, PhysicalLot(
+            material_id=legacy.material_id, code=f'VERIFIED-{uuid4().hex.upper()}',
+            source_kind='legacy_evidence', supplier_lot=data.supplier_lot,
+            manufactured_on=data.manufactured_on.isoformat() if data.manufactured_on else None,
+            expires_on=data.expires_on.isoformat() if data.expires_on else None,
+            created_by=user['id']))
+        record = add_model(db, PhysicalLotReclassification(
+            legacy_lot_id=legacy.id, verified_lot_id=verified.id,
+            warehouse_id=data.warehouse_id, quantity=format(data.quantity, 'f'),
+            evidence=data.evidence, created_by=user['id']))
+        return reclassification_data(db, record, user['username'])
+
+
+@router.post('/reclassifications/{record_id}/reverse', status_code=201)
+def reverse_reclassification(data: ReverseEvidenceInput, record_id: int = Path(gt=0),
+                             user: dict = Depends(require('physical_lot.reclassify'))) -> dict:
+    with orm_session(write=True) as db:
+        original = db.get(PhysicalLotReclassification, record_id)
+        if original is None:
+            raise HTTPException(404, '补证记录不存在')
+        if original.original_reclassification_id is not None:
+            raise HTTPException(422, '只能冲销原补证记录')
+        if db.scalar(select(PhysicalLotReclassification.id).where(
+                PhysicalLotReclassification.original_reclassification_id == record_id)) is not None:
+            raise HTTPException(409, '原补证记录已冲销')
+        quantity = Decimal(original.quantity)
+        if lot_balance(db, original.warehouse_id, original.verified_lot_id) < quantity:
+            raise HTTPException(409, '补证批次已被后续单据使用，不能冲销')
+        reversal = add_model(db, PhysicalLotReclassification(
+            legacy_lot_id=original.legacy_lot_id, verified_lot_id=original.verified_lot_id,
+            warehouse_id=original.warehouse_id, quantity=format(-quantity, 'f'),
+            evidence=data.reason, original_reclassification_id=original.id,
+            created_by=user['id']))
+        return reclassification_data(db, reversal, user['username'])
 
 
 def post_lot_movement(db: Session, movement: StockMovement, parts: list[LotPart]) -> StockMovement:
@@ -121,6 +230,16 @@ def overview(warehouse_id: int | None = Query(default=None, gt=0),
         for warehouse, lot, quantity in db.execute(allocation_query):
             _add(lot_balances, (warehouse, lot), quantity)
 
+        reclassification_query = select(PhysicalLotReclassification)
+        if warehouse_id is not None:
+            reclassification_query = reclassification_query.where(PhysicalLotReclassification.warehouse_id == warehouse_id)
+        for record in db.scalars(reclassification_query):
+            if material_id is not None and lots[record.legacy_lot_id].material_id != material_id:
+                continue
+            _add(lot_balances, (record.warehouse_id, record.legacy_lot_id),
+                 format(-Decimal(record.quantity), 'f'))
+            _add(lot_balances, (record.warehouse_id, record.verified_lot_id), record.quantity)
+
         assigned: dict[tuple[int, int], Decimal] = {}
         rows = []
         for (warehouse, lot_id), quantity in sorted(lot_balances.items()):
@@ -185,6 +304,25 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                               'source_id': movement.source_id, 'source_line_id': movement.source_line_id,
                               'created_by_name': username, 'created_at': movement.created_at,
                               'original_allocation_id': allocation.original_allocation_id})
+        reclassifications = []
+        records = db.execute(select(PhysicalLotReclassification, User.username)
+            .join(User, User.id == PhysicalLotReclassification.created_by)
+            .where((PhysicalLotReclassification.legacy_lot_id == lot_id)
+                   | (PhysicalLotReclassification.verified_lot_id == lot_id))
+            .order_by(PhysicalLotReclassification.id))
+        for record, username in records:
+            direction = -1 if record.legacy_lot_id == lot_id else 1
+            balances[record.warehouse_id] = balances.get(record.warehouse_id, Decimal(0)) + direction * Decimal(record.quantity)
+            counterpart_id = record.verified_lot_id if direction < 0 else record.legacy_lot_id
+            counterpart = db.get(PhysicalLot, counterpart_id)
+            reclassifications.append({'id': record.id, 'warehouse_id': record.warehouse_id,
+                                      'warehouse_name': db.get(Warehouse, record.warehouse_id).name,
+                                      'quantity': format(direction * Decimal(record.quantity), 'f'),
+                                      'counterpart_lot_id': counterpart_id,
+                                      'counterpart_lot_code': counterpart.code,
+                                      'evidence': record.evidence, 'created_by_name': username,
+                                      'original_reclassification_id': record.original_reclassification_id,
+                                      'created_at': record.created_at})
         return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                 'lot': {'id': lot.id, 'material_id': lot.material_id, 'code': lot.code,
                         'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
@@ -192,6 +330,7 @@ def history(lot_id: int = Path(gt=0), _: dict = Depends(require('inventory.view'
                         'origin_movement_id': lot.origin_movement_id,
                         'sku': material.sku, 'material_name': material.name, 'unit': material.unit},
                 'openings': openings, 'movements': movements,
+                'reclassifications': reclassifications,
                 'balances': [{'warehouse_id': warehouse_id,
                               'warehouse_name': db.get(Warehouse, warehouse_id).name,
                               'quantity': format(quantity, 'f')}

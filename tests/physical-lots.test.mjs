@@ -15,7 +15,7 @@ const history={as_of:overview.as_of,lot:{id:7,material_id:3,code:row.lot_code,so
   supplier_lot:null,manufactured_on:null,expires_on:null,origin_movement_id:null,
   sku:row.sku,material_name:row.material_name,unit:row.unit},
   openings:[{id:1,warehouse_id:1,warehouse_name:'主仓库',quantity:'2.000',checkpoint_movement_id:8,
-    evidence:'无实物批次证据',created_at:overview.as_of}],movements:[],
+    evidence:'无实物批次证据',created_at:overview.as_of}],movements:[],reclassifications:[],
   balances:[{warehouse_id:1,warehouse_name:'主仓库',quantity:'2.000'}]}
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 
@@ -41,13 +41,19 @@ test('受限 IPC 只接受固定仓库、物料和批次编号',async t=>{
 test('响应不能把缺失差额、未知数量或伪造来源当成已核对',()=>{
   validatePhysicalLotResult('physicalLotOverview',overview)
   validatePhysicalLotResult('physicalLotHistory',history)
+  const evidence={id:1,legacy_lot_id:7,verified_lot_id:8,warehouse_id:1,quantity:'1.250',
+    evidence:'现场逐箱核对并签字确认',created_by_name:'admin',created_at:overview.as_of,
+    verified_lot_code:'VERIFIED-1',original_reclassification_id:null}
+  validatePhysicalLotResult('physicalLotEvidence',evidence)
   for(const invalid of [{...overview,fully_allocated:true},{...overview,differences:[{...difference,difference:null}]},
     {...overview,rows:[{...row,quantity:2}]},{...overview,warehouse_id:0}])
     assert.throws(()=>validatePhysicalLotResult('physicalLotOverview',invalid),/响应格式/)
   for(const invalid of [{...history,lot:{...history.lot,id:'7'}},
     {...history,openings:[{...history.openings[0],checkpoint_movement_id:-1}]},
-    {...history,movements:[{id:1,movement_id:2,quantity:null}]}])
+    {...history,movements:[{id:1,movement_id:2,quantity:null}]},
+    {...history,reclassifications:[{id:1,quantity:'1.000'}]}])
     assert.throws(()=>validatePhysicalLotResult('physicalLotHistory',invalid),/响应格式/)
+  assert.throws(()=>validatePhysicalLotResult('physicalLotEvidence',{...evidence,verified_lot_id:null}),/响应格式/)
 })
 
 test('筛选变化、迟到历史、断线和撤权都会失效旧批次证据',async t=>{

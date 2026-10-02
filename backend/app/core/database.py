@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 56:
+        if version > 57:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1969,3 +1969,25 @@ def migrate() -> None:
                     (lot.lastrowid, warehouse_id, str(quantity), checkpoint,
                      '旧库存无实物批次证据；仅按升级时逐仓净结存建立未识别期初'))
             db.execute('PRAGMA user_version = 56')
+
+        if version < 57:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE physical_lot_reclassifications (
+                id INTEGER PRIMARY KEY,
+                legacy_lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                verified_lot_id INTEGER NOT NULL REFERENCES physical_lots(id),
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                quantity TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                original_reclassification_id INTEGER REFERENCES physical_lot_reclassifications(id),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX physical_lot_reclassification_legacy ON physical_lot_reclassifications(legacy_lot_id,warehouse_id)')
+            db.execute('CREATE INDEX physical_lot_reclassification_verified ON physical_lot_reclassifications(verified_lot_id,warehouse_id)')
+            db.execute('CREATE UNIQUE INDEX physical_lot_reclassification_reversal_once ON physical_lot_reclassifications(original_reclassification_id)')
+            db.execute("INSERT INTO permission_groups(code,label,parent_code,sort_order) VALUES ('warehouse.physical_lots','实物批次','warehouse',10)")
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('physical_lot.reclassify','历史批次补证','warehouse.physical_lots')")
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                           [('admin','physical_lot.reclassify'), ('warehouse','physical_lot.reclassify')])
+            db.execute('PRAGMA user_version = 57')

@@ -15,8 +15,9 @@ const materials=ref([{id:3,sku:'LOT-3',name:'试件'}]),busy=ref(false),connecti
 const ledgerQuery=ref({warehouse_id:null,material_id:null,from_date:'',to_date:'',source_type:null});
 const allowed=ref(true);return {lotOverview,lotHistory,lotLoading,lotError,lotWarehouseId,lotMaterialId,
   warehouses,materials,busy,connectionLost,user,ledgerQuery,allowed,
-  can(code){return code==='inventory.view'&&allowed.value},localTime:value=>value,
-  loadPhysicalLots(){},loadPhysicalLotHistory(){},clearPhysicalLotHistory(){}};
+  can(code){return allowed.value&&user.value.permissions.includes(code)},localTime:value=>value,
+  loadPhysicalLots(){},loadPhysicalLotHistory(){},savePhysicalLotEvidence(){},
+  reversePhysicalLotEvidence(){},clearPhysicalLotHistory(){}};
 })());`
 
 test('批次页面显示历史未识别、未分配差额、来源流水及无权状态',async t=>{
@@ -46,6 +47,9 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
   assert.match(unallocated,/未分配差额/)
   assert.match(unallocated,/0\.125/)
   assert.match(unallocated,/也不代表所有历史流水已追溯/)
+  assert.doesNotMatch(unallocated,/现场补证<\/button>/)
+  store.user={id:1,permissions:['inventory.view','physical_lot.reclassify']}
+  assert.match(await render(),/现场补证/)
   store.lotHistory={as_of:'2026-10-02 09:00:00',lot:{id:7,material_id:3,code:'LEGACY-W1-M3',source_kind:'legacy',
     supplier_lot:null,manufactured_on:null,expires_on:null,origin_movement_id:null,
     sku:'LOT-3',material_name:'试件',unit:'件'},
@@ -53,11 +57,16 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
       evidence:'无实物批次证据',created_at:'2026-10-02 09:00:00'}],
     movements:[{id:2,movement_id:9,warehouse_id:1,warehouse_name:'主仓库',quantity:'-0.125',
       source_type:'other_outbound',source_id:4,source_line_id:5,created_by_name:'admin',created_at:'2026-10-02 09:01:00',original_allocation_id:null}],
+    reclassifications:[{id:3,warehouse_id:1,warehouse_name:'主仓库',quantity:'-0.500',
+      counterpart_lot_id:8,counterpart_lot_code:'VERIFIED-1',evidence:'现场逐箱核对并签字确认',
+      original_reclassification_id:null,created_by_name:'admin',created_at:'2026-10-02 09:02:00'}],
     balances:[{warehouse_id:1,warehouse_name:'主仓库',quantity:'1.875'}]}
   const traced=await render()
   assert.match(traced,/升级检查点流水 #8/)
   assert.match(traced,/库存流水 #9/)
   assert.match(traced,/无实物批次证据/)
+  assert.match(traced,/现场逐箱核对并签字确认/)
+  assert.match(traced,/冲销补证/)
   store.connectionLost=true
   assert.match(await render(),/旧批次余额与来源证据已失效/)
   store.allowed=false

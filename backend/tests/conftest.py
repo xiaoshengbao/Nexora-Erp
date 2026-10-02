@@ -6,6 +6,11 @@ import pytest
 @pytest.fixture
 def remove_physical_lot_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS physical_lot_reclassifications')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='physical_lot.reclassify'")
+        db.execute("DELETE FROM permissions WHERE code='physical_lot.reclassify'")
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='warehouse.physical_lots'")
         for table in ('physical_lot_allocations', 'physical_lot_openings', 'physical_lots'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
     return remove
