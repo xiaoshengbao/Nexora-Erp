@@ -86,7 +86,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产领料
 
-`POST /api/v1/material-issues` 对已下达或生产中的工单建立分批领料草稿，指定源仓库及本次工单组件数量；`GET /api/v1/material-issues` 查看全部记录及每条已退、可退数量。`POST /api/v1/material-issues/{id}/post` 在写事务中重新核对工单剩余需料及源仓库存，再逐行写入带领料单、明细和确认人来源的负向库存流水，工单进入“生产中”。两个草稿可以并存，但后确认的草稿若超出剩余需料或库存会返回 409，整单不扣库存。`/cancel` 仅取消草稿；已确认领料保留原单据及流水。查看要求 `production.view`；创建、确认、取消分别要求 `material_issue.create`、`material_issue.post`、`material_issue.cancel`。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。材料金额按领料时库存移动平均成本读取；库存成本未知时可在成本页面人工核价。
+`POST /api/v1/material-issues` 对已下达或生产中的工单建立分批领料草稿，指定源仓库及本次工单组件数量；`GET /api/v1/material-issues` 查看全部记录及每条已退、可退数量。`GET /api/v1/material-issues/{id}/available-lots` 以确认权限返回草稿各物料在源仓的可用实物批次；`POST /api/v1/material-issues/{id}/post` 可逐行提交 `lines: [{material_issue_line_id, lots: [{lot_id, quantity}]}]`。写事务重新核对工单剩余需料、源仓库存和批次余额，数量精确守恒后记录负向库存流水与原批次分配，工单进入“生产中”。旧客户端省略批次请求体仍可确认，但留下可见的批次差额。两个草稿可以并存，但后确认的草稿若超出剩余需料或库存会返回 409，整单不扣库存。`/cancel` 仅取消草稿；已确认领料保留原单据及流水，暂无直接冲销接口。查看要求 `production.view`；创建、确认、取消分别要求 `material_issue.create`、`material_issue.post`、`material_issue.cancel`。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。材料金额按领料时库存移动平均成本读取；库存成本未知时可在成本页面人工核价。
 
 ## 生产退料更正
 
