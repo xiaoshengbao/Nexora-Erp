@@ -4,6 +4,7 @@ import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from '.
 import type {OutboundLotLineInput,OutboundLotOptions} from './outbound-lot-api'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from './shipment-lot-api'
 import type {MaterialIssueLotLineInput,MaterialIssueLotOptions} from './material-issue-lot-api'
+import type {MaterialReturnLotLineInput,MaterialReturnLotOptions} from './material-return-lot-api'
 import type {TransferLotLineInput,TransferLotOptions} from './transfer-lot-api'
 import type {StocktakeLotLineInput,StocktakeLotOptions} from './stocktake-lot-api'
 import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot-api'
@@ -718,6 +719,7 @@ export interface MaterialReturnLine {
   material_name: string
   unit: string
   quantity: string
+  physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 // 退料引用原领料明细并回到原仓库，确认后生成独立正向流水。
 export interface MaterialReturn {
@@ -1231,7 +1233,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   cancelMaterialIssue: { input: { issueId: number }; output: MaterialIssue }
   materialReturns: { input: undefined; output: MaterialReturn[] }
   createMaterialReturn: { input: { material_issue_id: number; reason: string; lines: { material_issue_line_id: number; quantity: string }[] }; output: MaterialReturn }
-  postMaterialReturn: { input: { returnId: number }; output: MaterialReturn }
+  availableMaterialReturnLots: {input: {returnId: number}; output: MaterialReturnLotOptions}
+  postMaterialReturn: { input: { returnId: number; lines?: MaterialReturnLotLineInput[] }; output: MaterialReturn }
   cancelMaterialReturn: { input: { returnId: number }; output: MaterialReturn }
   productionCompletions: { input: undefined; output: ProductionCompletion[] }
   createProductionCompletion: { input: { work_order_id: number; reported_quantity: string; reference: string }; output: ProductionCompletion }

@@ -2,6 +2,7 @@ import type { AppState } from '../state'
 import type { WorkspaceRouteKey } from '../../router/workspace-routes'
 import type {CompletionLotPartInput} from '../../../../shared/completion-lot-api'
 import type {MaterialIssueLotLineInput,MaterialIssueLotOptions} from '../../../../shared/material-issue-lot-api'
+import type {MaterialReturnLotLineInput,MaterialReturnLotOptions} from '../../../../shared/material-return-lot-api'
 // 生产操作集中在业务模块；写入后仍由统一入口刷新服务端快照。
 export function createProductionActions(
   state: AppState,
@@ -195,10 +196,22 @@ export function createProductionActions(
     }, '生产退料草稿已创建，确认前不会增加库存。')
   }
 
-  async function postMaterialReturn(returnId: number): Promise<void> {
+  async function loadAvailableMaterialReturnLots(returnId: number): Promise<MaterialReturnLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('material_return.post'))
+      throw Error('当前账号无法读取生产退料批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableMaterialReturnLots', {returnId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('material_return.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postMaterialReturn(returnId: number, lines?: MaterialReturnLotLineInput[]): Promise<void> {
     if (!window.nexora) return
     await perform(
-      () => window.nexora!.callApi('postMaterialReturn', { returnId }),
+      () => window.nexora!.callApi('postMaterialReturn', { returnId, lines }),
       `生产退料单 #${returnId} 已确认，组件已回到原领料仓库。`
     )
   }
@@ -365,6 +378,7 @@ export function createProductionActions(
     selectReturnIssue,
     createMaterialReturn,
     postMaterialReturn,
+    loadAvailableMaterialReturnLots,
     cancelMaterialReturn,
     selectCompletionOrder,
     createProductionCompletion,

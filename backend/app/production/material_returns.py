@@ -6,7 +6,7 @@ from sqlalchemy.engine import RowMapping
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
@@ -15,6 +15,8 @@ from app.core.models import (
     MaterialIssueLine,
     MaterialReturn,
     MaterialReturnLine,
+    PhysicalLot,
+    PhysicalLotAllocation,
     StockMovement,
     User,
     Warehouse,
@@ -22,6 +24,8 @@ from app.core.models import (
     WorkOrderLine,
 )
 from app.access.security import require
+from app.inventory.physical_lots import LotPart, post_lot_movement
+from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.production.work_orders import issued_quantity, posted_completion_totals, required_for_output
 
 router = APIRouter(prefix="/api/v1")
@@ -50,6 +54,50 @@ class MaterialReturnInput(BaseModel):
         if not value.strip():
             raise ValueError("退料原因不能为空")
         return value.strip()
+
+
+class MaterialReturnLotPartInput(PhysicalLotPartInput):
+    lot_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode='after')
+    def existing_lot_has_no_new_origin(self):
+        if self.lot_id is not None and any((
+                self.supplier_lot, self.manufactured_on, self.expires_on)):
+            raise ValueError('已有批次不能同时登记新批次来源字段')
+        return self
+
+
+class MaterialReturnLotLineInput(BaseModel):
+    return_line_id: int = Field(gt=0)
+    lots: list[MaterialReturnLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class MaterialReturnPostInput(BaseModel):
+    lines: list[MaterialReturnLotLineInput] = Field(min_length=1, max_length=100)
+
+
+def source_lot_remaining(db: Session, issue_line_id: int) -> dict[int, Decimal]:
+    """原领料批次减去已确认退回原批次的数量，新发现批次不冒充原批次。"""
+    issued: dict[int, Decimal] = {}
+    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
+            PhysicalLotAllocation.quantity).join(
+                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+                    StockMovement.source_type == 'material_issue',
+                    StockMovement.source_line_id == issue_line_id)):
+        issued[lot_id] = issued.get(lot_id, Decimal(0)) - Decimal(quantity)
+    returned: dict[int, Decimal] = {}
+    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
+            PhysicalLotAllocation.quantity).join(
+                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).join(
+                    MaterialReturnLine, MaterialReturnLine.id == StockMovement.source_line_id).join(
+                        MaterialReturn,
+                        MaterialReturn.id == MaterialReturnLine.material_return_id).where(
+                            StockMovement.source_type == 'material_return',
+                            MaterialReturnLine.material_issue_line_id == issue_line_id,
+                            MaterialReturn.status == 'posted')):
+        returned[lot_id] = returned.get(lot_id, Decimal(0)) + Decimal(quantity)
+    return {lot_id: quantity - returned.get(lot_id, Decimal(0))
+            for lot_id, quantity in issued.items()}
 
 
 def returned_quantity(db: Session, issue_line_id: int) -> Decimal:
@@ -178,7 +226,21 @@ def material_return_data(db: Session, return_id: int) -> dict:
         .mappings()
         .all()
     )
-    return {**dict(row), "lines": [dict(line) for line in lines]}
+    result_lines = []
+    for line in lines:
+        lots = [{'id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                 'quantity': format(Decimal(allocation.quantity), 'f'),
+                 'supplier_lot': lot.supplier_lot, 'manufactured_on': lot.manufactured_on,
+                 'expires_on': lot.expires_on}
+                for lot, allocation in db.execute(select(PhysicalLot, PhysicalLotAllocation).join(
+                    PhysicalLotAllocation, PhysicalLotAllocation.lot_id == PhysicalLot.id).join(
+                        StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
+                            StockMovement.source_type == 'material_return',
+                            StockMovement.source_id == return_id,
+                            StockMovement.source_line_id == line['id']).order_by(
+                                PhysicalLotAllocation.id))]
+        result_lines.append({**dict(line), 'physical_lots': lots})
+    return {**dict(row), 'lines': result_lines}
 
 
 @router.get("/material-returns")
@@ -225,8 +287,50 @@ def create_material_return(
         return material_return_data(db, cursor.id)
 
 
+@router.get('/material-returns/{return_id}/available-lots')
+def available_material_return_lots(return_id: int,
+                                   _: dict = Depends(require('material_return.post'))) -> dict:
+    with orm_session() as db:
+        material_return = db.get(MaterialReturn, return_id)
+        if material_return is None:
+            raise HTTPException(404, '生产退料单不存在')
+        if material_return.status != 'draft':
+            raise HTTPException(409, '只能查询生产退料草稿的原领料批次')
+        warehouse_id = db.scalar(select(MaterialIssue.warehouse_id).where(
+            MaterialIssue.id == material_return.material_issue_id))
+        lines = list(db.execute(select(MaterialReturnLine.id,
+                MaterialReturnLine.material_issue_line_id, MaterialReturnLine.quantity,
+                WorkOrderLine.component_material_id).join(
+                    MaterialIssueLine,
+                    MaterialIssueLine.id == MaterialReturnLine.material_issue_line_id).join(
+                        WorkOrderLine,
+                        WorkOrderLine.id == MaterialIssueLine.work_order_line_id).where(
+                            MaterialReturnLine.material_return_id == return_id).order_by(
+                                MaterialReturnLine.id)).mappings())
+        result = []
+        for line in lines:
+            remaining = source_lot_remaining(db, line['material_issue_line_id'])
+            lots = []
+            for lot_id, quantity in sorted(remaining.items()):
+                if quantity <= 0:
+                    continue
+                lot = db.get(PhysicalLot, lot_id)
+                lots.append({'lot_id': lot.id, 'code': lot.code,
+                             'source_kind': lot.source_kind, 'quantity': format(quantity, 'f'),
+                             'supplier_lot': lot.supplier_lot,
+                             'manufactured_on': lot.manufactured_on,
+                             'expires_on': lot.expires_on})
+            result.append({'return_line_id': line['id'],
+                           'material_issue_line_id': line['material_issue_line_id'],
+                           'material_id': line['component_material_id'],
+                           'quantity': line['quantity'], 'lots': lots})
+        return {'return_id': return_id, 'material_issue_id': material_return.material_issue_id,
+                'warehouse_id': warehouse_id, 'lines': result}
+
+
 @router.post("/material-returns/{return_id}/post")
-def post_material_return(return_id: int, user: dict = Depends(require("material_return.post"))) -> dict:
+def post_material_return(return_id: int, payload: MaterialReturnPostInput | None = None,
+                         user: dict = Depends(require("material_return.post"))) -> dict:
     with orm_session(write=True) as db:
         # 写锁覆盖累计退料量与正向流水，防止两份草稿同时确认导致超退。
         material_return = (
@@ -276,10 +380,12 @@ def post_material_return(return_id: int, user: dict = Depends(require("material_
             .select_from(MaterialIssue)
             .where(MaterialIssue.id == material_return["material_issue_id"])
         )
+        lot_lines = {line.return_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '批次明细必须与生产退料明细逐行对应')
         for line in lines:
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=warehouse_id,
                     material_id=source[line["material_issue_line_id"]]["component_material_id"],
                     quantity=line["quantity"],
@@ -287,8 +393,40 @@ def post_material_return(return_id: int, user: dict = Depends(require("material_
                     source_id=return_id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line['id']].lots
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line['quantity']):
+                raise HTTPException(422, f'生产退料明细 #{line["id"]} 的批次数量之和不匹配')
+            existing_ids = [part.lot_id for part in parts if part.lot_id is not None]
+            if len(set(existing_ids)) != len(existing_ids):
+                raise HTTPException(422, '一行生产退料不能重复选择同一原领料批次')
+            remaining = source_lot_remaining(db, line['material_issue_line_id'])
+            selected = []
+            new_lots = []
+            for index, part in enumerate(parts, 1):
+                if part.lot_id is not None:
+                    if part.lot_id not in remaining:
+                        raise HTTPException(422, '退回批次不属于原领料明细')
+                    if remaining[part.lot_id] < part.quantity:
+                        raise HTTPException(409, '原领料批次剩余可退数量不足')
+                    selected.append(LotPart(part.lot_id, part.quantity))
+                    continue
+                lot = add_model(db, PhysicalLot(
+                    material_id=movement.material_id,
+                    code=f'MR{return_id}-L{line["id"]}-P{index}', source_kind='material_return',
+                    supplier_lot=part.supplier_lot,
+                    manufactured_on=part.manufactured_on.isoformat()
+                    if part.manufactured_on else None,
+                    expires_on=part.expires_on.isoformat() if part.expires_on else None,
+                    created_by=user['id']))
+                selected.append(LotPart(lot.id, part.quantity))
+                new_lots.append(lot)
+            post_lot_movement(db, movement, selected)
+            for lot in new_lots:
+                lot.origin_movement_id = movement.id
         db.execute(
             update(MaterialReturn)
             .where((MaterialReturn.id == return_id))

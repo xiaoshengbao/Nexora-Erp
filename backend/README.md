@@ -90,7 +90,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产退料更正
 
-`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`POST /api/v1/material-returns/{id}/post` 在写事务中重新核对累计可退数量和工单状态，向原领料仓库写入带退料单、明细和确认人来源的正向库存流水。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录。查看要求 `production.view`；创建、确认、取消分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
+`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。旧客户端省略请求体仍可确认，但留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；目前没有已确认退料直接冲销接口。查看要求 `production.view`；创建、确认、取消分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
 
 ## 完工报工与基础质检
 
