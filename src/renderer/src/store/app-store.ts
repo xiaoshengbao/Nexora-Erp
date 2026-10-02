@@ -1,3 +1,4 @@
+import {createInventoryWarningActions} from './modules/inventory-warning-actions'
 import {
   computed,
   nextTick,
@@ -254,6 +255,7 @@ function createAppStore() {
   const crmActions = createCrmActions(state, perform)
   const qualityActions = createQualityActions(state, perform)
   const afterSalesActions = createAfterSalesActions(state, perform)
+  const inventoryWarningActions = createInventoryWarningActions(state, perform)
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
@@ -329,6 +331,7 @@ function createAppStore() {
     ...qualityActions,
     ...afterSalesActions,
     ...equipmentActions,
+    ...inventoryWarningActions,
     ...dashboardActions,
     ...openingBalanceActions,
     ...ledgerReportActions,

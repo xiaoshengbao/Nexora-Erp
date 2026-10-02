@@ -270,6 +270,21 @@ def install_service(config: HostConfig, source_dir: Path) -> None:
         raise
 
 
+def _replace_service_directory(source: Path, target: Path) -> None:
+    # SCM 已报告停止时，退出中的进程或扫描程序仍可能短暂持有服务目录。
+    # 只等待 Windows 的占用/访问错误；不删除目录、不改 ACL，持续失败仍交回回退流程。
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError as error:
+            if (sys.platform != "win32" or getattr(error, "winerror", None) not in (5, 32, 33)
+                    or time.monotonic() >= deadline):
+                raise
+            time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+
+
 def upgrade_service(source_dir: Path) -> Path:
     """先保全实例，再替换独立服务程序；失败时恢复上一份程序。"""
     _require_admin()
@@ -307,10 +322,10 @@ def upgrade_service(source_dir: Path) -> Path:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             backup = backups / f"upgrade-{stamp}.nexora-backup"
             create_backup(config.data_dir, backup)
-            os.replace(target, old)
+            _replace_service_directory(target, old)
             new_mac_bootstrapped = False
             try:
-                os.replace(staged, target)
+                _replace_service_directory(staged, target)
                 if was_running:
                     if sys.platform == "darwin":
                         _run("launchctl", "bootstrap", "system", str(MAC_PLIST))
@@ -329,7 +344,7 @@ def upgrade_service(source_dir: Path) -> Path:
                     _bootout_mac()
                 if target.exists():
                     shutil.rmtree(target)
-                os.replace(old, target)
+                _replace_service_directory(old, target)
                 raise
         except Exception:
             if was_running and not service_running():

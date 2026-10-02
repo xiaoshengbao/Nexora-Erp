@@ -5,6 +5,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   otherInbounds: '登记期初、赠品等非采购来源入库，确认后增加库存。',
   warehouseOutbounds: '查看其他用途出库与采购退货，确认后扣减库存。',
   stock: '按仓库查看物料当前库存，数量随已确认的出入库单据更新。',
+  inventoryWarnings: '按仓库现存量识别缺货和低库存，阈值修订保留版本与历史。未配置的组合不参与预警。',
   inventoryLedger: '按仓库和物料核对期初、每笔变动及期末。选择来源后显示该来源范围内的累计数量。',
   transfers: '在仓库之间调拨物料，确认后同时更新来源仓库与目标仓库的库存。',
   stockAdjustments: '调整量可正可负；建单人不能审批自己的单据。审批通过后由仓库确认才记库存流水。',

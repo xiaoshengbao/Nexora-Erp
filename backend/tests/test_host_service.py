@@ -428,3 +428,94 @@ def test_upgrade_restores_old_program_when_restart_fails(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="new service failed"):
         host_service.upgrade_service(source)
     assert (current / "nexora-server").read_text() == "old"
+
+
+@pytest.mark.parametrize('winerror', [5, 32, 33])
+@pytest.mark.parametrize('persistent', [False, True])
+def test_windows_upgrade_waits_for_directory_release_without_losing_old_program(monkeypatch, tmp_path, winerror, persistent):
+    root = tmp_path / 'system'
+    current = root / 'service'
+    current.mkdir(parents=True)
+    (current / 'nexora-server.exe').write_text('old')
+    source = tmp_path / 'release'
+    source.mkdir()
+    (source / 'nexora-server.exe').write_text('new')
+    data = tmp_path / 'instance'
+    data.mkdir()
+    (data / 'nexora.db').write_text('unchanged')
+    (root / 'host.json').write_text(json.dumps({'name': '主机', 'data_dir': str(data), 'port': 8123}))
+    commands, waits = [], []
+    running = {'value': True}
+    clock = {'now': 0.0, 'attempts': 0}
+    monkeypatch.setattr(host_service.sys, 'platform', 'win32')
+    monkeypatch.setattr(host_service, 'system_root', lambda: root)
+    monkeypatch.setattr(host_service, '_require_admin', lambda: None)
+    monkeypatch.setattr(host_service, '_wait_stopped', lambda: None)
+    monkeypatch.setattr(host_service, 'service_running', lambda: running['value'])
+    monkeypatch.setattr(host_service, 'create_backup', lambda _data, output: output.write_text('backup'))
+    monkeypatch.setattr(host_service.time, 'monotonic', lambda: clock['now'])
+
+    def run(*args):
+        commands.append(args)
+        if args[:2] == ('sc.exe', 'stop'):
+            running['value'] = False
+        elif args[:2] == ('sc.exe', 'start'):
+            running['value'] = True
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock['now'] += seconds
+
+    original_replace = host_service.os.replace
+    error = PermissionError('模拟停止后服务目录仍被占用')
+    error.winerror = winerror
+
+    def replace(old, new):
+        if old == current:
+            clock['attempts'] += 1
+            # SCM 已停止且升级备份存在，目录释放前不能丢失旧程序或替换数据库。
+            assert not running['value']
+            assert (current / 'nexora-server.exe').read_text() == 'old'
+            assert len(list((root / 'backups').glob('upgrade-*.nexora-backup'))) == 1
+            if persistent or clock['attempts'] <= 2:
+                raise error
+        return original_replace(old, new)
+
+    monkeypatch.setattr(host_service, '_run', run)
+    monkeypatch.setattr(host_service.time, 'sleep', sleep)
+    monkeypatch.setattr(host_service.os, 'replace', replace)
+    if persistent:
+        with pytest.raises(PermissionError) as caught:
+            host_service.upgrade_service(source)
+        assert caught.value is error
+        assert clock['now'] == pytest.approx(10)
+        assert (current / 'nexora-server.exe').read_text() == 'old'
+    else:
+        assert host_service.upgrade_service(source).read_text() == 'backup'
+        assert waits[:2] == [0.1, 0.1]
+        assert clock['attempts'] == 3
+        assert (current / 'nexora-server.exe').read_text() == 'new'
+    assert running['value']
+    assert commands.count(('sc.exe', 'start', host_service.SERVICE_NAME)) == 1
+    assert (data / 'nexora.db').read_text() == 'unchanged'
+    assert (source / 'nexora-server.exe').read_text() == 'new'
+    assert not list(root.glob('nexora-upgrade-*'))
+
+
+@pytest.mark.parametrize('platform,winerror', [('darwin', 5), ('win32', 2)])
+def test_service_directory_replace_does_not_retry_unrelated_errors(monkeypatch, tmp_path, platform, winerror):
+    error = PermissionError('其他平台或错误不得隐藏')
+    error.winerror = winerror
+    attempts = []
+
+    def fail(source, target):
+        attempts.append((source, target))
+        raise error
+
+    monkeypatch.setattr(host_service.sys, 'platform', platform)
+    monkeypatch.setattr(host_service.os, 'replace', fail)
+    monkeypatch.setattr(host_service.time, 'sleep', lambda _: pytest.fail('不应等待'))
+    with pytest.raises(PermissionError) as caught:
+        host_service._replace_service_directory(tmp_path / 'old', tmp_path / 'new')
+    assert caught.value is error
+    assert len(attempts) == 1

@@ -4,8 +4,22 @@ import pytest
 
 
 @pytest.fixture
-def remove_material_schema():
+def remove_inventory_warning_schema():
     def remove(db):
+        for table in ('inventory_warning_changes','inventory_warning_rules'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='inventory_warning.manage'")
+        db.execute("DELETE FROM permissions WHERE code='inventory_warning.manage'")
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
+            db.execute("DELETE FROM permission_groups WHERE code='warehouse.warnings'")
+    return remove
+
+
+
+@pytest.fixture
+def remove_material_schema(remove_inventory_warning_schema):
+    def remove(db):
+        remove_inventory_warning_schema(db)
         db.execute('DROP TABLE IF EXISTS material_changes')
         db.execute('DROP TABLE IF EXISTS material_code_sequences')
         from app.catalog.material_rules import DETAIL_FIELDS
