@@ -1,4 +1,5 @@
 import type { ErpOperations, Warehouse } from '../../../../shared/erp-api'
+import type {OutboundLotLineInput, OutboundLotOptions} from '../../../../shared/outbound-lot-api'
 import type { AppState } from '../state'
 
 // 仓库与盘点操作独立维护；写入后由统一入口刷新服务端快照。
@@ -133,9 +134,21 @@ export function createWarehouseActions(
     }, '其他出库草稿已创建。')
   }
 
-  async function postWarehouseOutbound(outboundId: number): Promise<void> {
+  async function loadAvailableOutboundLots(outboundId: number): Promise<OutboundLotOptions> {
+    if (!window.nexora || state.connectionLost.value
+        || !state.user.value?.permissions.includes('other_outbound.post'))
+      throw Error('当前账号无法读取其他出库批次。')
+    const owner = state.user.value.id
+    const result = await window.nexora.callApi('availableOutboundLots', {outboundId})
+    if (state.connectionLost.value || state.user.value?.id !== owner
+        || !state.user.value.permissions.includes('other_outbound.post'))
+      throw Error('连接或账号已变化，请重新读取批次。')
+    return result
+  }
+
+  async function postWarehouseOutbound(outboundId: number, lines?: OutboundLotLineInput[]): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('postWarehouseOutbound', { outboundId }),
+    await perform(() => window.nexora!.callApi('postWarehouseOutbound', { outboundId, lines }),
       `仓库出库单 #${outboundId} 已确认，库存流水已生成。`)
   }
 
@@ -278,6 +291,7 @@ export function createWarehouseActions(
     cancelOtherInbound,
     reverseOtherInbound,
     createOtherOutbound,
+    loadAvailableOutboundLots,
     postWarehouseOutbound,
     cancelOtherOutbound,
     reverseOtherOutbound,

@@ -2,6 +2,7 @@ import {validateInventoryWarningResult} from '../shared/inventory-warning-valida
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedReceiptLots} from '../shared/receipt-lot-validation.ts'
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
+import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
 import {warningThresholdValid} from '../shared/inventory-warning-api.ts'
 import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
@@ -392,7 +393,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'warehouseOutbounds': return { method: 'GET', path: '/api/v1/warehouse-outbounds' }
     case 'createOtherOutbound': return { method: 'POST', path: '/api/v1/warehouse-outbounds', body: payload }
-    case 'postWarehouseOutbound': return { method: 'POST', path: `/api/v1/warehouse-outbounds/${positiveId(payload, 'outboundId')}/post` }
+    case 'availableOutboundLots': return {method: 'GET',
+      path: `/api/v1/warehouse-outbounds/${positiveId(payload, 'outboundId')}/available-lots`}
+    case 'postWarehouseOutbound': {
+      const outboundId = positiveId(payload, 'outboundId')
+      const source = payload as ErpOperations['postWarehouseOutbound']['input']
+      return {method: 'POST', path: `/api/v1/warehouse-outbounds/${outboundId}/post`,
+        ...(source.lines === undefined ? {} : {body: outboundLotBody({lines: source.lines})})}
+    }
     case 'cancelOtherOutbound': return { method: 'POST', path: `/api/v1/warehouse-outbounds/${positiveId(payload, 'outboundId')}/cancel` }
     case 'reverseOtherOutbound': {
       const outboundId = positiveId(payload, 'outboundId')
@@ -800,6 +808,14 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     const request = payload as ErpOperations['postOtherInbound']['input']
     if (request.lines) validatePostedInboundLots(data, request.inboundId,
       inboundLotBody({lines: request.lines}).lines)
+  }
+  if (action === 'availableOutboundLots') {
+    validateOutboundLotOptions(data, (payload as ErpOperations['availableOutboundLots']['input']).outboundId)
+  }
+  if (action === 'postWarehouseOutbound') {
+    const request = payload as ErpOperations['postWarehouseOutbound']['input']
+    if (request.lines) validatePostedOutboundLots(data, request.outboundId,
+      outboundLotBody({lines: request.lines}).lines)
   }
   if (action === 'postProductionCompletion') {
     const request = payload as ErpOperations['postProductionCompletion']['input']
