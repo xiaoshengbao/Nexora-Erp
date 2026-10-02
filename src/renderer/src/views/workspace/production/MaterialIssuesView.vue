@@ -8,28 +8,122 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
-import { useAppStore } from '../../../store/app-store'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
+import {displayError} from '../../../utils/formatters.ts'
+import {receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
+import {outboundAvailableMilli} from '../../../../../shared/outbound-lot-api.ts'
+import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api.ts'
+import type {MaterialIssueLotLineInput,MaterialIssueLotOptions} from '../../../../../shared/material-issue-lot-api'
+import type {MaterialIssue} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
+const store = usePiniaAppStore()
 const {
   error,
   notice,
   busy,
+  connectionLost,
   workOrders,
   materialIssues,
   warehouses,
   materialIssueForm,
-  can,
   selectedIssueOrder,
+} = storeToRefs(store)
+const {
+  can,
   localTime,
   selectIssueOrder,
   createMaterialIssue,
+  loadAvailableMaterialIssueLots,
   postMaterialIssue,
   cancelMaterialIssue,
   selectReturnIssue
-} = useAppStore()
+} = store
+
+const activeIssueId = ref(0)
+const lotOptions = ref<MaterialIssueLotOptions | null>(null)
+const lotDrafts = ref<MaterialIssueLotLineInput[]>([])
+const lotLoading = ref(false)
+const lotLoadError = ref('')
+let loadTicket = 0
+const activeIssue = computed(() => materialIssues.value.find(item =>
+  item.id === activeIssueId.value && item.status === 'draft') ?? null)
+
+function closeLotPost(): void {
+  loadTicket++
+  activeIssueId.value = 0
+  lotOptions.value = null
+  lotDrafts.value = []
+}
+
+async function startLotPost(issue: MaterialIssue): Promise<void> {
+  const ticket = ++loadTicket
+  activeIssueId.value = issue.id
+  lotOptions.value = null
+  lotDrafts.value = []
+  lotLoadError.value = ''
+  lotLoading.value = true
+  try {
+    const result = await loadAvailableMaterialIssueLots(issue.id)
+    if (ticket !== loadTicket || activeIssueId.value !== issue.id) return
+    if (result.warehouse_id !== issue.warehouse_id
+        || result.lines.length !== issue.lines.length
+        || result.lines.some(line => !issue.lines.some(item =>
+          item.id === line.material_issue_line_id && item.component_material_id === line.material_id
+          && item.quantity === line.quantity)))
+      throw Error('可用批次与当前生产领料单不匹配，请刷新单据。')
+    lotOptions.value = result
+    lotDrafts.value = issue.lines.map(line => ({
+      material_issue_line_id: line.id, lots: [{lot_id: 0, quantity: line.quantity}]}))
+  } catch (cause) {
+    if (ticket === loadTicket) lotLoadError.value = displayError(cause)
+  } finally {
+    if (ticket === loadTicket) lotLoading.value = false
+  }
+}
+
+function addLot(line: MaterialIssueLotLineInput): void {
+  if (line.lots.length < 20) line.lots.push({lot_id: 0, quantity: ''})
+}
+
+const lotIssue = computed(() => {
+  const issue = activeIssue.value, options = lotOptions.value
+  if (!issue || !options || lotDrafts.value.length !== issue.lines.length)
+    return '可用批次尚未读取。'
+  for (const line of issue.lines) {
+    const draft = lotDrafts.value.find(item => item.material_issue_line_id === line.id)
+    const available = options.lines.find(item => item.material_issue_line_id === line.id)
+    if (!draft || !available || !draft.lots.length || draft.lots.length > 20)
+      return '每条领料明细至少指定一个实物批次。'
+    const ids = new Set<number>()
+    let total = 0n
+    for (const part of draft.lots) {
+      const candidate = available.lots.find(item => item.lot_id === part.lot_id)
+      if (!candidate || ids.has(part.lot_id)) return `物料 ${line.sku} 的批次无效或重复。`
+      ids.add(part.lot_id)
+      const quantity = receiptLotMilli(part.quantity)
+      if (quantity === null) return '批次数量须大于零、最多三位小数且不超过一百万。'
+      if (quantity > (outboundAvailableMilli(candidate.quantity) ?? 0n))
+        return `批次 ${candidate.code} 的可用量不足，请重新读取。`
+      total += quantity
+    }
+    if (total !== receiptLotMilli(line.quantity))
+      return `物料 ${line.sku} 的批次数量之和须等于 ${line.quantity}。`
+  }
+  return ''
+})
+
+async function confirmLotPost(): Promise<void> {
+  const issue = activeIssue.value
+  if (!issue || lotIssue.value || busy.value || connectionLost.value) return
+  await postMaterialIssue(issue.id, lotDrafts.value.map(line => ({
+    material_issue_line_id: line.material_issue_line_id,
+    lots: line.lots.map(part => ({lot_id: part.lot_id, quantity: part.quantity}))})))
+  if (!materialIssues.value.some(item => item.id === issue.id && item.status === 'draft')) closeLotPost()
+}
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -209,6 +303,10 @@ const filteredRecords = computed(() =>
           <span v-for="line in item.lines" :key="line.id">
             {{ line.material_name }} · 已领 {{ line.quantity }} · 已退
             {{ line.returned_quantity }} · 可退 {{ line.returnable_quantity }} {{ line.unit }}
+            <small v-if="item.status === 'posted' && line.physical_lots.length" class="issue-lot-proof">
+              实物批次：{{ line.physical_lots.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
+            </small>
+            <small v-else-if="item.status === 'posted'" class="issue-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
           </span>
         </div>
       </template>
@@ -218,11 +316,11 @@ const filteredRecords = computed(() =>
             v-if="item.status === 'draft' && can('material_issue.post')"
             type="button"
             :disabled="busy"
-            @click="postMaterialIssue(item.id)"
+            @click="startLotPost(item)"
             variant="primary"
             size="small"
           >
-            确认领料
+            指定批次并确认
           </AppButton>
           <AppButton
             v-if="item.status === 'draft' && can('material_issue.cancel')"
@@ -261,5 +359,41 @@ const filteredRecords = computed(() =>
         </span>
       </template>
     </WorkspaceTable>
+    <NModal :show="!!activeIssue" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
+      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
+        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
+      <form v-if="activeIssue && can('material_issue.post')" class="stack" @submit.prevent="confirmLotPost">
+        <h2>生产领料 #{{ activeIssue.id }} · 指定实物批次</h2>
+        <p>从 {{ activeIssue.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记。</p>
+        <p v-if="lotLoading">正在读取可用批次…</p>
+        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
+        <section v-for="line in lotDrafts" :key="line.material_issue_line_id" class="stack issue-lot-line">
+          <h3>{{ activeIssue.lines.find(item=>item.id===line.material_issue_line_id)?.sku }} · {{ activeIssue.lines.find(item=>item.id===line.material_issue_line_id)?.material_name }} · {{ activeIssue.lines.find(item=>item.id===line.material_issue_line_id)?.quantity }} {{ activeIssue.lines.find(item=>item.id===line.material_issue_line_id)?.unit }}</h3>
+          <div v-for="(part,index) in line.lots" :key="index" class="issue-lot-grid">
+            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
+              :options="[{label:'选择批次',value:0,disabled:true},
+                ...(lotOptions?.lines.find(item=>item.material_issue_line_id===line.material_issue_line_id)?.lots ?? []).map(lot=>({
+                  label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 可用 ${lot.quantity}`,
+                  value:lot.lot_id}))]" /></label>
+            <label>领料数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
+            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
+          </div>
+          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
+        </section>
+        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
+        <div class="form-actions">
+          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认领料并固定批次</AppButton>
+          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
+        </div>
+      </form>
+    </NModal>
   </section>
 </template>
+
+<style scoped>
+.issue-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
+.issue-lot-line h3{margin:0}
+.issue-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
+.issue-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
+@media(max-width:550px){.issue-lot-grid{grid-template-columns:1fr}}
+</style>

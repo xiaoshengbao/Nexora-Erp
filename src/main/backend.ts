@@ -4,6 +4,7 @@ import {inboundLotBody,receiptLotBody,validatePostedInboundLots,validatePostedRe
 import {completionLotBody,validatePostedCompletionLots} from '../shared/completion-lot-validation.ts'
 import {outboundLotBody,validateOutboundLotOptions,validatePostedOutboundLots} from '../shared/outbound-lot-api.ts'
 import {shipmentLotBody,validateShipmentLotOptions,validatePostedShipmentLots} from '../shared/shipment-lot-api.ts'
+import {materialIssueLotBody,validateMaterialIssueLotOptions,validatePostedMaterialIssueLots} from '../shared/material-issue-lot-api.ts'
 import {transferLotBody,validateTransferLotOptions,validatePostedTransferLots} from '../shared/transfer-lot-api.ts'
 import {stocktakeLotBody,validateStocktakeLotOptions,validatePostedStocktakeLots} from '../shared/stocktake-lot-api.ts'
 import {adjustmentLotBody,validateAdjustmentLotOptions,validatePostedAdjustmentLots} from '../shared/adjustment-lot-api.ts'
@@ -653,7 +654,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'cancelWorkOrder': return { method: 'POST', path: `/api/v1/work-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'materialIssues': return { method: 'GET', path: '/api/v1/material-issues' }
     case 'createMaterialIssue': return { method: 'POST', path: '/api/v1/material-issues', body: payload }
-    case 'postMaterialIssue': return { method: 'POST', path: `/api/v1/material-issues/${positiveId(payload, 'issueId')}/post` }
+    case 'availableMaterialIssueLots': return {method: 'GET',
+      path: `/api/v1/material-issues/${positiveId(payload, 'issueId')}/available-lots`}
+    case 'postMaterialIssue': {
+      const source = payload as ErpOperations['postMaterialIssue']['input']
+      return {method: 'POST', path: `/api/v1/material-issues/${positiveId(payload, 'issueId')}/post`,
+        ...(source.lines === undefined ? {} : {body: materialIssueLotBody({lines: source.lines})})}
+    }
     case 'cancelMaterialIssue': return { method: 'POST', path: `/api/v1/material-issues/${positiveId(payload, 'issueId')}/cancel` }
     case 'materialReturns': return { method: 'GET', path: '/api/v1/material-returns' }
     case 'createMaterialReturn': return { method: 'POST', path: '/api/v1/material-returns', body: payload }
@@ -859,6 +866,15 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'availableShipmentLots') {
     validateShipmentLotOptions(data, (payload as ErpOperations['availableShipmentLots']['input']).shipmentId)
+  }
+  if (action === 'availableMaterialIssueLots') {
+    validateMaterialIssueLotOptions(data,
+      (payload as ErpOperations['availableMaterialIssueLots']['input']).issueId)
+  }
+  if (action === 'postMaterialIssue') {
+    const request = payload as ErpOperations['postMaterialIssue']['input']
+    if (request.lines) validatePostedMaterialIssueLots(data, request.issueId,
+      materialIssueLotBody({lines: request.lines}).lines)
   }
   if (action === 'postShipment') {
     const request = payload as ErpOperations['postShipment']['input']

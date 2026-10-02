@@ -13,6 +13,8 @@ from app.core.models import (
     Material,
     MaterialIssue,
     MaterialIssueLine,
+    PhysicalLot,
+    PhysicalLotAllocation,
     StockMovement,
     User,
     Warehouse,
@@ -20,6 +22,7 @@ from app.core.models import (
     WorkOrderLine,
 )
 from app.inventory.warehouse import balance, require_warehouse
+from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 from app.access.security import require
 from app.production.material_returns import returned_quantity
 from app.production.work_orders import issued_quantity
@@ -44,6 +47,25 @@ class MaterialIssueInput(BaseModel):
     warehouse_id: int = Field(gt=0)
     reference: str = Field(default="", max_length=100)
     lines: list[MaterialIssueLineInput] = Field(min_length=1, max_length=100)
+
+
+class MaterialIssueLotPartInput(BaseModel):
+    lot_id: int = Field(gt=0)
+    quantity: Decimal
+
+    @field_validator('quantity')
+    @classmethod
+    def valid_quantity(cls, value: Decimal) -> Decimal:
+        return MaterialIssueLineInput.valid_quantity(value)
+
+
+class MaterialIssueLotLineInput(BaseModel):
+    material_issue_line_id: int = Field(gt=0)
+    lots: list[MaterialIssueLotPartInput] = Field(min_length=1, max_length=20)
+
+
+class MaterialIssuePostInput(BaseModel):
+    lines: list[MaterialIssueLotLineInput] = Field(min_length=1, max_length=100)
 
 
 def material_issue_data(db: Session, issue_id: int) -> dict:
@@ -94,6 +116,19 @@ def material_issue_data(db: Session, issue_id: int) -> dict:
         .mappings()
         .all()
     )
+    lots_by_line: dict[int, list[dict]] = {}
+    for line_id, lot, allocation in db.execute(
+        select(StockMovement.source_line_id, PhysicalLot, PhysicalLotAllocation)
+        .join(PhysicalLotAllocation, PhysicalLotAllocation.movement_id == StockMovement.id)
+        .join(PhysicalLot, PhysicalLot.id == PhysicalLotAllocation.lot_id)
+        .where(StockMovement.source_type == 'material_issue', StockMovement.source_id == issue_id)
+        .order_by(StockMovement.source_line_id, PhysicalLotAllocation.id)
+    ):
+        lots_by_line.setdefault(line_id, []).append({
+            'id': lot.id, 'code': lot.code, 'quantity': format(-Decimal(allocation.quantity), 'f'),
+            'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
+            'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+        })
     details = []
     for line in lines:
         returned = returned_quantity(db, line["id"])
@@ -102,6 +137,7 @@ def material_issue_data(db: Session, issue_id: int) -> dict:
                 **dict(line),
                 "returned_quantity": str(returned),
                 "returnable_quantity": str(Decimal(line["quantity"]) - returned),
+                "physical_lots": lots_by_line.get(line['id'], []),
             }
         )
     return {**dict(row), "lines": details}
@@ -184,8 +220,44 @@ def create_material_issue(
         return material_issue_data(db, cursor.id)
 
 
+@router.get('/material-issues/{issue_id}/available-lots')
+def available_material_issue_lots(issue_id: int,
+                                  _: dict = Depends(require('material_issue.post'))) -> dict:
+    with orm_session() as db:
+        issue = db.get(MaterialIssue, issue_id)
+        if issue is None:
+            raise HTTPException(404, '生产领料单不存在')
+        if issue.status != 'draft':
+            raise HTTPException(409, '只能查询生产领料草稿的可用批次')
+        lines = list(db.execute(
+            select(MaterialIssueLine.id, MaterialIssueLine.quantity,
+                   WorkOrderLine.component_material_id)
+            .join(WorkOrderLine, WorkOrderLine.id == MaterialIssueLine.work_order_line_id)
+            .where(MaterialIssueLine.material_issue_id == issue_id)
+            .order_by(MaterialIssueLine.id)).mappings())
+        materials = {line['component_material_id'] for line in lines}
+        lots = list(db.scalars(select(PhysicalLot).where(
+            PhysicalLot.material_id.in_(materials)).order_by(PhysicalLot.id)))
+        available = {material_id: [] for material_id in materials}
+        for lot in lots:
+            quantity = lot_balance(db, issue.warehouse_id, lot.id)
+            if quantity > 0:
+                available[lot.material_id].append({
+                    'lot_id': lot.id, 'code': lot.code, 'source_kind': lot.source_kind,
+                    'quantity': format(quantity, 'f'), 'supplier_lot': lot.supplier_lot,
+                    'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
+                })
+        return {'material_issue_id': issue_id, 'warehouse_id': issue.warehouse_id,
+                'lines': [{'material_issue_line_id': line['id'],
+                           'material_id': line['component_material_id'],
+                           'quantity': line['quantity'],
+                           'lots': available[line['component_material_id']]}
+                          for line in lines]}
+
+
 @router.post("/material-issues/{issue_id}/post")
-def post_material_issue(issue_id: int, user: dict = Depends(require("material_issue.post"))) -> dict:
+def post_material_issue(issue_id: int, payload: MaterialIssuePostInput | None = None,
+                        user: dict = Depends(require("material_issue.post"))) -> dict:
     with orm_session(write=True) as db:
         # 同一写锁保护剩余需料、库存余额、负向流水和工单状态。
         issue = (
@@ -238,15 +310,17 @@ def post_material_issue(issue_id: int, user: dict = Depends(require("material_is
             issue["work_order_id"],
             [(line["work_order_line_id"], Decimal(line["quantity"])) for line in lines],
         )
+        lot_lines = {line.material_issue_line_id: line for line in payload.lines} if payload else None
+        if lot_lines is not None and (len(lot_lines) != len(payload.lines)
+                                      or set(lot_lines) != {line['id'] for line in lines}):
+            raise HTTPException(422, '领料批次明细须与单据明细一致且不重复')
         for line, order_line in zip(lines, checked):
             if balance(db, issue["warehouse_id"], order_line["component_material_id"]) < Decimal(
                 line["quantity"]
             ):
                 raise HTTPException(409, f"组件 #{order_line['component_material_id']} 在源仓库的库存不足")
         for line, order_line in zip(lines, checked):
-            add_model(
-                db,
-                StockMovement(
+            movement = StockMovement(
                     warehouse_id=issue["warehouse_id"],
                     material_id=order_line["component_material_id"],
                     quantity=str(-Decimal(line["quantity"])),
@@ -254,8 +328,16 @@ def post_material_issue(issue_id: int, user: dict = Depends(require("material_is
                     source_id=issue_id,
                     source_line_id=line["id"],
                     created_by=user["id"],
-                ),
-            )
+                )
+            if lot_lines is None:
+                db.add(movement)
+                continue
+            parts = lot_lines[line['id']].lots
+            if len({part.lot_id for part in parts}) != len(parts):
+                raise HTTPException(422, '一行领料不能重复选择同一实物批次')
+            if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line['quantity']):
+                raise HTTPException(422, f'领料明细 #{line["id"]} 的批次数量之和不匹配')
+            post_lot_movement(db, movement, [LotPart(part.lot_id, -part.quantity) for part in parts])
         db.execute(
             update(MaterialIssue)
             .where((MaterialIssue.id == issue_id))
