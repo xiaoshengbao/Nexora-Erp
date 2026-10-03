@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 身份确认使用统一勾选控件，勾选值仍决定连接入口是否可用。
 import { NCheckbox } from 'naive-ui'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -13,27 +17,20 @@ const { busy, candidate, trustChecked, host, go, approveTrust } = useAppStore()
   <section v-if="candidate" class="onboard-panel trust-panel">
     <span class="trust-icon">◇</span>
     <h2>
-      {{ candidate.changed ? '服务端证书已变化' : '首次连接，需要确认身份' }}
+      {{ candidate.changed ? t('服务端证书已变化') : t('首次连接，需要确认身份') }}
     </h2>
-    <p>
-      请到服务端电脑的“服务端已就绪”页面，核对以下完整 SHA-256
-      指纹。不要只凭本页面显示的名称判断身份。
-    </p>
+    <p>{{ t("请到服务端电脑的“服务端已就绪”页面，核对以下完整 SHA-256 指纹。不要只凭本页面显示的名称判断身份。") }}</p>
     <div class="fingerprint">{{ candidate.fingerprint }}</div>
     <p class="muted">{{ candidate.name }} · {{ candidate.host }}:{{ candidate.port }}</p>
-    <NCheckbox v-model:checked="trustChecked" class="trust-check">
-      我已通过服务端电脑或可信渠道核对完整指纹
-    </NCheckbox>
+    <NCheckbox v-model:checked="trustChecked" class="trust-check">{{ t("我已通过服务端电脑或可信渠道核对完整指纹") }}</NCheckbox>
     <div class="onboard-actions">
-      <AppButton type="button" @click="go('manual')" variant="secondary">取消</AppButton
+      <AppButton type="button" @click="go('manual')" variant="secondary">{{ t("取消") }}</AppButton
       ><AppButton
         type="button"
         :disabled="!trustChecked || busy"
         @click="approveTrust"
         variant="primary"
-      >
-        确认身份并连接
-      </AppButton>
+      >{{ t("确认身份并连接") }}</AppButton>
     </div>
   </section>
 </template>

@@ -42,6 +42,12 @@ export const useThemeStore = defineStore('theme', () => {
     const origin = target instanceof HTMLElement ? themeToggleOrigin(event, target.getBoundingClientRect()) : undefined
     void motion.toggle(origin).catch((error: unknown) => console.error('切换主题失败', error))
   }
+  function selectTheme(mode: ThemeMode, event: MouseEvent): void {
+    // 设置卡片传入明确目标；点击文字、图标或键盘操作都从卡片内部展开。
+    const target = event.target instanceof Element ? event.target.closest('button') : null
+    const origin = target instanceof HTMLElement ? themeToggleOrigin(event, target.getBoundingClientRect()) : undefined
+    void motion.select(mode === 'dark', origin).catch((error: unknown) => console.error('选择主题失败', error))
+  }
   onScopeDispose(motion.dispose)
 
   watch(themeMode, (mode) => {
@@ -53,5 +59,5 @@ export const useThemeStore = defineStore('theme', () => {
     saveThemePreference(availableStorage(), mode)
   }, { immediate: true })
 
-  return { themeMode, isDarkTheme, setDarkTheme, toggleTheme }
+  return { themeMode, isDarkTheme, setDarkTheme, toggleTheme, selectTheme }
 })

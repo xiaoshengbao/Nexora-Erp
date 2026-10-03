@@ -6,6 +6,7 @@ import { useThemeStore } from '../../store/theme-store'
 import { usePiniaAppStore } from '../../store/app-store'
 import WorkspaceTitleNavigation from '../workspace/WorkspaceTitleNavigation.vue'
 import ThemeToggle from './ThemeToggle.vue'
+import AppSettingsButton from './AppSettingsButton.vue'
 
 defineProps<{ platform: string }>()
 const { themeMode } = storeToRefs(useThemeStore())
@@ -31,7 +32,7 @@ watch(themeMode, syncWindowTheme)
       </div>
       <!-- 工作台目录替代固定标语；引导与登录阶段保留可拖动空白。 -->
       <div class="app-titlebar-caption"><WorkspaceTitleNavigation v-if="screen === 'app'" /></div>
-      <div class="app-titlebar-actions"><ThemeToggle /></div>
+      <div class="app-titlebar-actions"><ThemeToggle /><AppSettingsButton /></div>
     </div>
   </header>
 </template>

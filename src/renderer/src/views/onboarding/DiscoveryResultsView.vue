@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
@@ -14,13 +18,11 @@ const { busy, server, discoveries, host, go, startScan, pickDiscovered } =
     <div class="panel-heading">
       <span class="panel-icon"><IconRadarLine aria-hidden="true" /></span>
       <div>
-        <h2>发现 {{ discoveries.length }} 个服务端</h2>
-        <p>选择在线服务端，下一步核对证书指纹。</p>
+        <h2>{{ t('发现 {count} 个服务端', { count: discoveries.length }) }}</h2>
+        <p>{{ t("选择在线服务端，下一步核对证书指纹。") }}</p>
       </div>
     </div>
-    <div v-if="!discoveries.length" class="onboard-empty">
-      当前没有发现可用服务端。请确认两台电脑在同一局域网，或手动填写地址。
-    </div>
+    <div v-if="!discoveries.length" class="onboard-empty">{{ t("当前没有发现可用服务端。请确认两台电脑在同一局域网，或手动填写地址。") }}</div>
     <AppButton
       v-for="entry in discoveries"
       :key="entry.id"
@@ -34,12 +36,12 @@ const { busy, server, discoveries, host, go, startScan, pickDiscovered } =
         ><strong>{{ entry.name }}</strong
         ><small>{{ entry.host }}:{{ entry.port }} · v{{ entry.version }}</small></span
       ><span :class="entry.online ? 'online' : 'offline'">{{
-        entry.online ? '在线 · 连接 →' : '离线'
+        entry.online ? t('在线 · 连接 →') : t('离线')
       }}</span>
     </AppButton>
     <div class="onboard-actions">
-      <AppButton type="button" @click="go('manual')" variant="secondary"> 手动填写</AppButton
-      ><AppButton type="button" @click="startScan" variant="primary"> 重新扫描 </AppButton>
+      <AppButton type="button" @click="go('manual')" variant="secondary">{{ t("手动填写") }}</AppButton
+      ><AppButton type="button" @click="startScan" variant="primary">{{ t("重新扫描") }}</AppButton>
     </div>
   </section>
 </template>

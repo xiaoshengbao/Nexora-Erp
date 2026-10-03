@@ -1,6 +1,6 @@
 import type { Screen } from '../store/types'
 
-// 当前界面先维护中文文案表；未来增加语言时沿用同一组键。
+// 引导标题保留统一阶段索引，英文显示通过公共文案表即时翻译。
 export const onboardingCopy: Record<
   Screen,
   { title: string; description: string }

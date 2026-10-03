@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { before, after, test } from 'node:test'
+import { createPinia } from 'pinia'
+import { createSSRApp, h, nextTick } from 'vue'
+import { renderToString } from '@vue/server-renderer'
+import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
+import { createServer } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import Icons from 'unplugin-icons/vite'
+import { LOCALE_STORAGE_KEY, readLocalePreference, saveLocalePreference } from '../src/renderer/src/utils/locale-preference.ts'
+
+let server, useSettingsStore, translateCopy, englishCopy
+before(async () => {
+  // 执行真实 store 和 Vue 页面，避免测试只复制实现或检查静态字符串。
+  server = await createServer({ configFile: false, plugins: [vue(), Icons({ compiler: 'vue3' }), {
+    name: 'settings-ssr-memory-router',
+    // SSR 没有浏览器 location，只替换地址历史；表单与 Pinia 业务状态仍执行真实代码。
+    load(id) {
+      if (id.endsWith('/router/browser-router.ts'))
+        return "import { createRouter, createMemoryHistory } from 'vue-router'; export const workspaceRouter = createRouter({ history: createMemoryHistory(), routes: [] })"
+    }
+  }],
+    optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+  ;({ useSettingsStore } = await server.ssrLoadModule('/src/renderer/src/store/settings-store.ts'))
+  ;({ translateCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/common-copy.ts'))
+  ;({ englishCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/en-US.ts'))
+})
+after(() => server?.close())
+
+test('语言偏好只接受支持的值，缺失、损坏和存储失败时使用中文', () => {
+  for (const value of [null, '', 'zh-CN', 'en', 'invalid'])
+    assert.equal(readLocalePreference({ getItem: () => value }), 'zh-CN')
+  assert.equal(readLocalePreference({ getItem: () => 'en-US' }), 'en-US')
+  assert.equal(readLocalePreference(undefined), 'zh-CN')
+  assert.equal(readLocalePreference({ getItem() { throw new Error('blocked') } }), 'zh-CN')
+  assert.doesNotThrow(() => saveLocalePreference({ setItem() { throw new Error('blocked') } }, 'en-US'))
+})
+
+test('语言切换同步根语言和本地记忆，开合抽屉不重置偏好并拒绝非法值', async t => {
+  const values = new Map()
+  const oldWindow = globalThis.window, oldDocument = globalThis.document
+  globalThis.window = { localStorage: { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) } }
+  globalThis.document = { documentElement: { lang: '' } }
+  t.after(() => { globalThis.window = oldWindow; globalThis.document = oldDocument })
+  const pinia = createPinia(), settings = useSettingsStore(pinia)
+  settings.openSettings()
+  assert.equal(settings.settingsOpen, true)
+  settings.setLocale('en-US')
+  await nextTick()
+  assert.equal(settings.t('设置'), 'Settings')
+  assert.equal(globalThis.document.documentElement.lang, 'en-US')
+  assert.equal(values.get(LOCALE_STORAGE_KEY), 'en-US')
+  settings.setLocale('invalid')
+  settings.closeSettings()
+  assert.equal(settings.settingsOpen, false)
+  settings.openSettings()
+  assert.equal(settings.locale, 'en-US')
+  // 新窗口恢复语言，但抽屉不会因为上次打开而在启动时自动弹出。
+  const restored = useSettingsStore(createPinia())
+  assert.equal(restored.locale, 'en-US')
+  assert.equal(restored.settingsOpen, false)
+  settings.setLocale('zh-CN')
+  await nextTick()
+  assert.equal(settings.t('设置'), '设置')
+})
+
+test('翻译参数按当前语言替换，服务端名称和未知业务消息保留原文', () => {
+  assert.equal(translateCopy('en-US', '使用 {server} 的账号访问采购、库存与用户权限。', { server: '联光总部' }),
+    'Use your 联光总部 account to access purchasing, inventory and user permissions.')
+  assert.equal(translateCopy('zh-CN', '发现 {count} 个服务端', { count: 0 }), '发现 0 个服务端')
+  assert.equal(translateCopy('en-US', '发现 {count} 个服务端', { count: 2 }), 'Found 2 servers')
+  assert.equal(translateCopy('en-US', '后端业务错误'), '后端业务错误')
+  assert.equal(translateCopy('en-US', '{constructor}'), '{constructor}')
+})
+
+test('公共界面显式翻译文案和所有导航标签都有英文覆盖', async () => {
+  const root = new URL('../src/renderer/src/', import.meta.url)
+  const files = ['views/AuthView.vue', 'views/OnboardingView.vue', 'components/app/AppSettingsDrawer.vue',
+    'components/app/AppSettingsButton.vue', 'components/app/ThemeToggle.vue', 'components/workspace/WorkspaceSidebar.vue',
+    'components/workspace/WorkspaceTabs.vue', 'components/workspace/WorkspaceTitleNavigation.vue',
+    ...readdirSync(new URL('views/onboarding/', root)).filter(name => name.endsWith('.vue')).map(name => `views/onboarding/${name}`)]
+  for (const file of files) {
+    const source = readFileSync(new URL(file, root), 'utf8')
+    for (const [, , copy] of source.matchAll(/\bt\((['"])(.*?)\1/g))
+      assert.ok(englishCopy[copy], `${file} 缺少英文：${copy}`)
+  }
+  const { workspaceRouteGroups } = await server.ssrLoadModule('/src/renderer/src/router/workspace-routes.ts')
+  for (const group of workspaceRouteGroups) {
+    assert.ok(englishCopy[group.label], group.label)
+    for (const route of group.routes) assert.ok(englishCopy[route.label], route.label)
+  }
+  const { onboardingCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/zh-CN.ts')
+  for (const copy of Object.values(onboardingCopy)) {
+    assert.ok(englishCopy[copy.title], copy.title)
+    assert.ok(englishCopy[copy.description], copy.description)
+  }
+})
+
+test('真实登录和管理员表单按语言渲染，保留草稿、密码约束与离线保护', async () => {
+  const { default: AuthView } = await server.ssrLoadModule('/src/renderer/src/views/AuthView.vue')
+  const { usePiniaAppStore } = await server.ssrLoadModule('/src/renderer/src/store/app-store.ts')
+  const pinia = createPinia(), store = usePiniaAppStore(pinia), settings = useSettingsStore(pinia)
+  store.screen = 'login'; store.username = 'draft-admin'; store.password = 'draft-password'
+  store.connectionLost = true
+  async function render() {
+    const app = createSSRApp({ render: () => h(AuthView) }).use(pinia)
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
+  assert.match(await render(), /登录工作台/)
+  settings.setLocale('en-US')
+  const english = await render()
+  assert.match(english, /Sign in to your workspace/)
+  assert.match(english, /value="draft-admin"/)
+  assert.match(english, /placeholder="Enter your password"/)
+  assert.match(english, /type="submit"[^>]*disabled/)
+  assert.equal(store.password, 'draft-password')
+  store.screen = 'setup'
+  const setup = await render()
+  assert.match(setup, /Create the first administrator/)
+  assert.match(setup, /at least 12 characters/)
+  // 最小长度由 AppInput 挂载到真实输入框后安装；SSR 验证初始化密码语义。
+  assert.match(setup, /autocomplete="new-password"/)
+  assert.equal(store.username, 'draft-admin')
+})

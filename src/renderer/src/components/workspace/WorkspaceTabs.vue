@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
@@ -10,7 +14,7 @@ const { activeTab, openedTabs, navigateToRoute, closeOpenedRoute } =
 </script>
 
 <template>
-  <nav class="workspace-tabs" aria-label="已打开页面">
+  <nav class="workspace-tabs" :aria-label="t('已打开页面')">
     <div
       v-for="item in openedTabs"
       :key="item.key"
@@ -24,12 +28,12 @@ const { activeTab, openedTabs, navigateToRoute, closeOpenedRoute } =
         class="workspace-tab-link"
         variant="plain"
       >
-        {{ item.label }}
+        {{ t(item.label) }}
       </AppButton>
       <AppButton
         v-if="openedTabs.length > 1"
         type="button"
-        :aria-label="`关闭${item.label}`"
+        :aria-label="t('关闭{page}', { page: t(item.label) })"
         @click="closeOpenedRoute(item.key)"
         class="workspace-tab-close"
         variant="plain"

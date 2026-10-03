@@ -41,7 +41,7 @@ export function createThemeTransition(options: {
   flush: () => Promise<void>
   environment: () => ThemeTransitionEnvironment | undefined
   timeoutMs?: number
-}): { toggle: (origin?: ThemeOrigin) => Promise<void>; dispose: () => void } {
+}): { toggle: (origin?: ThemeOrigin) => Promise<void>; select: (dark: boolean, origin?: ThemeOrigin) => Promise<void>; dispose: () => void } {
   let queue = Promise.resolve()
   let request = 0
   let pending = 0
@@ -119,10 +119,14 @@ export function createThemeTransition(options: {
   }
 
   function toggle(origin?: ThemeOrigin): Promise<void> {
-    if (disposed) return Promise.resolve()
     if (pending === 0) desired = options.isDark()
-    desired = !desired
-    const dark = desired
+    return select(!desired, origin)
+  }
+
+  function select(dark: boolean, origin?: ThemeOrigin): Promise<void> {
+    if (disposed) return Promise.resolve()
+    // 明确选择浅色/深色和旧切换按钮共用队列，连续操作以最后一次选择为准。
+    desired = dark
     const id = ++request
     pending += 1
     stop()
@@ -138,5 +142,5 @@ export function createThemeTransition(options: {
     stop()
     if (activeRoot) delete activeRoot.dataset.themeTransition
   }
-  return { toggle, dispose }
+  return { toggle, select, dispose }
 }

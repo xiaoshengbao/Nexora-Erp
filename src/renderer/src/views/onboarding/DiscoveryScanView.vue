@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../components/app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
@@ -15,16 +19,16 @@ const { discoveries, scanSeconds, scanning, go, startScan, showResults } =
     </div>
     <div class="scan-copy">
       <p class="onboard-kicker">LIVE DISCOVERY</p>
-      <h2>已扫描 {{ scanSeconds }} 秒</h2>
-      <p>发现 {{ discoveries.length }} 个可用服务端。结果会随着网络变化更新。</p>
+      <h2>{{ t('已扫描 {seconds} 秒', { seconds: scanSeconds }) }}</h2>
+      <p>{{ t('发现 {count} 个可用服务端。结果会随着网络变化更新。', { count: discoveries.length }) }}</p>
       <div class="scan-live">
-        <span class="status-dot"></span>{{ scanning ? '正在发现' : '已暂停' }}
+        <span class="status-dot"></span>{{ scanning ? t('正在发现') : t('已暂停') }}
       </div>
     </div>
     <div class="onboard-actions scan-actions">
-      <AppButton type="button" @click="go('welcome')" variant="secondary"> 返回首页</AppButton
-      ><AppButton type="button" @click="showResults" variant="secondary"> 暂停并查看结果</AppButton
-      ><AppButton type="button" @click="startScan" variant="primary"> 重新扫描 </AppButton>
+      <AppButton type="button" @click="go('welcome')" variant="secondary">{{ t("返回首页") }}</AppButton
+      ><AppButton type="button" @click="showResults" variant="secondary">{{ t("暂停并查看结果") }}</AppButton
+      ><AppButton type="button" @click="startScan" variant="primary">{{ t("重新扫描") }}</AppButton>
     </div>
   </section>
 </template>

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from './AppButton.vue'
 import { useId } from 'vue'
@@ -18,8 +22,8 @@ const maskId = `theme-moon-${useId()}`
     quaternary
     circle
     size="small"
-    :aria-label="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
-    :title="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
+    :aria-label="isDarkTheme ? t('切换为浅色模式') : t('切换为深色模式')"
+    :title="isDarkTheme ? t('切换为浅色模式') : t('切换为深色模式')"
     @click="toggleTheme"
     class="theme-toggle"
     :class="{ 'theme-toggle--dark': isDarkTheme }"

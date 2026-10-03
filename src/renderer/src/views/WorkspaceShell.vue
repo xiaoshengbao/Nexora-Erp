@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../components/app/AppButton.vue'
 import { computed } from 'vue'
@@ -6,6 +10,7 @@ import { useAppStore } from '../store/app-store'
 // 工作台专属导航与跨页面公共组件分目录，避免应用外壳继续依赖平铺组件路径。
 import WorkspaceSidebar from '../components/workspace/WorkspaceSidebar.vue'
 import ThemeToggle from '../components/app/ThemeToggle.vue'
+import AppSettingsButton from '../components/app/AppSettingsButton.vue'
 import WorkspaceTabs from '../components/workspace/WorkspaceTabs.vue'
 import WorkspaceTitleNavigation from '../components/workspace/WorkspaceTitleNavigation.vue'
 import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
@@ -54,7 +59,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 
     <main class="content">
       <header v-if="screen === 'app' && !integratedTitleBar" class="workspace-browser-toolbar">
-        <WorkspaceTitleNavigation /><ThemeToggle />
+        <WorkspaceTitleNavigation /><ThemeToggle /><AppSettingsButton />
       </header>
       <!-- 标签独占标题栏下方、侧栏右侧的一行，不随业务内容滚动。 -->
       <WorkspaceTabs v-if="screen === 'app'" class="workspace-page-tabs" />
@@ -69,8 +74,8 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
             <h1>
               {{
                 screen === 'app'
-                  ? visibleTabs.find((item) => item.key === activeTab)?.label
-                  : '开始使用联光 ERP'
+                  ? t(visibleTabs.find((item) => item.key === activeTab)?.label ?? '')
+                  : t('开始使用联光 ERP')
               }}
             </h1>
             <!-- 页面说明放在主标题下方，与卡片中的操作和筛选分层。 -->
@@ -85,10 +90,10 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
             <!-- 侧栏在窄窗口收起时，顶部保留账号和退出操作。 -->
             <span class="account-identity"
               >{{ user.username }}<small>{{ accountRole }}</small></span
-            ><AppButton type="button" :disabled="busy" @click="logout" variant="text">
-              退出登录
-            </AppButton>
+            ><AppButton type="button" :disabled="busy" @click="logout" variant="text">{{ t("退出登录") }}</AppButton>
           </div>
+          <!-- 浏览器和 Linux 登录页没有融合顶部栏，仍保留右上角设置入口。 -->
+          <div v-if="isAuthScreen && !integratedTitleBar" class="auth-settings-actions"><ThemeToggle /><AppSettingsButton /></div>
         </header>
 
         <AuthView v-if="isAuthScreen" />
@@ -104,6 +109,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 
 <style scoped>
 .workspace-browser-toolbar { display: flex; align-items: center; gap: 12px; flex: none; height: 48px; padding: 0 12px; border-bottom: 1px solid var(--workspace-field-border); }
+.auth-settings-actions { display: flex; align-items: center; margin-left: auto; }
 /* 标签栏脱离内容区的内边距布局，首个标签贴近侧栏边缘。 */
 .workspace-page-tabs {
   flex: none;
