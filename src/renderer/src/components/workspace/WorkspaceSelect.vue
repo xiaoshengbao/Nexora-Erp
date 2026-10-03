@@ -30,8 +30,8 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: T]; change: [value: T] }>()
 const select = ref<SelectInst | null>(null)
 const invalid = ref(false)
-const { isDarkTheme } = storeToRefs(useThemeStore())
-const theme = computed(() => workspaceSelectTheme(isDarkTheme.value))
+const { isDarkTheme, colorPalette } = storeToRefs(useThemeStore())
+const theme = computed(() => workspaceSelectTheme(isDarkTheme.value, colorPalette.value))
 const menuOptions = computed(() =>
   props.options.map((option) => ({ ...option, value: workspaceSelectKey(option.value) }))
 )

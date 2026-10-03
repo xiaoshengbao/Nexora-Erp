@@ -1,4 +1,5 @@
 import type { GlobalThemeOverrides } from 'naive-ui'
+import type { ThemeColorPalette } from './theme-color'
 
 // 日期与文本输入共享主题接口，真正的输入元素只保留文本，不重复绘制边框。
 const inputTheme: NonNullable<GlobalThemeOverrides['Input']> = {
@@ -15,7 +16,7 @@ const inputTheme: NonNullable<GlobalThemeOverrides['Input']> = {
   borderDisabled: '1px solid var(--workspace-field-border)',
   borderHover: '1px solid var(--workspace-field-accent)',
   borderFocus: '1px solid var(--workspace-field-accent)',
-  boxShadowFocus: '0 0 0 2px rgba(81, 183, 180, .16)'
+  boxShadowFocus: '0 0 0 2px var(--app-accent-ring)'
 }
 
 export const naiveThemeOverrides: GlobalThemeOverrides = {
@@ -33,4 +34,9 @@ export const naiveThemeOverrides: GlobalThemeOverrides = {
   },
   // 页面直接使用 NDatePicker，日历面板仍由 Naive UI 提供中文和键盘交互。
   DatePicker: { panelBorderRadius: '10px', peers: { Input: inputTheme } }
+}
+
+// Naive UI 会解析主色生成日历、开关等控件状态，因此传入实际色值而非 CSS 变量。
+export function appThemeOverrides(palette: ThemeColorPalette): GlobalThemeOverrides {
+  return { ...naiveThemeOverrides, common: { primaryColor: palette.accent, primaryColorHover: palette.accentHover, primaryColorPressed: palette.accentPressed } }
 }

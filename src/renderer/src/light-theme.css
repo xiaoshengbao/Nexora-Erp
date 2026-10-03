@@ -5,21 +5,21 @@
 :root[data-theme='light'] .side-category { color: #50637a; }
 :root[data-theme='light'] .side-category:hover,
 :root[data-theme='light'] .side-category[aria-expanded='true'] { background: #dfe8ed; color: #18364d; }
-:root[data-theme='light'] .side-category.current { color: #197d79; }
+:root[data-theme='light'] .side-category.current { color: var(--workspace-field-accent); }
 :root[data-theme='light'] .nav-item { color: #5a6c82; }
 :root[data-theme='light'] .nav-item:hover { background: #dfe8ed; color: #18364d; }
-:root[data-theme='light'] .nav-item.active { background: #d8ecea; color: #146d68; box-shadow: inset 3px 0 #42aca3; }
+:root[data-theme='light'] .nav-item.active { background: var(--app-accent-active-tint); color: var(--workspace-field-accent); box-shadow: inset 3px 0 var(--workspace-field-accent); }
 :root[data-theme='light'] .sidebar-bottom { border-color: #cbd5df; color: #687d94; }
 :root[data-theme='light'] .sidebar-account-card { color: #1c2b40; }
 :root[data-theme='light'] .sidebar-account-card::before { background: linear-gradient(105deg, #cfe5e6, #e1eaf0 75%); }
 :root[data-theme='light'] .sidebar-account-identity small { color: #667d92; }
 :root[data-theme='light'] .sidebar-account-row .theme-toggle { color: #41677b; }
-:root[data-theme='light'] .sidebar-account-row .theme-toggle:hover { background: #dce8ed; color: #146d68; }
+:root[data-theme='light'] .sidebar-account-row .theme-toggle:hover { background: #dce8ed; color: var(--workspace-field-accent); }
 :root[data-theme='light'] .sidebar-account-menu { border-color: #cbd8e3; background: #fff; box-shadow: 0 12px 25px rgba(25, 48, 72, .13); }
 :root[data-theme='light'] .sidebar-account-menu button { color: #28435b; }
 :root[data-theme='light'] .sidebar-account-menu button:hover,
-:root[data-theme='light'] .sidebar-account-menu button:focus-visible { background: #e7f2f2; color: #176f6c; }
-:root[data-theme='light'] .sidebar-account-menu svg { color: #237d7a; }
+:root[data-theme='light'] .sidebar-account-menu button:focus-visible { background: var(--app-accent-tint); color: var(--workspace-field-accent); }
+:root[data-theme='light'] .sidebar-account-menu svg { color: var(--workspace-field-accent); }
 /* 启动向导随主题采用同一浅灰底，不让渐变蓝背景打断整页的主题观感。 */
 :root[data-theme='light'] .onboarding { background: #f1f4f8; }
 :root[data-theme='light'] .onboard-top { background: #fbfcfe; }

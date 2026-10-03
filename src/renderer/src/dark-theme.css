@@ -9,11 +9,11 @@
 :root[data-theme='dark'] .content { background: #0c1526; }
 :root[data-theme='dark'] .workspace-tabs { border-color: #33445f; background: #111d32; }
 :root[data-theme='dark'] .workspace-tab { border-color: #33445f; background: #17253a; color: #a8b9cf; }
-:root[data-theme='dark'] .workspace-tab:hover { background: #203951; color: #8de2d8; }
+:root[data-theme='dark'] .workspace-tab:hover { background: var(--app-accent-tint); color: var(--workspace-field-accent); }
 :root[data-theme='dark'] .workspace-tab.active { background: #0c1526; color: #f1f6ff; }
 :root[data-theme='dark'] .workspace-tab-close:hover { background: #2a4058; }
 :root[data-theme='dark'] .eyebrow,
-:root[data-theme='dark'] .app-button--text { color: #7dd8cf; }
+:root[data-theme='dark'] .app-button--text { color: var(--workspace-field-accent); }
 :root[data-theme='dark'] .account small,
 :root[data-theme='dark'] .muted { color: #9aadc5; }
 
@@ -63,7 +63,7 @@
 :root[data-theme='dark'] .onboarding { color: #e6edf8; background: #101e32; }
 :root[data-theme='dark'] .onboard-top { border-color: #31445f; background: rgba(16, 29, 48, .82); }
 :root[data-theme='dark'] .onboard-logo small,
-:root[data-theme='dark'] .onboard-kicker { color: #82b8ff; }
+:root[data-theme='dark'] .onboard-kicker { color: var(--workspace-field-accent); }
 :root[data-theme='dark'] .onboard-top-note,
 :root[data-theme='dark'] .onboard-hero p:last-child,
 :root[data-theme='dark'] .choice-card .n-button__content > span:nth-last-of-type(1),
@@ -74,7 +74,7 @@
 :root[data-theme='dark'] .choice-card,
 :root[data-theme='dark'] .onboard-panel { border-color: #3b5675; background: #152941; color: #e6edf8; box-shadow: 0 15px 40px #07101c40; }
 :root[data-theme='dark'] .choice-card.featured,
-:root[data-theme='dark'] .setup-summary { border-color: #4589c6; background: linear-gradient(155deg, #1d3853, #152941 70%); }
+:root[data-theme='dark'] .setup-summary { border-color: var(--workspace-field-accent); background: linear-gradient(155deg, var(--app-accent-tint), var(--workspace-field-background) 70%); }
 :root[data-theme='dark'] .choice-index,
 :root[data-theme='dark'] .form-hint,
 :root[data-theme='dark'] .fingerprint-label,
@@ -94,7 +94,7 @@
 :root[data-theme='dark'] .fingerprint { border-color: #456a90; background: #203f5d; color: #b8d9fb; }
 :root[data-theme='dark'] .trust-icon,
 :root[data-theme='dark'] .panel-icon,
-:root[data-theme='dark'] .choice-symbol { border-color: #42698d; background: #254869; color: #9bc9ff; }
+:root[data-theme='dark'] .choice-symbol { border-color: var(--workspace-field-border); background: var(--app-accent-tint); color: var(--workspace-field-accent); }
 :root[data-theme='dark'] .offline-symbol { background: #433923; color: #f1c37c; }
 :root[data-theme='dark'] {
   /* 日期选择框与暗色工作台表单保持一致，弹出的日历由 Naive UI 的 darkTheme 管理。 */

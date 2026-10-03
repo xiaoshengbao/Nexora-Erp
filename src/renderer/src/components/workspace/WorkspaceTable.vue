@@ -201,7 +201,7 @@ defineSlots<{
 .workspace-table-scrollbar::-webkit-slider-thumb { appearance: none; width: var(--scroll-thumb-width); height: 10px; border: 0; border-radius: 6px; background: #61869c; box-shadow: 0 1px 2px #28465b38; }
 .workspace-table-scrollbar::-moz-range-thumb { width: var(--scroll-thumb-width); height: 10px; border: 0; border-radius: 6px; background: #61869c; box-shadow: 0 1px 2px #28465b38; }
 .workspace-table-scrollbar:hover::-webkit-slider-thumb { background: #2c7183; }
-.workspace-table-scrollbar:active::-webkit-slider-thumb { background: #197d79; }
+.workspace-table-scrollbar:active::-webkit-slider-thumb { background: var(--workspace-field-accent); }
 .workspace-table-scrollbar:focus-visible { outline: 2px solid #278b87; outline-offset: 3px; }
 @media (max-width: 650px) {
   .workspace-table-heading { align-items: stretch; flex-direction: column; }
@@ -217,7 +217,7 @@ defineSlots<{
   /* 按需加载未提供边框宽度默认值，缺失时分隔线渐变会铺满整个单元格。 */
   --vxe-ui-table-border-width: 1px;
   --vxe-ui-font-color: #263950;
-  --vxe-ui-font-primary-color: #197d79;
+  --vxe-ui-font-primary-color: var(--workspace-field-accent);
   --vxe-ui-layout-background-color: #fff;
   --vxe-ui-table-header-background-color: #f1f5f7;
   --vxe-ui-table-header-font-color: #52657b;
@@ -264,7 +264,7 @@ defineSlots<{
 :root[data-theme='dark'] .workspace-vxe-table .vxe-header--column > .vxe-cell { color: #d6e4f2; }
 :root[data-theme='dark'] .workspace-vxe-table {
   --vxe-ui-font-color: #e6edf8;
-  --vxe-ui-font-primary-color: #7dd8cf;
+  --vxe-ui-font-primary-color: var(--workspace-field-accent);
   --vxe-ui-layout-background-color: #142238;
   --vxe-ui-table-header-background-color: #203047;
   --vxe-ui-table-header-font-color: #b3c4d8;

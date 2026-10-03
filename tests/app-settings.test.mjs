@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 import Icons from 'unplugin-icons/vite'
 import { LOCALE_STORAGE_KEY, readLocalePreference, saveLocalePreference } from '../src/renderer/src/utils/locale-preference.ts'
 
-let server, useSettingsStore, translateCopy, englishCopy
+let server, useSettingsStore, useThemeStore, translateCopy, englishCopy
 before(async () => {
   // 执行真实 store 和 Vue 页面，避免测试只复制实现或检查静态字符串。
   server = await createServer({ configFile: false, plugins: [vue(), Icons({ compiler: 'vue3' }), {
@@ -22,6 +22,7 @@ before(async () => {
     }
   }],
     optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+  ;({ useThemeStore } = await server.ssrLoadModule('/src/renderer/src/store/theme-store.ts'))
   ;({ useSettingsStore } = await server.ssrLoadModule('/src/renderer/src/store/settings-store.ts'))
   ;({ translateCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/common-copy.ts'))
   ;({ englishCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/en-US.ts'))
@@ -123,4 +124,34 @@ test('真实登录和管理员表单按语言渲染，保留草稿、密码约�
   // 最小长度由 AppInput 挂载到真实输入框后安装；SSR 验证初始化密码语义。
   assert.match(setup, /autocomplete="new-password"/)
   assert.equal(store.username, 'draft-admin')
+})
+
+// 执行真实主题 store，覆盖恢复、非法值和明暗独立性；DOM 只记录同步结果。
+test('颜色切换同步根变量，保留语言和抽屉状态，重启恢复颜色且不影响明暗偏好', async t => {
+  const values = new Map(), styles = new Map()
+  const oldWindow = globalThis.window, oldDocument = globalThis.document
+  globalThis.window = { localStorage: { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) } }
+  globalThis.document = { documentElement: { dataset: {}, style: { setProperty: (key, value) => styles.set(key, value) } } }
+  t.after(() => { globalThis.window = oldWindow; globalThis.document = oldDocument })
+  const pinia = createPinia(), theme = useThemeStore(pinia), settings = useSettingsStore(pinia)
+  settings.setLocale('en-US'); settings.openSettings()
+  theme.setThemeColor('violet'); await nextTick()
+  assert.equal(styles.get('--app-button-primary'), '#7c3aed')
+  assert.equal(globalThis.document.documentElement.dataset.themeColor, 'violet')
+  assert.equal(values.get('nexora-theme-color'), 'violet')
+  theme.setDarkTheme(true); await nextTick()
+  assert.equal(theme.themeColor, 'violet')
+  assert.equal(styles.get('--workspace-field-accent'), '#c4b5fd')
+  assert.equal(settings.locale, 'en-US'); assert.equal(settings.settingsOpen, true)
+  theme.setThemeColor('url(malicious)'); await nextTick()
+  assert.equal(theme.themeColor, 'violet')
+  const restored = useThemeStore(createPinia())
+  assert.equal(restored.themeColor, 'violet'); assert.equal(restored.themeMode, 'dark')
+  theme.setDarkTheme(false); await nextTick()
+  assert.equal(styles.get('--workspace-field-accent'), theme.colorPalette.accent)
+  assert.equal(theme.themeColor, 'violet')
+  // 存储拒绝写入时主题仍生效，不能让隐私模式阻断操作。
+  globalThis.window.localStorage.setItem = () => { throw new Error('blocked') }
+  theme.setThemeColor('rose'); await nextTick()
+  assert.equal(styles.get('--app-button-primary'), '#be185d')
 })
