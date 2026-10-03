@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 70:
+        if version > 71:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2283,3 +2283,59 @@ def migrate() -> None:
                 db.execute('ALTER TABLE bank_statement_lines ADD COLUMN import_batch_id INTEGER REFERENCES bank_import_batches(id)')
             db.execute('CREATE INDEX IF NOT EXISTS bank_statement_lines_import_batch ON bank_statement_lines(import_batch_id,id)')
             db.execute('PRAGMA user_version = 70')
+
+        if version < 71:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            account_columns = {row[1] for row in db.execute('PRAGMA table_info(bank_accounts)')}
+            for column, declaration in (
+                ('ledger_account_id', 'INTEGER REFERENCES ledger_accounts(id)'),
+                ('opening_balance', 'TEXT'), ('effective_date', 'TEXT'),
+                ('version', 'INTEGER NOT NULL DEFAULT 1')):
+                if column not in account_columns:
+                    db.execute(f'ALTER TABLE bank_accounts ADD COLUMN {column} {declaration}')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS bank_accounts_ledger_account ON bank_accounts(ledger_account_id) WHERE ledger_account_id IS NOT NULL')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_account_changes (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                before_json TEXT NOT NULL, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_ledger_match_groups (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                amount TEXT NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_ledger_match_members (
+                id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES bank_ledger_match_groups(id),
+                side TEXT NOT NULL CHECK(side IN ('bank','book')),
+                source_id INTEGER NOT NULL,
+                bank_line_id INTEGER REFERENCES bank_statement_lines(id),
+                journal_line_id INTEGER REFERENCES journal_lines(id),
+                amount TEXT NOT NULL,
+                CHECK((side='bank' AND bank_line_id=source_id AND journal_line_id IS NULL)
+                    OR (side='book' AND journal_line_id=source_id AND bank_line_id IS NULL)))''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_ledger_match_members_source ON bank_ledger_match_members(side,source_id,group_id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_ledger_match_reversals (
+                id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL UNIQUE REFERENCES bank_ledger_match_groups(id),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_balance_reports (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                as_of_date TEXT NOT NULL, declared_bank_closing TEXT NOT NULL,
+                fingerprint TEXT NOT NULL, snapshot_json TEXT NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_balance_reports_scope ON bank_balance_reports(account_id,as_of_date,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_balance_report_decisions (
+                id INTEGER PRIMARY KEY, report_id INTEGER NOT NULL REFERENCES bank_balance_reports(id),
+                action TEXT NOT NULL CHECK(action IN ('approve','reject','supersede')),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS bank_balance_report_terminal ON bank_balance_report_decisions(report_id) WHERE action IN ('approve','reject')")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS bank_balance_report_supersede ON bank_balance_report_decisions(report_id) WHERE action='supersede'")
+            operations = [('bank_reconciliation.reconcile', '编制银行余额调节表'),
+                          ('bank_reconciliation.review', '复核银行余额调节表')]
+            db.executemany("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,'finance.bank_reconciliation')", operations)
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, code) for role in ('admin','finance') for code, _ in operations])
+            db.execute('PRAGMA user_version = 71')

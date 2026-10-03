@@ -622,7 +622,7 @@ export interface PaymentRecord {
   party_name: string
   currency: 'CNY'
 }
-export interface BankAccount { id: number; code: string; name: string; created_by: number; created_by_name: string; created_at: string }
+export interface BankAccount { id: number; code: string; name: string; ledger_account_id: number | null; opening_balance: string | null; effective_date: string | null; version: number; created_by: number; created_by_name: string; created_at: string }
 export interface BankImportBatch { id: number; account_id: number; file_name: string; sha256: string; row_count: number; created_by: number; created_by_name: string; created_at: string }
 export interface BankCsvInput { account_id: number; file_name: string; content_base64: string }
 export interface BankCsvPreview { sha256: string; row_count: number; duplicate_file: boolean; existing_transaction_ids: string[]; can_import: boolean; sample: Pick<BankStatementLine, 'transaction_id' | 'occurred_on' | 'amount' | 'counterparty'>[] }
@@ -631,6 +631,35 @@ export interface BankPaymentSource { source_type: 'order_payment' | 'subledger_p
 export interface BankMatchReversal { id: number; match_id: number; reason: string; created_by: number; created_by_name: string; created_at: string }
 export interface BankMatch { id: number; statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string; created_by: number; created_by_name: string; created_at: string; reversal: BankMatchReversal | null }
 export interface BankReconciliationOverview { currency: 'CNY'; accounts: BankAccount[]; imports: BankImportBatch[]; lines: BankStatementLine[]; sources: BankPaymentSource[]; matches: BankMatch[] }
+export interface BankBalanceInput { account_id: number; as_of_date: string; declared_bank_closing: string }
+export interface BankBalanceItem { id: number; amount: string; occurred_on?: string; transaction_id?: string; counterparty?: string; journal_id?: number; journal_date?: string; reference?: string; summary?: string }
+export interface BankBalancePreview {
+  account_id: number; account_code: string; ledger_account_id: number; ledger_code: string
+  effective_date: string; as_of_date: string; bank_opening: string; bank_movements: string
+  bank_closing_computed: string; bank_closing_declared: string; book_opening: string
+  book_movements: string; book_closing: string; bank_unmatched: BankBalanceItem[]
+  book_unmatched: BankBalanceItem[]; adjusted_bank: string; adjusted_book: string
+  bank_statement_balanced: boolean; balanced: boolean; fingerprint: string
+  matched_evidence: { group_id: number; bank_line_ids: number[]; journal_line_ids: number[] }[]
+}
+export interface BankLedgerMatchGroup {
+  id: number; account_id: number; amount: string; reason: string; created_by: number
+  created_by_name: string; created_at: string
+  members: { id: number; group_id: number; side: 'bank' | 'book'; source_id: number; bank_line_id: number | null; journal_line_id: number | null; amount: string }[]
+  reversal: { id: number; group_id: number; reason: string; created_by: number; created_at: string } | null
+}
+export interface BankBalanceReport {
+  id: number; account_id: number; as_of_date: string; declared_bank_closing: string
+  fingerprint: string; snapshot_json: string; snapshot: BankBalancePreview; reason: string
+  created_by: number; created_by_name: string; created_at: string
+  status: 'draft' | 'approved' | 'rejected' | 'superseded'; stale: boolean
+  decisions: { id: number; report_id: number; action: 'approve' | 'reject' | 'supersede'; reason: string; created_by: number; created_by_name: string; created_at: string }[]
+}
+export interface BankBalanceOverview {
+  accounts: BankAccount[]; ledger_accounts: { id: number; code: string; name: string }[]; opening_effective_date: string | null
+  account_changes: { id: number; account_id: number; before_json: string; after_json: string; reason: string; changed_by: number; changed_by_name: string; created_at: string }[]
+  matches: BankLedgerMatchGroup[]; reports: BankBalanceReport[]
+}
 export interface FinanceOverview {
   report: ReceivablesPayables
   accounts: FinanceAccount[]
@@ -1269,6 +1298,13 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   importBankCsv: { input: BankCsvInput; output: { batch_id: number; account_id: number; sha256: string; line_ids: number[]; imported_count: number } }
   matchBankLine: { input: { statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string }; output: BankMatch }
   reverseBankMatch: { input: { matchId: number; reason: string }; output: BankMatchReversal }
+  bankBalanceOverview: { input: undefined; output: BankBalanceOverview }
+  bindBankLedgerAccount: { input: { accountId: number; ledger_account_id: number; opening_balance: string; effective_date: string; version: number; reason: string }; output: BankAccount }
+  previewBankBalance: { input: BankBalanceInput; output: BankBalancePreview }
+  matchBankLedger: { input: { account_id: number; bank_line_ids: number[]; journal_line_ids: number[]; reason: string }; output: { id: number; account_id: number; amount: string; reason: string; created_by: number; created_at: string; bank_line_ids: number[]; journal_line_ids: number[] } }
+  reverseBankLedgerMatch: { input: { groupId: number; reason: string }; output: NonNullable<BankLedgerMatchGroup['reversal']> }
+  createBankBalanceReport: { input: BankBalanceInput & { reason: string }; output: Omit<BankBalanceReport, 'created_by_name' | 'stale' | 'decisions'> }
+  decideBankBalanceReport: { input: { reportId: number; action: 'approve' | 'reject'; reason: string }; output: Omit<BankBalanceReport['decisions'][number], 'created_by_name'> }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
   boms: { input: undefined; output: Bom[] }

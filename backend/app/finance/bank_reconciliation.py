@@ -253,6 +253,9 @@ def import_lines(data: LineBatchInput, user: dict = Depends(require('bank_reconc
             account = db.get(BankAccount, data.account_id)
             if account is None:
                 raise HTTPException(404, '银行账户不存在')
+            if account.effective_date is not None and any(
+                line.occurred_on < account.effective_date for line in data.lines):
+                raise HTTPException(409, '银行流水日期不能早于已绑定总账期初日')
             ids = []
             for line in data.lines:
                 item = add_model(db, BankStatementLine(account_id=account.id,
@@ -269,8 +272,12 @@ def import_lines(data: LineBatchInput, user: dict = Depends(require('bank_reconc
 def preview_csv(data: CsvImportInput, _: dict = Depends(require('bank_reconciliation.record'))) -> dict:
     digest, lines = parse_csv(data)
     with orm_session() as db:
-        if db.get(BankAccount, data.account_id) is None:
+        account = db.get(BankAccount, data.account_id)
+        if account is None:
             raise HTTPException(404, '银行账户不存在')
+        if account.effective_date is not None and any(
+            line.occurred_on < account.effective_date for line in lines):
+            raise HTTPException(409, '银行流水日期不能早于已绑定总账期初日')
         duplicate_file, existing = csv_conflicts(db, data.account_id, digest, lines)
     return dict(sha256=digest, row_count=len(lines), duplicate_file=duplicate_file,
         existing_transaction_ids=existing, can_import=not duplicate_file and not existing,
@@ -283,8 +290,12 @@ def import_csv(data: CsvImportInput, user: dict = Depends(require('bank_reconcil
     digest, lines = parse_csv(data)
     try:
         with orm_session(write=True) as db:
-            if db.get(BankAccount, data.account_id) is None:
+            account = db.get(BankAccount, data.account_id)
+            if account is None:
                 raise HTTPException(404, '银行账户不存在')
+            if account.effective_date is not None and any(
+                line.occurred_on < account.effective_date for line in lines):
+                raise HTTPException(409, '银行流水日期不能早于已绑定总账期初日')
             duplicate_file, existing = csv_conflicts(db, data.account_id, digest, lines)
             if duplicate_file or existing:
                 raise HTTPException(409, '文件或银行交易号已导入，整批未写入')
