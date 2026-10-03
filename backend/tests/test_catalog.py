@@ -41,13 +41,16 @@ def test_crud_validation_and_conflicts(client, resource, original, updated):
         other = create(client, resource, {**original, 'sku': 'OTHER'})
         assert client.put(f"/api/v1/{resource}/{other}", json={**updated, 'version': 1}).status_code == 409
     else:
-        expected = {"id": record, **updated}
-        assert client.put(path, json=updated).json() == expected
+        assert client.put(path, json=updated).status_code == 409
+        expected = {"id": record, **updated, "version": 2}
+        assert client.put(path, json={**updated, "version": 1, "reason": "修正基础资料"}).json() == expected
         other = create(client, resource, original)
-        assert client.put(f"/api/v1/{resource}/{other}", json=updated).status_code == 409
+        assert client.put(f"/api/v1/{resource}/{other}",
+                          json={**updated, "version": 1, "reason": "重复资料"}).status_code == 409
     assert expected in client.get(f"/api/v1/{resource}").json()
-    assert client.delete(path).status_code == 204
-    assert client.delete(path).status_code == 404
+    delete_path = path if resource == 'materials' else f'{path}?version=2'
+    assert client.delete(delete_path).status_code == 204
+    assert client.delete(delete_path).status_code == 404
     assert client.put(path, json=updated).status_code == 404
 
 
@@ -65,7 +68,7 @@ def test_many_to_many_and_unbind(client):
     assert client.delete(f"/api/v1/suppliers/{suppliers[0]}/materials/{materials[0]}").status_code == 204
     assert len(client.get("/api/v1/supplier-materials").json()) == 3
     assert len(client.get("/api/v1/materials").json()) == 2
-    assert client.delete(f"/api/v1/suppliers/{suppliers[0]}").status_code == 204
+    assert client.delete(f"/api/v1/suppliers/{suppliers[0]}?version=1").status_code == 204
     assert len(client.get("/api/v1/supplier-materials").json()) == 2
     assert client.delete(f"/api/v1/materials/{materials[0]}").status_code == 204
     assert client.get("/api/v1/supplier-materials").json() == [{"supplier_id": suppliers[1], "material_id": materials[1]}]
@@ -78,7 +81,8 @@ def test_referenced_records_cannot_be_deleted_and_links_survive_rollback(client)
     client.put(f"/api/v1/suppliers/{supplier}/materials/{material}")
     create(client, "receipts", {"supplier_id": supplier, "warehouse_id": warehouse, "lines": [{"material_id": material, "quantity": "1"}]})
     for resource, record in [("materials", material), ("suppliers", supplier), ("warehouses", warehouse), ("warehouses", 1)]:
-        assert client.delete(f"/api/v1/{resource}/{record}").status_code == 409
+        suffix = '' if resource == 'materials' else '?version=1'
+        assert client.delete(f"/api/v1/{resource}/{record}{suffix}").status_code == 409
     assert client.get("/api/v1/supplier-materials").json() == [{"supplier_id": supplier, "material_id": material}]
 
 
@@ -147,7 +151,7 @@ def test_v27_migration_preserves_existing_materials(client, remove_v39_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 61
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 62
         assert db.execute("SELECT name FROM materials WHERE id = ?", (material,)).fetchone()[0] == "旧物料"
         assert db.execute("SELECT COUNT(*) FROM supplier_materials").fetchone()[0] == 0
 
@@ -165,7 +169,7 @@ def test_supplier_pagination_search_and_deleted_last_page(client):
     assert filtered["total"] == 3
     assert [item["id"] for item in filtered["items"]] == ids[20:]
     for record in ids[20:]:
-        assert client.delete(f"/api/v1/suppliers/{record}").status_code == 204
+        assert client.delete(f"/api/v1/suppliers/{record}?version=1").status_code == 204
     last = client.post(endpoint, json={"page": 3, "page_size": 10}).json()
     assert (last["page"], last["total"], len(last["items"])) == (2, 20, 10)
     create(client, "suppliers", {"name": "A%_Company"})

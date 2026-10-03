@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 61:
+        if version > 62:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2090,3 +2090,27 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                            [(role,'customer.view_all') for role in ('admin','warehouse','finance')])
             db.execute('PRAGMA user_version = 61')
+
+        if version < 62:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            supplier_columns = {row['name'] for row in db.execute('PRAGMA table_info(suppliers)')}
+            if 'version' not in supplier_columns:
+                db.execute('ALTER TABLE suppliers ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version>0)')
+            warehouse_columns = {row['name'] for row in db.execute('PRAGMA table_info(warehouses)')}
+            if 'version' not in warehouse_columns:
+                db.execute('ALTER TABLE warehouses ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version>0)')
+            # 历史档案不能推断修改人和修改依据，只从升级后的真实操作开始记审计。
+            db.execute('''CREATE TABLE IF NOT EXISTS supplier_changes (
+                id INTEGER PRIMARY KEY, supplier_id INTEGER NOT NULL,
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT,
+                reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS supplier_change_history ON supplier_changes(supplier_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS warehouse_changes (
+                id INTEGER PRIMARY KEY, warehouse_id INTEGER NOT NULL,
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT,
+                reason TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS warehouse_change_history ON warehouse_changes(warehouse_id,id)')
+            db.execute('PRAGMA user_version = 62')

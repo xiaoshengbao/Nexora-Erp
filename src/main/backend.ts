@@ -107,6 +107,23 @@ function positiveId(payload: unknown, key: string): number {
   return value
 }
 
+function masterDataEdit(payload: unknown, warehouse: boolean): Record<string, string | number> {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, unknown> : {}
+  const name = source.name
+  const reason = source.reason
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > (warehouse ? 80 : 120)
+    || typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) {
+    throw new Error('档案名称或修改原因无效')
+  }
+  const body: Record<string, string | number> = { name: name.trim(), version: positiveId(payload, 'version'), reason: reason.trim() }
+  if (warehouse) {
+    if (typeof source.code !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(source.code)) throw new Error('仓库编码无效')
+    body.code = source.code.toUpperCase()
+  }
+  return body
+}
+
 function roleCode(payload: unknown): string {
   // 自定义角色代码写入 URL 前先按服务端规则校验，避免路径注入。
   const code = payload && typeof payload === 'object' ? (payload as Record<string, unknown>).code : undefined
@@ -404,10 +421,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'updateMaterial': return { method: 'PUT', path: `/api/v1/materials/${positiveId(payload, 'id')}`, body: materialBody(payload, true) }
     case 'deleteMaterial': return { method: 'DELETE', path: `/api/v1/materials/${positiveId(payload, 'id')}` }
-    case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: payload }
-    case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}` }
-    case 'updateWarehouse': return { method: 'PUT', path: `/api/v1/warehouses/${positiveId(payload, 'id')}`, body: payload }
-    case 'deleteWarehouse': return { method: 'DELETE', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
+    case 'supplierDetail': return { method: 'GET', path: `/api/v1/suppliers/${positiveId(payload, 'id')}` }
+    case 'supplierChanges': return { method: 'GET', path: `/api/v1/suppliers/${positiveId(payload, 'id')}/changes` }
+    case 'recentSupplierChanges': return { method: 'GET', path: `/api/v1/supplier-changes${payload && typeof payload==='object' && 'before_id' in payload ? '?before_id='+positiveId(payload,'before_id') : ''}` }
+    case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: masterDataEdit(payload, false) }
+    case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
+    case 'warehouseDetail': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
+    case 'warehouseChanges': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}/changes` }
+    case 'recentWarehouseChanges': return { method: 'GET', path: `/api/v1/warehouse-changes${payload && typeof payload==='object' && 'before_id' in payload ? '?before_id='+positiveId(payload,'before_id') : ''}` }
+    case 'updateWarehouse': return { method: 'PUT', path: `/api/v1/warehouses/${positiveId(payload, 'id')}`, body: masterDataEdit(payload, true) }
+    case 'deleteWarehouse': return { method: 'DELETE', path: `/api/v1/warehouses/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
     // 只允许固定分类目录地址，客户端不能指定外部资源。
     case 'materialCategories': return { method: 'GET', path: '/api/v1/material-categories' }
     case 'materialDetail': return { method: 'GET', path: `/api/v1/materials/${positiveId(payload, 'id')}` }

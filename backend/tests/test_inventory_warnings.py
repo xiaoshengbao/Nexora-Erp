@@ -154,7 +154,7 @@ def test_missing_sources_bad_scope_and_reference_protection(erp):
         api('PUT',ROOT+f'/rules/{warehouse}/{material}',dict(version=0,threshold='1',enabled=True,reason='登记'),status=404)
     save(erp,warehouse=erp[4],enabled=False)
     api('DELETE',f'materials/{erp[3]}',status=409)
-    api('DELETE',f'warehouses/{erp[4]}',status=409)
+    api('DELETE',f'warehouses/{erp[4]}?version=1',status=409)
     assert len(api('GET',ROOT)['rows'])==1
 
 
@@ -200,14 +200,14 @@ def test_v54_upgrade_preserves_business_and_is_idempotent(erp,remove_inventory_w
         remove_inventory_warning_schema(db);db.execute('PRAGMA user_version=54')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==61
+        assert db.execute('PRAGMA user_version').fetchone()[0]==62
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('SELECT * FROM materials ORDER BY id').fetchall()==material_before
         assert db.execute('SELECT * FROM material_code_sequences ORDER BY prefix').fetchall()==codes_before
         assert db.execute('SELECT * FROM material_changes ORDER BY id').fetchall()==changes_before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='inventory_warning.manage'").fetchone()[0]==2
-    assert len(Base.metadata.tables)==141
+    assert len(Base.metadata.tables)==143
 
 
 @pytest.mark.parametrize('old_version',[53,54])

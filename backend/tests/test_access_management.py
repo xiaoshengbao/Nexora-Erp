@@ -139,6 +139,8 @@ def test_legacy_permission_codes_gain_labels(monkeypatch, tmp_path, remove_v39_s
         # 模拟 v24 旧库：权限表只有代码，迁移须保留已有角色关联所用的代码。
         # 物料参数与批次期初升级依赖旧版基础表，最小权限夹具补上空的历史表。
         db.execute("CREATE TABLE materials (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, unit TEXT)")
+        db.execute("CREATE TABLE suppliers (id INTEGER PRIMARY KEY, name TEXT)")
+        db.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, code TEXT, name TEXT)")
         db.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, created_at TEXT)")
         db.execute("CREATE TABLE stock_movements (id INTEGER PRIMARY KEY, warehouse_id INTEGER, material_id INTEGER, quantity TEXT)")
         db.execute("CREATE TABLE permissions (code TEXT PRIMARY KEY)")
@@ -149,7 +151,7 @@ def test_legacy_permission_codes_gain_labels(monkeypatch, tmp_path, remove_v39_s
         db.execute("PRAGMA user_version = 24")
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 61
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 62
         labels = dict(db.execute("SELECT code, label FROM permissions").fetchall())
         assert labels["bom.activate"] == "启用生产物料清单版本"
         assert labels["future.view"] == "未命名权限"
@@ -281,6 +283,6 @@ def test_code_labels_are_repaired_without_overwriting_custom_names(monkeypatch, 
 
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 61
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 62
         assert db.execute("SELECT role_code, permission_code FROM role_permissions ORDER BY 1, 2").fetchall() == grants
         assert db.execute("SELECT label FROM permissions WHERE code = 'inventory.view'").fetchone()[0] == "查看仓库实时库存"

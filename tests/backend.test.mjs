@@ -279,8 +279,12 @@ test('基础资料接口限定路径和正整数编号', async (t) => {
   await callBackend('login', {})
   for (const [entity, resource] of [['Material', 'materials'], ['Supplier', 'suppliers'], ['Warehouse', 'warehouses']]) {
     for (const [verb, method] of [['update', 'PUT'], ['delete', 'DELETE']]) {
-      await callBackend(verb + entity, entity === 'Material' && verb === 'update'
-        ? { id: 2, name: '电阻', unit: '件', version: 1 } : { id: 2 })
+      const payload = verb === 'update'
+        ? entity === 'Material' ? { id: 2, name: '电阻', unit: '件', version: 1 }
+          : entity === 'Supplier' ? { id: 2, name: '供应商', version: 1, reason: '核对档案' }
+            : { id: 2, code: 'EAST', name: '东仓', version: 1, reason: '核对档案' }
+        : entity === 'Material' ? { id: 2 } : { id: 2, version: 1 }
+      await callBackend(verb + entity, payload)
       assert.deepEqual(calls.at(-1), [`/api/v1/${resource}/2`, method])
       await assert.rejects(callBackend(verb + entity, { id: '../users' }), /记录编号无效/)
     }
@@ -291,6 +295,36 @@ test('基础资料接口限定路径和正整数编号', async (t) => {
   assert.deepEqual(calls.at(-1), ['/api/v1/suppliers/3/materials/4', 'DELETE'])
   await assert.rejects(callBackend('bindSupplierMaterial', { supplierId: 3, materialId: '../users' }), /记录编号无效/)
   await assert.rejects(callBackend('unbindSupplierMaterial', { supplierId: 0, materialId: 4 }), /记录编号无效/)
+})
+
+test('供应商和仓库审计接口只转发固定字段及版本', async (t) => {
+  const originalUrl = process.env.NEXORA_API_URL
+  t.after(() => {
+    if (originalUrl === undefined) delete process.env.NEXORA_API_URL
+    else process.env.NEXORA_API_URL = originalUrl
+  })
+  process.env.NEXORA_API_URL = 'http://127.0.0.1:8000'
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push({ path: `${new URL(url).pathname}${new URL(url).search}`, method: init.method, body: init.body })
+    return Response.json({ token: 'test-token', user: { id: 1 } })
+  })
+  await callBackend('login', {})
+  await callBackend('supplierDetail', { id: 4 })
+  assert.equal(calls.at(-1).path, '/api/v1/suppliers/4')
+  await callBackend('recentSupplierChanges', { before_id: 7 })
+  assert.equal(calls.at(-1).path, '/api/v1/supplier-changes?before_id=7')
+  await callBackend('warehouseChanges', { id: 8 })
+  assert.equal(calls.at(-1).path, '/api/v1/warehouses/8/changes')
+  await callBackend('updateSupplier', { id: 4, name: ' 甲厂 ', version: 2, reason: ' 修正 ', extra: '不转发' })
+  assert.deepEqual(JSON.parse(calls.at(-1).body), { name: '甲厂', version: 2, reason: '修正' })
+  await callBackend('updateWarehouse', { id: 8, code: 'east', name: ' 东仓 ', version: 3, reason: ' 改名 ', extra: true })
+  assert.deepEqual(JSON.parse(calls.at(-1).body), { code: 'EAST', name: '东仓', version: 3, reason: '改名' })
+  await callBackend('deleteWarehouse', { id: 8, version: 3 })
+  assert.equal(calls.at(-1).path, '/api/v1/warehouses/8?version=3')
+  await assert.rejects(callBackend('updateSupplier', { id: 4, name: '甲', version: 2, reason: '' }), /修改原因无效/)
+  await assert.rejects(callBackend('deleteSupplier', { id: 4, version: '../users' }), /记录编号无效/)
+  await assert.rejects(callBackend('recentWarehouseChanges', { before_id: '../users' }), /记录编号无效/)
 })
 
 test('采购申请操作使用固定路径且只发送正式字段', async (t) => {

@@ -3,6 +3,8 @@
 .catalog-editor { display: grid; gap: 16px; }
 .catalog-editor h3 { margin: 0; }
 .catalog-page .catalog-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.catalog-audit-item { display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--workspace-field-border); }
+.catalog-audit-item small { color: var(--workspace-field-muted); }
 
 /* 弹窗按资料分组，小屏保持单列并允许内容滚动，底部动作不挤占输入区域。 */
 .material-section { display: block; margin: 0; padding: 16px; border: 1px solid var(--workspace-field-border); border-radius: 12px; min-width: 0; }
