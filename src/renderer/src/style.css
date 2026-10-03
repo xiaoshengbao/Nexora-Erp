@@ -14,6 +14,12 @@
   --workspace-field-muted: #718399;
   --workspace-field-border: #d4dce6;
   --workspace-field-accent: #237d7a;
+  /* 本机偏好加载前保留默认青绿；store 随后写入所选预设。 */
+  --app-accent-tint: #ebf3f3;
+  --app-accent-active-tint: #dae9e8;
+  --app-accent-ring: #237d7a29;
+  --app-accent-light-preview: #237d7a;
+  --app-accent-dark-preview: #78d6cd;
   /* 公共按钮随应用主题切换，避免页面各自维护不同的配色。 */
   --app-button-primary: #237d7a;
   --app-button-primary-hover: #1d6c69;
@@ -33,7 +39,7 @@ body { margin: 0; min-width: 320px; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #51b7b4; outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--workspace-field-accent); outline-offset: 2px; }
 
 /* 未登录时内容和底栏铺满窗口；进入工作台时展开侧栏列，使底栏随内容一起收窄。 */
 .app-shell { height: 100vh; display: grid; grid-template-columns: 0px minmax(0, 1fr); overflow: hidden; transition: grid-template-columns .36s cubic-bezier(.22, 1, .36, 1); }
@@ -53,7 +59,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 /* 分类按钮和页面按钮分层，收起时仍能辨认当前页面所属模块。 */
 button.side-category { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; border-radius: 9px; padding: 11px 13px; background: none; color: #aabbd2; text-align: left; font-size: 13px; font-weight: 700; transition: background-color .18s ease, color .18s ease; }
 button.side-category:hover, button.side-category[aria-expanded="true"] { background: #1d304f; color: #fff; }
-button.side-category.current { color: #8de2d8; }
+button.side-category.current { color: var(--workspace-field-accent); }
 .category-chevron { width: 18px; height: 18px; flex: none; transition: transform .24s cubic-bezier(.16, 1, .3, 1); }
 .category-chevron.expanded { transform: rotate(180deg); }
 /* 用网格轨道过渡内容高度，避免给各模块的不同菜单项数量写固定高度。 */
@@ -66,7 +72,7 @@ button.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; ma
 .nav-home { margin: 0 0 15px; font-weight: 700; }
 .nav-icon { width: 18px; height: 18px; flex: none; }
 button.nav-item:hover { background: #1d304f; color: #fff; }
-button.nav-item.active { background: #223b5b; color: #8de2d8; font-weight: 700; box-shadow: inset 3px 0 #70d8cc; }
+button.nav-item.active { background: var(--app-accent-active-tint); color: var(--workspace-field-accent); font-weight: 700; box-shadow: inset 3px 0 var(--workspace-field-accent); }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid #293a54; padding: 13px 4px 0; color: #a7bad1; font-size: 12px; }
 /* 账号栏只展示头像和身份，主题开关统一放在窗口顶部。 */
 .sidebar-account { position: relative; min-width: 0; }
@@ -100,8 +106,8 @@ button.sidebar-account-card:hover::before, button.sidebar-account-card:focus-vis
 /* macOS 的覆盖式滚动条会压住标签文字；只隐藏滚动条，保留横向滚动和自动跟随。 */
 .workspace-tabs::-webkit-scrollbar { display: none; }
 .workspace-tab { display: inline-flex; align-items: center; flex: none; height: 37px; border: 1px solid #dfe6ed; border-bottom: 0; border-radius: 8px 8px 0 0; background: #f5f7fa; color: #61718a; }
-.workspace-tab:hover { background: #eef5f6; color: #1d6c69; }
-.workspace-tab.active { border-top: 2px solid #50b8af; background: #fff; color: #17213b; font-weight: 700; }
+.workspace-tab:hover { background: var(--app-accent-tint); color: var(--workspace-field-accent); }
+.workspace-tab.active { border-top: 2px solid var(--workspace-field-accent); background: #fff; color: #17213b; font-weight: 700; }
 button.workspace-tab-link, button.workspace-tab-close { display: inline-flex; align-items: center; justify-content: center; height: 100%; border: 0; background: transparent; color: inherit; }
 button.workspace-tab-link { max-width: 175px; overflow: hidden; padding: 0 10px 0 14px; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 button.workspace-tab-close { width: 27px; padding: 6px; border-radius: 5px; }
@@ -113,11 +119,11 @@ button.workspace-tab-close svg { width: 14px; height: 14px; }
 .auth-header-mark { width: 52px; height: 52px; display: grid; place-items: center; flex: none; border-radius: 12px; padding: 1px; background: #fff; }
 .auth-header-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .topbar h1 { margin: 7px 0 0; font-size: clamp(27px, 3vw, 38px); line-height: 1.2; letter-spacing: -.035em; }
-.eyebrow { margin: 0; color: #378b89; font-size: 10px; font-weight: 800; letter-spacing: .17em; }
+.eyebrow { margin: 0; color: var(--workspace-field-accent); font-size: 10px; font-weight: 800; letter-spacing: .17em; }
 .account { display: none; align-items: center; gap: 24px; font-size: 13px; font-weight: 700; text-align: right; }
 .account-identity { display: none; }
 .account small { display: block; margin-top: 4px; color: #8290a5; font-size: 11px; font-weight: 400; }
-.app-button--text { border: 0; background: none; color: #237d7a; font-weight: 700; white-space: nowrap; }
+.app-button--text { border: 0; background: none; color: var(--workspace-field-accent); font-weight: 700; white-space: nowrap; }
 .app-button--text:hover { text-decoration: underline; }
 .stack { display: grid; gap: 20px; }
 .card { min-width: 0; border: 1px solid #e4e9ef; border-radius: 15px; padding: 25px; background: #fff; box-shadow: 0 9px 30px rgba(24, 43, 70, .04); }
@@ -218,7 +224,7 @@ button.permission-tree-expand small { margin-left: auto; color: #708198; font-si
 .onboard-main { width: min(1320px, 100%); min-height: 0; flex: 1; overflow-y: auto; margin: 0 auto; padding: clamp(27px, 5vh, 64px) clamp(24px, 4vw, 68px) 46px; position: relative; }
 .onboard-main::before { content: ''; position: absolute; right: 5%; top: 12px; width: 260px; height: 150px; background-image: linear-gradient(#9dc6f237 1px, transparent 1px), linear-gradient(90deg, #9dc6f237 1px, transparent 1px); background-size: 18px 18px; mask-image: linear-gradient(to left, black, transparent); pointer-events: none; }
 .onboard-hero { position: relative; text-align: center; margin: 0 auto 34px; }
-.onboard-kicker { margin: 0 0 11px; color: #0768e8; letter-spacing: .21em; font-size: 11px; font-weight: 800; }
+.onboard-kicker { margin: 0 0 11px; color: var(--workspace-field-accent); letter-spacing: .21em; font-size: 11px; font-weight: 800; }
 .onboard-hero h1 { margin: 0; font-size: clamp(31px, 3.4vw, 49px); line-height: 1.15; letter-spacing: -.05em; font-weight: 800; }
 .onboard-hero p:last-child { margin: 16px 0 0; color: #647fa6; font-size: clamp(14px, 1.45vw, 17px); }
 .choice-grid { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; margin-top: clamp(22px, 6vh, 72px); }
@@ -227,23 +233,23 @@ button.choice-card { display: flex; flex-direction: column; min-height: 342px; b
 /* 三张卡片依次从下方渐显，返回首页时也会重新播放。 */
 button.choice-card:nth-child(2) { animation-delay: .1s; }
 button.choice-card:nth-child(3) { animation-delay: .2s; }
-button.choice-card:hover { transform: translateY(-4px) scale(1.025); border-color: #4d9aff; box-shadow: 0 22px 45px #1f6cc52c; }
-button.choice-card.featured { border: 2px solid #2381f9; background: linear-gradient(155deg, #f0f8ff, #fff 60%); }
+button.choice-card:hover { transform: translateY(-4px) scale(1.025); border-color: var(--workspace-field-accent); box-shadow: 0 22px 45px var(--app-accent-ring); }
+button.choice-card.featured { border: 2px solid var(--workspace-field-accent); background: linear-gradient(155deg, var(--app-accent-tint), var(--workspace-field-background) 60%); }
 .choice-index { color: #6a90bc; font: 700 11px "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; }
-.choice-symbol { width: 82px; height: 82px; display: grid; place-items: center; margin: 25px auto 20px; border: 1px solid #c6e3ff; border-radius: 23px; background: linear-gradient(145deg, #e6f4ff, #cfe6ff); color: #0b70e9; font-size: 52px; line-height: 1; font-weight: 300; box-shadow: 0 11px 20px #2a7be11f; }
+.choice-symbol { width: 82px; height: 82px; display: grid; place-items: center; margin: 25px auto 20px; border: 1px solid var(--workspace-field-border); border-radius: 23px; background: var(--app-accent-tint); color: var(--workspace-field-accent); font-size: 52px; line-height: 1; font-weight: 300; box-shadow: 0 11px 20px var(--app-accent-ring); }
 /* SVG 继承卡片颜色，但不继承旧字符图形的字号。 */
 .choice-symbol svg { width: 42px; height: 42px; }
-button.choice-card.featured .choice-symbol { background: #086ef0; color: white; box-shadow: 0 11px 24px #1976e859; }
+button.choice-card.featured .choice-symbol { background: var(--app-button-primary); color: white; box-shadow: 0 11px 24px var(--app-accent-ring); }
 button.choice-card strong { display: block; font-size: 23px; text-align: center; letter-spacing: -.025em; }
 button.choice-card .n-button__content > span:nth-last-of-type(1) { display: block; margin: 11px 0 23px; color: #7288a7; font-size: 13px; line-height: 1.6; text-align: center; }
-button.choice-card em { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 47px; margin-top: auto; border-radius: 10px; background: #0c73ef; color: white; font-size: 14px; font-style: normal; font-weight: 700; }
+button.choice-card em { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 47px; margin-top: auto; border-radius: 10px; background: var(--app-button-primary); color: white; font-size: 14px; font-style: normal; font-weight: 700; }
 button.choice-card em span { font-size: 21px; line-height: 1; }
 .onboard-columns { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; align-items: start; }
 .onboard-panel { position: relative; border: 1px solid #dbe9f9; border-radius: 19px; padding: clamp(23px, 3vw, 36px); background: #ffffffea; box-shadow: 0 15px 40px #2b6ab014; }
 .panel-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 27px; }
 .panel-heading h2 { margin: 0; font-size: 21px; }
 .panel-heading p { margin: 6px 0 0; color: #7990ad; font-size: 12px; line-height: 1.5; }
-.panel-icon { width: 45px; height: 45px; display: grid; flex: none; place-items: center; border-radius: 13px; background: #e5f2ff; color: #116ff0; font-size: 27px; }
+.panel-icon { width: 45px; height: 45px; display: grid; flex: none; place-items: center; border-radius: 13px; background: var(--app-accent-tint); color: var(--workspace-field-accent); font-size: 27px; }
 .panel-icon svg { width: 25px; height: 25px; }
 .onboard-form { display: grid; gap: 18px; }
 .onboard-form .panel-heading { margin-bottom: 5px; }

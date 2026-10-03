@@ -1,4 +1,5 @@
 import type { GlobalThemeOverrides } from 'naive-ui'
+import type { ThemeColorPalette } from './theme-color'
 
 type SelectThemeOverrides = NonNullable<GlobalThemeOverrides['Select']>
 
@@ -32,9 +33,9 @@ export function hasWorkspaceSelection<T extends WorkspaceSelectValue>(
 }
 
 // 通过 Naive UI 的主题接口同时设置触发框与传送到 body 的菜单，避免弹窗内样式被裁切或失配。
-export function workspaceSelectTheme(dark: boolean): SelectThemeOverrides {
+export function workspaceSelectTheme(dark: boolean, palette?: ThemeColorPalette): SelectThemeOverrides {
   const border = dark ? '#425570' : '#d4dce6'
-  const accent = dark ? '#78d6cd' : '#237d7a'
+  const accent = palette?.accent ?? (dark ? '#78d6cd' : '#237d7a')
   const surface = dark ? '#101c30' : '#ffffff'
   return {
     menuBoxShadow: dark ? '0 12px 32px rgba(0, 0, 0, .32)' : '0 12px 32px rgba(23, 33, 59, .14)',
@@ -56,8 +57,8 @@ export function workspaceSelectTheme(dark: boolean): SelectThemeOverrides {
         borderHover: `1px solid ${accent}`,
         borderActive: `1px solid ${accent}`,
         borderFocus: `1px solid ${accent}`,
-        boxShadowActive: '0 0 0 2px rgba(81, 183, 180, .16)',
-        boxShadowFocus: '0 0 0 2px rgba(81, 183, 180, .16)',
+        boxShadowActive: `0 0 0 2px ${palette?.ring ?? 'rgba(81, 183, 180, .16)'}`,
+        boxShadowFocus: `0 0 0 2px ${palette?.ring ?? 'rgba(81, 183, 180, .16)'}`,
         paddingSingle: '0 11px'
       },
       InternalSelectMenu: {
@@ -71,8 +72,8 @@ export function workspaceSelectTheme(dark: boolean): SelectThemeOverrides {
         optionTextColorActive: accent,
         optionCheckColor: accent,
         optionColorPending: dark ? '#23374e' : '#f0f5f8',
-        optionColorActive: dark ? '#203e49' : '#e5f4f2',
-        optionColorActivePending: dark ? '#294b54' : '#d8eeeb',
+        optionColorActive: palette?.tint ?? (dark ? '#203e49' : '#e5f4f2'),
+        optionColorActivePending: palette?.activeTint ?? (dark ? '#294b54' : '#d8eeeb'),
         paddingMedium: '6px',
         paddingSmall: '6px',
         height: '280px'

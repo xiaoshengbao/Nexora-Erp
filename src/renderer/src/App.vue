@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { NConfigProvider, darkTheme, dateZhCN, zhCN, enUS, dateEnUS } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 // 控件配色集中维护，主题切换由根样式变量与 Naive UI 共同驱动。
-import { naiveThemeOverrides } from './utils/app-theme'
+import { appThemeOverrides } from './utils/app-theme'
 import { useAppStore } from './store/app-store'
 import { useThemeStore } from './store/theme-store'
 import { useSettingsStore } from './store/settings-store'
@@ -16,7 +16,8 @@ import { usesIntegratedTitleBar } from '../../shared/window-chrome'
 
 // 根组件统一启动和释放桌面连接资源；页面状态仍由 Pinia store 管理。
 const { screen, initialize, dispose } = useAppStore()
-const { isDarkTheme } = storeToRefs(useThemeStore())
+const { isDarkTheme, colorPalette } = storeToRefs(useThemeStore())
+const naiveThemeOverrides = computed(() => appThemeOverrides(colorPalette.value))
 // Naive UI 内置控件和应用文案读取同一语言，切换偏好不重建路由或表单。
 const { isEnglish } = storeToRefs(useSettingsStore())
 // 原生标题栏与页面共用一层外壳，确保登录、引导和工作台都有可拖动的顶部。

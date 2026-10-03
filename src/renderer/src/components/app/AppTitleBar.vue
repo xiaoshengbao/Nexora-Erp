@@ -44,13 +44,13 @@ watch(themeMode, syncWindowTheme)
 .app-titlebar--mac .app-titlebar-safe-area { margin-left: env(titlebar-area-x, 88px); width: env(titlebar-area-width, calc(100% - 88px)); }
 .app-titlebar-brand { display: flex; flex: none; align-items: center; gap: 9px; white-space: nowrap; font-size: 13px; letter-spacing: .05em; }
 .app-titlebar-brand img { width: 27px; height: 27px; object-fit: contain; }
-.app-titlebar-brand span { font-size: 11px; color: #237d7a; }
+.app-titlebar-brand span { font-size: 11px; color: var(--workspace-field-accent); }
 .app-titlebar-caption { flex: 1; min-width: 0; display: flex; }
 /* 主题按钮不参与拖动；页面标签另占内容区的第二行。 */
 .app-titlebar-actions { -webkit-app-region: no-drag; }
 .app-titlebar-actions { flex: none; display: flex; align-items: center; }
 :root[data-theme='dark'] .app-titlebar { background: #111d32; color: #e6edf8; border-color: #33445f; }
-:root[data-theme='dark'] .app-titlebar-brand span { color: #68cbc2; }
+:root[data-theme='dark'] .app-titlebar-brand span { color: var(--workspace-field-accent); }
 @media (max-width: 900px) {
   .app-titlebar-safe-area { gap: 10px; }
   .app-titlebar-brand strong { display: none; }

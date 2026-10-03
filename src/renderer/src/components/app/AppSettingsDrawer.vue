@@ -8,13 +8,14 @@ import IconCheckLine from '~icons/ri/check-line'
 import AppButton from './AppButton.vue'
 import { useSettingsStore } from '../../store/settings-store'
 import { useThemeStore } from '../../store/theme-store'
+import { themeColorPresets } from '../../utils/theme-color'
 
 const settings = useSettingsStore()
 const theme = useThemeStore()
 const { settingsOpen, locale } = storeToRefs(settings)
-const { themeMode } = storeToRefs(theme)
+const { themeMode, themeColor } = storeToRefs(theme)
 const { t, closeSettings, setLocale } = settings
-const { selectTheme } = theme
+const { selectTheme, setThemeColor } = theme
 // Naive UI 负责焦点圈定、Esc、遮罩和关闭后恢复焦点；不重建底层业务页面。
 </script>
 
@@ -44,6 +45,21 @@ const { selectTheme } = theme
           </AppButton>
         </div>
       </section>
+      <!-- 每个预设同时提供文字和选中标记，不依赖用户辨认颜色。 -->
+      <section class="settings-section" aria-labelledby="settings-color-title">
+        <h3 id="settings-color-title">{{ t('主题色') }}</h3>
+        <p>{{ t('为按钮和导航选择强调色') }}</p>
+        <div class="settings-colors">
+          <AppButton v-for="preset in themeColorPresets" :key="preset.key" class="color-choice"
+            :class="{ selected: themeColor === preset.key }" :aria-pressed="themeColor === preset.key"
+            @click="setThemeColor(preset.key)">
+            <span class="color-swatch" :style="{ backgroundColor: preset.primary }" aria-hidden="true">
+              <IconCheckLine v-if="themeColor === preset.key" />
+            </span>
+            {{ t(preset.label) }}
+          </AppButton>
+        </div>
+      </section>
       <section class="settings-section" aria-labelledby="settings-language-title">
         <h3 id="settings-language-title">{{ t('语言') }}</h3>
         <p>{{ t('选择界面显示语言') }}</p>
@@ -69,17 +85,23 @@ const { selectTheme } = theme
 .settings-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .settings-choice { height: auto; padding: 10px; }
 .settings-choice :deep(.n-button__content) { display: flex; flex-direction: column; width: 100%; gap: 12px; }
-.settings-choice.selected, .language-choice.selected { box-shadow: inset 0 0 0 1px var(--workspace-field-accent); }
+.settings-choice.selected, .language-choice.selected, .color-choice.selected { box-shadow: inset 0 0 0 1px var(--workspace-field-accent); }
 .theme-preview { width: 100%; height: 74px; border-radius: 5px; border: 1px solid #dfe6ed; position: relative; overflow: hidden; background: #f3f5f9; }
 .theme-preview span { position: absolute; inset: 0 auto 0 0; width: 22%; background: #fff; border-right: 1px solid #dfe6ed; }
-.theme-preview i { position: absolute; left: 29%; top: 14px; width: 39%; height: 5px; border-radius: 2px; background: #237d7a; }
+.theme-preview i { position: absolute; left: 29%; top: 14px; width: 39%; height: 5px; border-radius: 2px; background: var(--app-accent-light-preview); }
 .theme-preview b { position: absolute; left: 29%; right: 10%; top: 28px; bottom: 12px; border-radius: 4px; background: #fff; }
 .theme-preview--dark { background: #0e1727; border-color: #33445f; }
 .theme-preview--dark span, .theme-preview--dark b { background: #1b2a40; border-color: #33445f; }
-.theme-preview--dark i { background: #68cbc2; }
+.theme-preview--dark i { background: var(--app-accent-dark-preview); }
 .settings-choice-label { display: flex; align-items: center; gap: 7px; width: 100%; font-size: 13px; }
 .settings-choice-label svg, .language-choice svg, .settings-saved svg { width: 16px; height: 16px; flex: none; }
 .settings-check { margin-left: auto; color: var(--workspace-field-accent); }
+/* 三列色卡保持紧凑；文字和色块都能通过键盘所在按钮选择。 */
+.settings-colors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.color-choice { min-width: 0; height: 78px; padding: 10px 4px; }
+.color-choice :deep(.n-button__content) { flex-direction: column; gap: 8px; font-size: 12px; }
+.color-swatch { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
+.color-swatch svg { width: 17px; height: 17px; }
 .language-choice { min-width: 0; }
 .language-choice :deep(.n-button__content) { gap: 8px; }
 .settings-section .settings-language-note { margin-top: 14px; }

@@ -1,5 +1,6 @@
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import { isThemeColor, readThemeColor, saveThemeColor, themeColorPalette, themeColorVariables } from '../utils/theme-color'
 import { readThemePreference, saveThemePreference } from '../utils/theme-preference'
 import type { ThemeMode } from '../utils/theme-preference'
 import { createThemeTransition, themeToggleOrigin } from '../utils/theme-transition'
@@ -16,6 +17,13 @@ function availableStorage(): Storage | undefined {
 export const useThemeStore = defineStore('theme', () => {
   const themeMode = ref<ThemeMode>(readThemePreference(availableStorage()))
   const isDarkTheme = computed(() => themeMode.value === 'dark')
+  const themeColor = ref(readThemeColor(availableStorage()))
+  const colorPalette = computed(() => themeColorPalette(themeColor.value, isDarkTheme.value))
+
+  // 颜色和明暗模式独立保存，切换颜色不重建页面或触发全屏明暗动画。
+  function setThemeColor(value: unknown): void {
+    if (isThemeColor(value)) themeColor.value = value
+  }
 
   function setDarkTheme(enabled: boolean): void {
     themeMode.value = enabled ? 'dark' : 'light'
@@ -50,14 +58,19 @@ export const useThemeStore = defineStore('theme', () => {
   }
   onScopeDispose(motion.dispose)
 
-  watch(themeMode, (mode) => {
+  watch([themeMode, themeColor], ([mode, color]) => {
     // 主题切换同步更新根节点与本地偏好，设置存储不可用时仍保留当前视觉状态。
     if (typeof document !== 'undefined') {
       document.documentElement.dataset.theme = mode
       document.documentElement.style.colorScheme = mode
+      document.documentElement.dataset.themeColor = color
+      for (const [key, value] of Object.entries(themeColorVariables(colorPalette.value))) {
+        document.documentElement.style.setProperty(key, value)
+      }
     }
     saveThemePreference(availableStorage(), mode)
+    saveThemeColor(availableStorage(), color)
   }, { immediate: true })
 
-  return { themeMode, isDarkTheme, setDarkTheme, toggleTheme, selectTheme }
+  return { themeMode, themeColor, colorPalette, setThemeColor, isDarkTheme, setDarkTheme, toggleTheme, selectTheme }
 })
