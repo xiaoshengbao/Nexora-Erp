@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../store/settings-store'
+const { t } = useSettingsStore()
+
 import { computed } from 'vue'
 import type { Component } from 'vue'
 import { useAppStore } from '../store/app-store'
@@ -6,6 +10,8 @@ import type { Screen } from '../store/types'
 import { nexoraLogo } from '../assets/brand'
 import { onboardingCopy } from '../i18n/zh-CN'
 import AppStatusFooter from '../components/app/AppStatusFooter.vue'
+import AppSettingsButton from '../components/app/AppSettingsButton.vue'
+import ThemeToggle from '../components/app/ThemeToggle.vue'
 import LoadingView from './onboarding/LoadingView.vue'
 import WelcomeView from './onboarding/WelcomeView.vue'
 import ManualConnectionView from './onboarding/ManualConnectionView.vue'
@@ -44,17 +50,24 @@ const currentView = computed(() => {
         ><strong>NEXORA <small>ERP</small></strong>
       </div>
       <span class="onboard-top-note"
-        >企业运营工作台 <span v-if="version">· v{{ version }}</span></span
+        >{{ t("企业运营工作台") }}<span v-if="version">· v{{ version }}</span></span
       >
+      <!-- 融合标题栏会隐藏本行；浏览器和 Linux 在此处提供相同设置入口。 -->
+      <div class="onboard-settings-actions"><ThemeToggle /><AppSettingsButton /></div>
     </header>
     <main class="onboard-main">
       <div class="onboard-hero">
         <p class="onboard-kicker">NEXORA · CONNECT</p>
-        <h1>{{ onboardingCopy[screen].title }}</h1>
-        <p>{{ onboardingCopy[screen].description }}</p>
+        <h1>{{ t(onboardingCopy[screen].title) }}</h1>
+        <p>{{ t(onboardingCopy[screen].description) }}</p>
       </div>
       <component :is="currentView" v-if="currentView" />
     </main>
     <AppStatusFooter />
   </div>
 </template>
+
+<style scoped>
+.onboard-settings-actions { display: flex; align-items: center; }
+.onboard-top-note { margin-left: auto; }
+</style>

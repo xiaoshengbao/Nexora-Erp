@@ -14,7 +14,8 @@ test('登录和工作台共用连接底栏，业务反馈交由通知层展示',
   assert.doesNotMatch(shell, /v-if="notice" class="message success" role="status"/)
   assert.doesNotMatch(shell, /v-if="error" class="message error" role="alert"/)
   assert.doesNotMatch(shell, /v-if="connectionLost" class="message/)
-  assert.match(footer, /server\?\.name \|\| '未选择服务端'/)
+  // 服务端名称仍保留原文，未选择的界面提示随公共语言切换。
+  assert.match(footer, /server\?\.name \|\| t\('未选择服务端'\)/)
   assert.match(footer, /server\?\.version/)
   assert.match(footer, /:role="status\.tone === 'error' \? 'alert' : 'status'"/)
 })

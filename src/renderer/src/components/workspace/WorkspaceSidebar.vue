@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../app/AppButton.vue'
 import { useAppStore } from '../../store/app-store'
@@ -25,7 +29,7 @@ const {
       <span class="brand-mark"><img :src="nexoraLogo" alt="" /></span>
       <div>
         <strong>NEXORA</strong
-        ><small>联光 ERP · {{ server?.isLocal ? '本机服务' : '团队工作台' }}</small>
+        ><small>{{ t("联光 ERP ·") }}{{ server?.isLocal ? t('本机服务') : t('团队工作台') }}</small>
       </div>
     </div>
     <div v-if="screen === 'app'" class="side-group">
@@ -41,7 +45,7 @@ const {
           variant="plain"
         >
           <component :is="group.routes[0].icon" class="nav-icon" aria-hidden="true" />
-          {{ group.routes[0].label }}
+          {{ t(group.routes[0].label) }}
         </AppButton>
         <template v-else>
           <AppButton
@@ -57,7 +61,7 @@ const {
           >
             <span class="category-label">
               <component :is="group.icon" class="nav-icon" aria-hidden="true" />
-              {{ group.label }} </span
+              {{ t(group.label) }} </span
             ><IconArrowDownSLine
               class="category-chevron"
               :class="{ expanded: expandedGroupKey === group.key }"
@@ -82,7 +86,7 @@ const {
                 class="nav-item"
                 variant="plain"
               >
-                <component :is="item.icon" class="nav-icon" aria-hidden="true" />{{ item.label }}
+                <component :is="item.icon" class="nav-icon" aria-hidden="true" />{{ t(item.label) }}
               </AppButton>
             </div>
           </div>

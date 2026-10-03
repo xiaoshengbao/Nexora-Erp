@@ -47,11 +47,11 @@
 | `src/renderer/src/env.d.ts` | 声明渲染窗口可访问的受限预加载接口类型。 |
 | `src/renderer/src/*.css` | 全局基础样式、明暗主题及主题切换样式；只影响某个页面的样式可与该页面放在同一目录。 |
 | `src/renderer/src/assets/` | 渲染层引用的品牌与静态资源入口；实际图片等资源按现有构建路径存放，例如 `brand.ts` 引用 `resources/icon.png`。 |
-| `src/renderer/src/components/app/` | 跨引导页和工作台复用的应用公共组件，包括按钮、输入框、折叠项、连接状态底栏和主题切换按钮。 |
+| `src/renderer/src/components/app/` | 跨引导页和工作台复用的应用公共组件，包括按钮、输入框、折叠项、连接状态底栏、主题切换按钮和公共设置侧栏。 |
 | `src/renderer/src/components/feedback/` | 全局消息提供器及业务反馈桥接组件；只在根组件装配一份。 |
 | `src/renderer/src/components/workspace/` | 工作台专属的侧栏、账号卡片和已打开页面标签栏。新增共享组件按使用范围放入对应分类，不直接平铺在 `components/` 根目录。 |
 | `src/renderer/src/composables/` | 封装 Vue 组合式逻辑和组件级复用行为，当前包括 `use-app-message.ts`；不保存跨页面业务状态。 |
-| `src/renderer/src/i18n/` | 管理已抽离的界面文案，当前 `zh-CN.ts` 保存引导页中文文案；目录存在不代表已实现多语言。 |
+| `src/renderer/src/i18n/` | 管理公共界面文案，`zh-CN.ts` 保存引导阶段标题，`en-US.ts` 与 `common-copy.ts` 提供设置、登录、引导及公共导航的中英文显示；业务页面完整多语言尚未实现。 |
 | `src/renderer/src/router/` | `workspace-routes.ts` 维护页面键、地址、分组和查看权限；`index.ts` 将页面注册到 Vue Router 并安装权限守卫，`browser-router.ts` 使用 Hash 模式保留桌面安装包的页面地址。 |
 | `src/renderer/src/store/` | 用 Pinia 管理应用会话、主题、服务端快照和跨页面操作；通用状态、连接操作、数据加载放在本层，业务写操作放在 `modules/` 并按业务域拆分。 |
 | `src/renderer/src/utils/` | 放不持有跨页面业务状态的辅助逻辑，如格式化、角色文案、主题偏好、底栏状态和标签滚动；需要 Vue 监听的消息反馈辅助函数也在此处。 |

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 import { computed, h, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDropdown } from 'naive-ui'
@@ -17,7 +21,7 @@ const directoryOpen = ref(false)
 const route = computed(() => routeByKey(activeTab.value))
 const group = computed(() => visibleGroups.value.find((item) => item.key === routeGroupByKey(activeTab.value).key))
 const directoryOptions = computed(() => (group.value?.routes ?? []).map((item) => ({
-  key: item.key, label: item.label,
+  key: item.key, label: t(item.label),
   icon: () => h(item.icon, { style: 'width: 16px; height: 16px' })
 })))
 function selectDirectory(key: string | number): void {
@@ -31,27 +35,27 @@ function selectDirectory(key: string | number): void {
   <div class="workspace-title-navigation">
     <div class="workspace-title-tools">
       <AppButton type="button" variant="secondary" size="small" quaternary circle
-        aria-label="刷新当前页面" title="刷新当前页面" :loading="refreshingWorkspace"
+        :aria-label="t('刷新当前页面')" :title="t('刷新当前页面')" :loading="refreshingWorkspace"
         :disabled="busy || connectionLost || !activeRouteAllowed" @click="refreshWorkspacePage">
         <template #icon><IconRefreshLine aria-hidden="true" /></template>
       </AppButton>
       <AppButton type="button" variant="secondary" size="small" quaternary circle
-        aria-label="返回工作台首页" title="返回工作台首页" @click="navigateToRoute('home')">
+        :aria-label="t('返回工作台首页')" :title="t('返回工作台首页')" @click="navigateToRoute('home')">
         <template #icon><IconHome4Line aria-hidden="true" /></template>
       </AppButton>
     </div>
-    <nav v-if="activeRouteAllowed" class="workspace-title-directory" aria-label="当前页面目录">
+    <nav v-if="activeRouteAllowed" class="workspace-title-directory" :aria-label="t('当前页面目录')">
       <template v-if="group && group.key !== 'home'">
         <NDropdown v-model:show="directoryOpen" trigger="click" :options="directoryOptions" @select="selectDirectory">
           <AppButton type="button" variant="plain" class="workspace-directory-group"
-            aria-haspopup="menu" :aria-expanded="directoryOpen" :aria-label="`${group.label}目录`" :title="group.label">
+            aria-haspopup="menu" :aria-expanded="directoryOpen" :aria-label="t('{group}目录', { group: t(group.label) })" :title="t(group.label)">
             <component :is="group.icon" class="workspace-directory-icon" aria-hidden="true" />
-            <span class="workspace-directory-group-label">{{ group.label }}</span>
+            <span class="workspace-directory-group-label">{{ t(group.label) }}</span>
           </AppButton>
         </NDropdown>
         <IconArrowRightSLine class="workspace-directory-separator" aria-hidden="true" />
       </template>
-      <span class="workspace-directory-page" aria-current="page" :title="route.label">{{ route.label }}</span>
+      <span class="workspace-directory-page" aria-current="page" :title="t(route.label)">{{ t(route.label) }}</span>
     </nav>
   </div>
 </template>

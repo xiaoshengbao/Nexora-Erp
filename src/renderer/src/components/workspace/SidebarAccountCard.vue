@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 公共界面文案随语言偏好即时更新，不影响输入草稿。
+import { useSettingsStore } from '../../store/settings-store'
+const { t } = useSettingsStore()
+
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../app/AppButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -61,8 +65,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeWhenClick
     <Transition name="account-menu">
       <div v-if="menuOpen" id="sidebar-account-menu" class="sidebar-account-menu">
         <AppButton type="button" :disabled="busy" @click="logout" variant="plain">
-          <IconLogoutBoxRLine aria-hidden="true" />退出登录
-        </AppButton>
+          <IconLogoutBoxRLine aria-hidden="true" />{{ t("退出登录") }}</AppButton>
       </div>
     </Transition>
   </div>
