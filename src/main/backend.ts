@@ -197,6 +197,49 @@ function bankCsvBody(payload: unknown): Record<string, unknown> {
   return { account_id, file_name, content_base64 }
 }
 
+function bankBalanceDate(value: unknown): string {
+  const day = bankText(value, '银行调节日期', 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))
+    || new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day) throw new Error('银行调节日期无效')
+  return day
+}
+
+function bankBalanceAmount(value: unknown): string {
+  const amount = bankText(value, '银行余额', 20)
+  if (!/^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount)
+    || !Number.isFinite(Number(amount)) || Math.abs(Number(amount)) > 1_000_000_000_000) {
+    throw new Error('银行余额无效')
+  }
+  return amount
+}
+
+function bankBalanceIds(value: unknown): number[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 20
+    || value.some(item => typeof item !== 'number' || !Number.isSafeInteger(item) || item <= 0)
+    || new Set(value).size !== value.length) throw new Error('银行勾对明细编号无效')
+  return value
+}
+
+function bankBalanceBody(payload: unknown, kind: 'binding' | 'preview' | 'match' | 'report' | 'decision' | 'reason'): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行余额调节参数无效')
+  const value = payload as Record<string, unknown>
+  const reason = () => bankText(value.reason, '银行调节依据', 200)
+  if (kind === 'reason') return { reason: reason() }
+  if (kind === 'decision') {
+    if (value.action !== 'approve' && value.action !== 'reject') throw new Error('银行调节复核动作无效')
+    return { action: value.action, reason: reason() }
+  }
+  if (kind === 'binding') return { ledger_account_id: positiveId(value, 'ledger_account_id'),
+    opening_balance: bankBalanceAmount(value.opening_balance), effective_date: bankBalanceDate(value.effective_date),
+    version: positiveId(value, 'version'), reason: reason() }
+  if (kind === 'match') return { account_id: positiveId(value, 'account_id'),
+    bank_line_ids: bankBalanceIds(value.bank_line_ids), journal_line_ids: bankBalanceIds(value.journal_line_ids),
+    reason: reason() }
+  return { account_id: positiveId(value, 'account_id'), as_of_date: bankBalanceDate(value.as_of_date),
+    declared_bank_closing: bankBalanceAmount(value.declared_bank_closing),
+    ...(kind === 'report' ? { reason: reason() } : {}) }
+}
+
 function bankBody(payload: unknown, kind: 'account' | 'lines' | 'match' | 'reverse'): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行勾对参数无效')
   const value = payload as Record<string, unknown>
@@ -976,6 +1019,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'importBankCsv': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/imports/csv', body: bankCsvBody(payload) }
     case 'matchBankLine': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/matches', body: bankBody(payload, 'match') }
     case 'reverseBankMatch': return { method: 'POST', path: `/api/v1/finance/bank-reconciliation/matches/${positiveId(payload, 'matchId')}/reverse`, body: bankBody(payload, 'reverse') }
+    case 'bankBalanceOverview': return { method: 'GET', path: '/api/v1/finance/bank-balance/overview' }
+    case 'bindBankLedgerAccount': return { method: 'POST', path: `/api/v1/finance/bank-balance/accounts/${positiveId(payload, 'accountId')}/binding`, body: bankBalanceBody(payload, 'binding') }
+    case 'previewBankBalance': return { method: 'POST', path: '/api/v1/finance/bank-balance/preview', body: bankBalanceBody(payload, 'preview') }
+    case 'matchBankLedger': return { method: 'POST', path: '/api/v1/finance/bank-balance/ledger-matches', body: bankBalanceBody(payload, 'match') }
+    case 'reverseBankLedgerMatch': return { method: 'POST', path: `/api/v1/finance/bank-balance/ledger-matches/${positiveId(payload, 'groupId')}/reverse`, body: bankBalanceBody(payload, 'reason') }
+    case 'createBankBalanceReport': return { method: 'POST', path: '/api/v1/finance/bank-balance/reports', body: bankBalanceBody(payload, 'report') }
+    case 'decideBankBalanceReport': return { method: 'POST', path: `/api/v1/finance/bank-balance/reports/${positiveId(payload, 'reportId')}/decision`, body: bankBalanceBody(payload, 'decision') }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,

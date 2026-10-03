@@ -279,6 +279,13 @@ export const workspaceRouteGroups = [
         icon: 'history'
       },
       {
+        key: 'bankBalance',
+        path: '/workspace/bank-balance',
+        label: '银行余额调节',
+        permission: 'bank_reconciliation.view',
+        icon: 'file'
+      },
+      {
         key: 'financeSources',
         path: '/workspace/financial-sources',
         label: '应收应付来源',
