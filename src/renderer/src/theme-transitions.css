@@ -45,8 +45,9 @@
 :root[data-theme-transition='circle']::view-transition-old(root),
 :root[data-theme-transition='circle']::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 :root[data-theme-transition='circle']::view-transition-old(root) { z-index: 1; }
-/* 裁剪层只在切换期间准备绘制资源；两个方向层次固定，结束后再释放快照。 */
-:root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2; will-change: clip-path; }
+/* ready 回调与动画创建之间也保持裁剪，避免忙碌时先露出一帧完整的新主题。
+   动画的 forwards 填充会覆盖此初始值，直到快照真正结束才释放。 */
+:root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2; clip-path: circle(0%); will-change: clip-path; }
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme],

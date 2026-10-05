@@ -49,9 +49,13 @@ export function createThemeTransition(options: {
   let active: SnapshotTransition | undefined
   let animation: SnapshotAnimation | undefined
   let activeRoot: ThemeTransitionEnvironment['root'] | undefined
+  let committed = false
+  let interrupt: (() => void) | undefined
   let disposed = false
 
   function stop(): void {
+    // 捕获尚未开始时也能立即释放队列，不必等待迟到的 ready 或超时。
+    interrupt?.()
     active?.skipTransition()
     animation?.cancel()
   }
@@ -71,6 +75,7 @@ export function createThemeTransition(options: {
       // 被后续点击替代的快照回调不得迟到覆盖最新主题；降级提交也只执行一次。
       if (applied || disposed || id !== request) return
       applied = true
+      committed = true
       options.setDark(dark)
       await options.flush()
     }
@@ -84,7 +89,8 @@ export function createThemeTransition(options: {
       void transition.finished.catch(() => {})
       const effect = async (): Promise<void> => {
         await transition.ready
-        if (ended || disposed || id !== request) return
+        // 新主题已经提交后必须完整展开；后续选择排在其后，不能半途露出整页。
+        if (ended || disposed || !applied) return
         animation = env.root.animate({
           clipPath: themeCircleFrames(origin ?? { x: env.width / 2, y: env.height / 2 }, env.width, env.height)
         }, {
@@ -96,7 +102,8 @@ export function createThemeTransition(options: {
         await transition.finished
       }
       // 隐藏窗口、截图失败或动画挂起时及时结束遮罩，主题仍能正常切换。
-      await Promise.race([effect(), new Promise<void>(resolve => {
+      const cancelled = new Promise<void>(resolve => { interrupt = resolve })
+      await Promise.race([effect(), cancelled, new Promise<void>(resolve => {
         timer = setTimeout(resolve, options.timeoutMs ?? 2000)
       })])
     } catch {
@@ -114,6 +121,8 @@ export function createThemeTransition(options: {
         active = undefined
         animation = undefined
         activeRoot = undefined
+        committed = false
+        interrupt = undefined
       }
     }
   }
@@ -129,8 +138,9 @@ export function createThemeTransition(options: {
     desired = dark
     const id = ++request
     pending += 1
-    stop()
-    // 快速点击只执行最后的意图，但保留点击次数的奇偶结果，避免积压整段动画。
+    // 已提交的新画面保留到圆形覆盖全窗；捕获前的旧意图仍可立即取消。
+    if (!committed) stop()
+    // 等待期间只执行最后的意图，最多接续一次动画，不积压每次点击。
     const result = queue.then(() => run(dark, origin, id))
     queue = result.catch(() => {})
     return result.finally(() => { pending -= 1 })

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
+import postcss from 'postcss'
 import { createThemeTransition, themeCircleFrames, themeToggleOrigin } from '../src/renderer/src/utils/theme-transition.ts'
 
 // 可控制的浏览器快照模拟隐藏窗口、失败和连续点击，不依赖真实动画计时。
@@ -131,7 +133,7 @@ test('设置卡片明确选择主题，与顶部切换共用最后一次意图',
   assert.equal(s.calls.length, count)
 })
 test('设置选择覆盖在途快照，迟到更新不能覆盖最终主题', async () => {
-  const s = setup({ manual: true, timeoutMs: 5 })
+  const s = setup({ manual: true, timeoutMs: 1000 })
   const first = s.motion.select(true)
   await tick()
   const second = s.motion.select(false)
@@ -143,7 +145,7 @@ test('设置选择覆盖在途快照，迟到更新不能覆盖最终主题', as
   assert.deepEqual(s.root.dataset, {})
 })
 test('快照等待期间的连续点击取消旧请求，迟到回调不能覆盖最后主题', async () => {
-  const s = setup({ manual: true, timeoutMs: 5 })
+  const s = setup({ manual: true, timeoutMs: 1000 })
   const first = s.motion.toggle()
   await tick()
   const second = s.motion.toggle()
@@ -155,23 +157,32 @@ test('快照等待期间的连续点击取消旧请求，迟到回调不能覆�
   assert.deepEqual(s.writes, [])
   assert.deepEqual(s.root.dataset, {})
 })
-test('已提交主题后的第二次点击和store销毁都能取消在途动画', async () => {
-  const s = setup({ manual: true, timeoutMs: 10 })
+test('已提交主题后的后续选择等到圆形完成，并只接续最后的选择', async () => {
+  const s = setup({ manual: true, timeoutMs: 1000 })
   const first = s.motion.toggle()
   await tick()
   await s.snapshots[0].update()
   s.snapshots[0].readyControl.resolve()
   await tick()
-  assert.equal(s.calls.length, 1)
-  const second = s.motion.toggle()
-  await Promise.all([first, second])
-  assert.equal(s.dark(), false)
-  const third = s.motion.toggle()
+  const firstAnimation = s.animation()
+  const requests = [s.motion.select(false), s.motion.select(true), s.motion.select(false, { x: 7, y: 8 })]
   await tick()
-  s.motion.dispose()
-  await third
-  await s.snapshots.at(-1).update()
-  await s.motion.toggle()
+  // 不取消正在展开的画面，也不能提前写回浅色；旧实现会在此处骤然露出深色整页。
+  assert.equal(firstAnimation.finished, s.animation().finished)
+  assert.equal(s.snapshots.length, 1)
+  assert.deepEqual(s.writes, [true])
+  assert.equal(s.root.dataset.themeTransition, 'circle')
+  firstAnimation.end.resolve()
+  await first
+  await tick()
+  assert.equal(s.snapshots.length, 2)
+  await s.snapshots[1].update()
+  s.snapshots[1].readyControl.resolve()
+  await tick()
+  assert.equal(s.calls[1].frames.clipPath[0], themeCircleFrames({ x: 7, y: 8 }, 800, 600)[0])
+  s.animation().end.resolve()
+  await Promise.all(requests)
+  assert.deepEqual(s.writes, [true, false])
   assert.equal(s.dark(), false)
   assert.deepEqual(s.root.dataset, {})
 })
@@ -191,4 +202,77 @@ test('圆形未完全展开时不能释放快照或恢复颜色过渡', async ()
   s.animation().end.resolve()
   await request
   assert.deepEqual(s.root.dataset, {})
+})
+
+
+// ready 之前主题也可能已经提交，此时取消同样会暴露整页新配色。
+test('提交后 ready 之前再次切换仍完整展开，偶数次后续点击不增加动画', async () => {
+  const s = setup({ manual: true, timeoutMs: 1000 })
+  const first = s.motion.toggle()
+  await tick()
+  await s.snapshots[0].update()
+  const requests = [s.motion.toggle(), s.motion.toggle()]
+  s.snapshots[0].readyControl.resolve()
+  await tick()
+  assert.equal(s.calls.length, 1)
+  assert.deepEqual(s.writes, [true])
+  s.animation().end.resolve()
+  await Promise.all([first, ...requests])
+  assert.equal(s.snapshots.length, 1)
+  assert.equal(s.dark(), true)
+  assert.deepEqual(s.root.dataset, {})
+})
+
+// 捕获前取消与 store 销毁仍需立即结束，不让隐藏窗口拖住后续请求。
+test('捕获前取消不依赖超时或迟到的 ready', async () => {
+  const s = setup({ manual: true, timeoutMs: 1000 })
+  const first = s.motion.select(true)
+  await tick()
+  const second = s.motion.select(false)
+  let finished = false
+  void Promise.all([first, second]).then(() => { finished = true })
+  await tick()
+  assert.equal(finished, true)
+  assert.deepEqual(s.writes, [])
+  await s.snapshots[0].update()
+  s.snapshots[0].readyControl.resolve()
+  await tick()
+  assert.equal(s.calls.length, 0)
+  assert.deepEqual(s.root.dataset, {})
+})
+
+test('销毁取消在途圆形，迟到回调与排队选择不能复活主题', async () => {
+  const s = setup({ manual: true, timeoutMs: 1000 })
+  const first = s.motion.select(true)
+  await tick()
+  await s.snapshots[0].update()
+  s.snapshots[0].readyControl.resolve()
+  await tick()
+  const second = s.motion.select(false)
+  s.motion.dispose()
+  await Promise.all([first, second])
+  await s.snapshots[0].update()
+  await s.motion.toggle()
+  assert.deepEqual(s.writes, [true])
+  assert.deepEqual(s.root.dataset, {})
+})
+
+// 检查真实样式的启动保护，防止动画 ready 前新快照未经裁剪就铺满窗口。
+test('新快照在动画创建前已裁剪，旧快照保持完整且没有默认淡入淡出', () => {
+  const css = postcss.parse(readFileSync(new URL('../src/renderer/src/theme-transitions.css', import.meta.url), 'utf8'))
+  const values = selector => {
+    const result = {}
+    css.walkRules(rule => {
+      if (rule.selectors.includes(selector)) rule.walkDecls(decl => { result[decl.prop] = decl.value })
+    })
+    return result
+  }
+  const prefix = ":root[data-theme-transition='circle']"
+  const next = values(`${prefix}::view-transition-new(root)`)
+  const old = values(`${prefix}::view-transition-old(root)`)
+  assert.equal(next['clip-path'], 'circle(0%)')
+  assert.equal(next.animation, 'none')
+  assert.equal(old.animation, 'none')
+  assert.equal(old['clip-path'], undefined)
+  assert.ok(Number(next['z-index']) > Number(old['z-index']))
 })
