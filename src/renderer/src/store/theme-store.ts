@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { isThemeColor, readThemeColor, saveThemeColor, themeColorPalette, themeColorVariables } from '../utils/theme-color'
 import { readThemePreference, saveThemePreference } from '../utils/theme-preference'
 import type { ThemeMode } from '../utils/theme-preference'
-import { createThemeTransition, themeToggleOrigin } from '../utils/theme-transition'
+import { createThemeTransition, themeToggleOrigin, waitForThemePaint } from '../utils/theme-transition'
 
 function availableStorage(): Storage | undefined {
   try {
@@ -39,6 +39,8 @@ export const useThemeStore = defineStore('theme', () => {
       height: window.innerHeight,
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       root: document.documentElement,
+      // 快照退出后再跨过一次绘制，保证真实页面与完整的新快照平稳交接。
+      settle: waitForThemePaint,
       start: typeof document.startViewTransition === 'function'
         ? (update) => document.startViewTransition(update) : undefined
     }

@@ -11,6 +11,23 @@ export interface ThemeTransitionEnvironment {
     animate: (frames: Keyframe[] | PropertyIndexedKeyframes, options: KeyframeAnimationOptions) => SnapshotAnimation
   }
   start?: (update: () => Promise<void>) => SnapshotTransition
+  // 浏览器的 finished 只表示逻辑结束；绘制交接后才恢复常规样式。
+  settle?: () => Promise<void>
+}
+
+export function waitForThemePaint(frames: Pick<typeof globalThis, 'requestAnimationFrame' | 'cancelAnimationFrame'> = globalThis): Promise<void> {
+  return new Promise(resolve => {
+    let frame: number
+    const finish = (): void => {
+      frames.cancelAnimationFrame(frame)
+      clearTimeout(timer)
+      resolve()
+    }
+    // 两次绘制回调跨过一次实际绘制，避免同帧取消填充与恢复默认快照样式。
+    frame = frames.requestAnimationFrame(() => { frame = frames.requestAnimationFrame(finish) })
+    // 后台窗口可能暂停绘制回调，仍需及时清理，不能拖住后续主题请求。
+    const timer = setTimeout(finish, 150)
+  })
 }
 
 export function themeCircleFrames(origin: ThemeOrigin, width: number, height: number): string[] {
@@ -49,9 +66,13 @@ export function createThemeTransition(options: {
   let active: SnapshotTransition | undefined
   let animation: SnapshotAnimation | undefined
   let activeRoot: ThemeTransitionEnvironment['root'] | undefined
+  let committed = false
+  let interrupt: (() => void) | undefined
   let disposed = false
 
   function stop(): void {
+    // 捕获尚未开始时也能立即释放队列，不必等待迟到的 ready 或超时。
+    interrupt?.()
     active?.skipTransition()
     animation?.cancel()
   }
@@ -71,6 +92,7 @@ export function createThemeTransition(options: {
       // 被后续点击替代的快照回调不得迟到覆盖最新主题；降级提交也只执行一次。
       if (applied || disposed || id !== request) return
       applied = true
+      committed = true
       options.setDark(dark)
       await options.flush()
     }
@@ -84,7 +106,8 @@ export function createThemeTransition(options: {
       void transition.finished.catch(() => {})
       const effect = async (): Promise<void> => {
         await transition.ready
-        if (ended || disposed || id !== request) return
+        // 新主题已经提交后必须完整展开；后续选择排在其后，不能半途露出整页。
+        if (ended || disposed || !applied) return
         animation = env.root.animate({
           clipPath: themeCircleFrames(origin ?? { x: env.width / 2, y: env.height / 2 }, env.width, env.height)
         }, {
@@ -92,11 +115,14 @@ export function createThemeTransition(options: {
           pseudoElement: '::view-transition-new(root)'
         })
         await animation.finished
+        // 取消动画填充后仍保持完整的新画面，不能退回启动时的零半径裁剪。
+        env.root.dataset.themeReveal = 'complete'
         transition.skipTransition()
         await transition.finished
       }
       // 隐藏窗口、截图失败或动画挂起时及时结束遮罩，主题仍能正常切换。
-      await Promise.race([effect(), new Promise<void>(resolve => {
+      const cancelled = new Promise<void>(resolve => { interrupt = resolve })
+      await Promise.race([effect(), cancelled, new Promise<void>(resolve => {
         timer = setTimeout(resolve, options.timeoutMs ?? 2000)
       })])
     } catch {
@@ -105,15 +131,21 @@ export function createThemeTransition(options: {
       // 超时后的 ready 仍可能到达，禁止它重新创建已经释放的动画。
       ended = true
       if (timer) clearTimeout(timer)
-      stop()
+      env.root.dataset.themeReveal = 'complete'
+      active?.skipTransition()
       try {
         await apply()
+        await env.settle?.()
       } finally {
-        // 即使 Vue 更新失败，也必须释放临时样式与快照引用。
+        // 动画填充一直保留到绘制交接完成；即使更新失败也要释放所有资源。
+        stop()
         delete env.root.dataset.themeTransition
+        delete env.root.dataset.themeReveal
         active = undefined
         animation = undefined
         activeRoot = undefined
+        committed = false
+        interrupt = undefined
       }
     }
   }
@@ -129,8 +161,9 @@ export function createThemeTransition(options: {
     desired = dark
     const id = ++request
     pending += 1
-    stop()
-    // 快速点击只执行最后的意图，但保留点击次数的奇偶结果，避免积压整段动画。
+    // 已提交的新画面保留到圆形覆盖全窗；捕获前的旧意图仍可立即取消。
+    if (!committed) stop()
+    // 等待期间只执行最后的意图，最多接续一次动画，不积压每次点击。
     const result = queue.then(() => run(dark, origin, id))
     queue = result.catch(() => {})
     return result.finally(() => { pending -= 1 })
@@ -140,7 +173,10 @@ export function createThemeTransition(options: {
     disposed = true
     request += 1
     stop()
-    if (activeRoot) delete activeRoot.dataset.themeTransition
+    if (activeRoot) {
+      delete activeRoot.dataset.themeTransition
+      delete activeRoot.dataset.themeReveal
+    }
   }
   return { toggle, select, dispose }
 }
