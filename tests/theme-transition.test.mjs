@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import postcss from 'postcss'
-import { createThemeTransition, themeCircleFrames, themeToggleOrigin } from '../src/renderer/src/utils/theme-transition.ts'
+import { createThemeTransition, themeCircleFrames, themeToggleOrigin, waitForThemePaint } from '../src/renderer/src/utils/theme-transition.ts'
 
 // 可控制的浏览器快照模拟隐藏窗口、失败和连续点击，不依赖真实动画计时。
 function deferred() {
@@ -11,7 +11,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 const tick = () => new Promise(resolve => setImmediate(resolve))
-function setup({ supported = true, reducedMotion = false, manual = false, fail, timeoutMs = 30 } = {}) {
+function setup({ supported = true, reducedMotion = false, manual = false, fail, timeoutMs = 30, paint = false } = {}) {
   let dark = false, animation
   const writes = [], calls = [], snapshots = []
   const root = { dataset: {}, animate(frames, options) {
@@ -19,10 +19,11 @@ function setup({ supported = true, reducedMotion = false, manual = false, fail, 
     if (fail === 'animate') throw new Error('animation unavailable')
     const end = deferred()
     if (!manual) end.resolve()
-    animation = { finished: end.promise, cancel() { end.reject(new Error('cancelled')) }, end }
+    animation = { finished: end.promise, cancelled: false, cancel() { this.cancelled = true; end.reject(new Error('cancelled')) }, end }
     return animation
   } }
-  const env = { width: 800, height: 600, reducedMotion, root, start: supported ? update => {
+  const painted = deferred()
+  const env = { width: 800, height: 600, reducedMotion, root, settle: paint ? () => painted.promise : undefined, start: supported ? update => {
     if (fail === 'start') throw new Error('capture unavailable')
     const ready = deferred(), finished = deferred()
     const snapshot = { ready: ready.promise, finished: finished.promise, skipTransition() { finished.resolve() }, update, readyControl: ready }
@@ -31,7 +32,7 @@ function setup({ supported = true, reducedMotion = false, manual = false, fail, 
     return snapshot
   } : undefined }
   const motion = createThemeTransition({ isDark: () => dark, setDark: value => { dark = value; writes.push(value) }, flush: async () => {}, environment: () => env, timeoutMs })
-  return { motion, root, calls, snapshots, writes, animation: () => animation, dark: () => dark }
+  return { motion, root, calls, snapshots, writes, painted, animation: () => animation, dark: () => dark }
 }
 
 test('百分比圆形在横竖窗口与不同像素密度下都从按钮展开、覆盖全部角落', () => {
@@ -275,4 +276,57 @@ test('新快照在动画创建前已裁剪，旧快照保持完整且没有默�
   assert.equal(old.animation, 'none')
   assert.equal(old['clip-path'], undefined)
   assert.ok(Number(next['z-index']) > Number(old['z-index']))
+  assert.equal(values(`${prefix}[data-theme-reveal='complete']::view-transition-new(root)`)['clip-path'], 'none')
+})
+
+// finished 与合成器绘制不一定在同一时刻完成，交接前不能恢复默认快照动画。
+test('动画结束后保留全幅新画面，跨过绘制交接后才释放样式和后续请求', async () => {
+  const s = setup({ manual: true, timeoutMs: 1000, paint: true })
+  const first = s.motion.select(true)
+  await tick()
+  await s.snapshots[0].update()
+  s.snapshots[0].readyControl.resolve()
+  await tick()
+  const completed = s.animation()
+  completed.end.resolve()
+  await tick()
+  const second = s.motion.select(false)
+  await tick()
+  assert.equal(s.root.dataset.themeTransition, 'circle')
+  assert.equal(s.root.dataset.themeReveal, 'complete')
+  assert.equal(s.snapshots.length, 1)
+  assert.equal(completed.cancelled, false)
+  s.painted.resolve()
+  await first
+  assert.equal(completed.cancelled, true)
+  await tick()
+  await s.snapshots[1].update()
+  s.snapshots[1].readyControl.resolve()
+  await tick()
+  s.animation().end.resolve()
+  await second
+  assert.deepEqual(s.root.dataset, {})
+})
+
+test('绘制交接等待两次帧回调，隐藏窗口超时也取消剩余帧回调', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let id = 0
+  const callbacks = new Map(), cancelled = []
+  const frames = {
+    requestAnimationFrame(callback) { callbacks.set(++id, callback); return id },
+    cancelAnimationFrame(key) { callbacks.delete(key); cancelled.push(key) }
+  }
+  let finished = false
+  const paint = waitForThemePaint(frames).then(() => { finished = true })
+  const runFrame = key => { const callback = callbacks.get(key); callbacks.delete(key); callback() }
+  runFrame(1)
+  await tick()
+  assert.equal(finished, false)
+  runFrame(2)
+  await paint
+  assert.deepEqual(cancelled, [2])
+  const hidden = waitForThemePaint(frames)
+  t.mock.timers.tick(150)
+  await hidden
+  assert.deepEqual(cancelled, [2, 3])
 })

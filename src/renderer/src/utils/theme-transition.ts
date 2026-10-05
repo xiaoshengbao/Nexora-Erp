@@ -11,6 +11,23 @@ export interface ThemeTransitionEnvironment {
     animate: (frames: Keyframe[] | PropertyIndexedKeyframes, options: KeyframeAnimationOptions) => SnapshotAnimation
   }
   start?: (update: () => Promise<void>) => SnapshotTransition
+  // 浏览器的 finished 只表示逻辑结束；绘制交接后才恢复常规样式。
+  settle?: () => Promise<void>
+}
+
+export function waitForThemePaint(frames: Pick<typeof globalThis, 'requestAnimationFrame' | 'cancelAnimationFrame'> = globalThis): Promise<void> {
+  return new Promise(resolve => {
+    let frame: number
+    const finish = (): void => {
+      frames.cancelAnimationFrame(frame)
+      clearTimeout(timer)
+      resolve()
+    }
+    // 两次绘制回调跨过一次实际绘制，避免同帧取消填充与恢复默认快照样式。
+    frame = frames.requestAnimationFrame(() => { frame = frames.requestAnimationFrame(finish) })
+    // 后台窗口可能暂停绘制回调，仍需及时清理，不能拖住后续主题请求。
+    const timer = setTimeout(finish, 150)
+  })
 }
 
 export function themeCircleFrames(origin: ThemeOrigin, width: number, height: number): string[] {
@@ -98,6 +115,8 @@ export function createThemeTransition(options: {
           pseudoElement: '::view-transition-new(root)'
         })
         await animation.finished
+        // 取消动画填充后仍保持完整的新画面，不能退回启动时的零半径裁剪。
+        env.root.dataset.themeReveal = 'complete'
         transition.skipTransition()
         await transition.finished
       }
@@ -112,12 +131,16 @@ export function createThemeTransition(options: {
       // 超时后的 ready 仍可能到达，禁止它重新创建已经释放的动画。
       ended = true
       if (timer) clearTimeout(timer)
-      stop()
+      env.root.dataset.themeReveal = 'complete'
+      active?.skipTransition()
       try {
         await apply()
+        await env.settle?.()
       } finally {
-        // 即使 Vue 更新失败，也必须释放临时样式与快照引用。
+        // 动画填充一直保留到绘制交接完成；即使更新失败也要释放所有资源。
+        stop()
         delete env.root.dataset.themeTransition
+        delete env.root.dataset.themeReveal
         active = undefined
         animation = undefined
         activeRoot = undefined
@@ -150,7 +173,10 @@ export function createThemeTransition(options: {
     disposed = true
     request += 1
     stop()
-    if (activeRoot) delete activeRoot.dataset.themeTransition
+    if (activeRoot) {
+      delete activeRoot.dataset.themeTransition
+      delete activeRoot.dataset.themeReveal
+    }
   }
   return { toggle, select, dispose }
 }

@@ -48,6 +48,8 @@
 /* ready 回调与动画创建之间也保持裁剪，避免忙碌时先露出一帧完整的新主题。
    动画的 forwards 填充会覆盖此初始值，直到快照真正结束才释放。 */
 :root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2; clip-path: circle(0%); will-change: clip-path; }
+/* 结束交接时保留全幅新画面，防止取消动画填充后又露出旧快照一帧。 */
+:root[data-theme-transition='circle'][data-theme-reveal='complete']::view-transition-new(root) { clip-path: none; }
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme],
