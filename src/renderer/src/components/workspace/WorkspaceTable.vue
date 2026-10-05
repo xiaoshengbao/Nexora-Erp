@@ -188,7 +188,8 @@ defineSlots<{
 .workspace-table-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .workspace-table-loading { padding: 20px; color: var(--vxe-ui-font-color); text-align: center; }
 .workspace-table-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 180px; padding: 22px; color: #607289; text-align: center; }
-.workspace-table-empty-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid #d6eae8; border-radius: 13px; background: #edf7f5; color: #278b87; }
+/* 空状态图标与底色、描边共用主题变量，明暗模式不再覆盖为固定青绿；错误状态继续使用红色。 */
+.workspace-table-empty-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--app-accent-ring); border-radius: 13px; background: var(--app-accent-tint); color: var(--workspace-field-accent); }
 .workspace-table-empty-icon svg { width: 31px; height: 31px; }
 .workspace-table-empty-copy { display: grid; justify-items: center; gap: 5px; max-width: 480px; font-size: 13px; line-height: 1.5; }
 .workspace-table-empty-copy strong { color: #263950; font-size: 14px; }
@@ -202,7 +203,7 @@ defineSlots<{
 .workspace-table-scrollbar::-moz-range-thumb { width: var(--scroll-thumb-width); height: 10px; border: 0; border-radius: 6px; background: #61869c; box-shadow: 0 1px 2px #28465b38; }
 .workspace-table-scrollbar:hover::-webkit-slider-thumb { background: #2c7183; }
 .workspace-table-scrollbar:active::-webkit-slider-thumb { background: var(--workspace-field-accent); }
-.workspace-table-scrollbar:focus-visible { outline: 2px solid #278b87; outline-offset: 3px; }
+.workspace-table-scrollbar:focus-visible { outline: 2px solid var(--workspace-field-accent); outline-offset: 3px; }
 @media (max-width: 650px) {
   .workspace-table-heading { align-items: stretch; flex-direction: column; }
   .workspace-table-filters :deep(label), .workspace-table-filters :deep(label:only-child) { max-width: none; }
@@ -252,7 +253,6 @@ defineSlots<{
 .workspace-vxe-table .vxe-table--empty-placeholder,
 .workspace-vxe-table .vxe-table--empty-block { min-height: 180px; }
 :root[data-theme='dark'] .workspace-table-empty { color: #a3b4cc; }
-:root[data-theme='dark'] .workspace-table-empty-icon { border-color: #305e61; background: #1b3d40; color: #7dd8cf; }
 :root[data-theme='dark'] .workspace-table-empty-copy strong { color: #e6edf8; }
 :root[data-theme='dark'] .workspace-table-empty-copy span { color: #a3b4cc; }
 :root[data-theme='dark'] .workspace-table-empty.is-error .workspace-table-empty-icon { border-color: #70423f; background: #432a30; color: #ffaaa2; }
