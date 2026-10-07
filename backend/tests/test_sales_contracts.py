@@ -1,5 +1,7 @@
 """销售合同正文只追加版本，不能覆盖原单金额和保修证据。"""
 
+from approval_test_helpers import approve_document
+
 import sqlite3
 from contextlib import contextmanager
 
@@ -51,6 +53,7 @@ def test_sales_contract_revisions_preserve_history_and_order_terms(monkeypatch, 
         assert client.post(url, headers=admin, json={
             **first, 'expected_version': 1}).status_code == 409
 
+        approve_document(client, admin, 'SalesOrder', order_id)
         assert client.post(f'{base}/sales-orders/{order_id}/confirm', headers=admin).status_code == 200
         second = client.post(url, headers=admin, json={
             'expected_version': 1, 'body': '合同全文第二版',
@@ -131,7 +134,7 @@ def test_contract_migration_is_atomic_and_preserves_existing_orders(monkeypatch,
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT * FROM sales_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-    assert len(Base.metadata.tables) == 187
+    assert len(Base.metadata.tables) == 192

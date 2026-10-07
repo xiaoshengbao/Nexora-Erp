@@ -1,5 +1,7 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
+from approval_test_helpers import execute_production_settlement, approve_document, execute_payment
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -50,15 +52,20 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         # 采购入库形成应付与主仓库存，调拨只移动库存，不重复产生采购金额。
         purchase = create("/purchase-orders", buyer, {"supplier_id": supplier, "lines": [
             {"material_id": component, "quantity": "4", "unit_price": "3"}]})["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase)
         confirm(f"/purchase-orders/{purchase}/confirm", buyer)
         receipt = create("/receipts", buyer, {"supplier_id": supplier, "purchase_order_id": purchase,
                                                "warehouse_id": 1, "lines": [
                                                    {"material_id": component, "quantity": "4"}]})["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         confirm(f"/receipts/{receipt}/post", warehouse)
         transfer = create("/transfers", warehouse, {"from_warehouse_id": 1,
                                                      "to_warehouse_id": production_warehouse,
                                                      "lines": [{"material_id": component,
                                                                 "quantity": "4"}]})["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         confirm(f"/transfers/{transfer}/post", warehouse)
 
         bom = create("/boms", planner, {"product_material_id": product, "base_quantity": "1",
@@ -68,11 +75,13 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         work_order = create("/work-orders", planner, {"bom_id": bom,
                                                        "warehouse_id": production_warehouse,
                                                        "target_quantity": "2"})
+        approve_document(client, admin, 'WorkOrder', work_order['id'])
         confirm(f"/work-orders/{work_order['id']}/release", planner)
         issue = create("/material-issues", planner, {"work_order_id": work_order["id"],
                                                         "warehouse_id": production_warehouse,
                                                         "lines": [{"work_order_line_id": work_order["lines"][0]["id"],
                                                                    "quantity": "4"}]})
+        approve_document(client, admin, 'MaterialIssue', issue['id'])
         confirm(f"/material-issues/{issue['id']}/post", warehouse)
         # 领料成本自动沿用采购入库形成的库存平均成本，不再重复人工核价。
         assert client.get(f"{base}/production-costs", headers=finance).json()["orders"][0]["known_material_amount"] == "12.00"
@@ -82,6 +91,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
 
         sale = create("/sales-orders", seller, {"customer_id": customer, "lines": [
             {"material_id": product, "quantity": "2", "unit_price": "10"}]})["id"]
+        approve_document(client, admin, 'SalesOrder', sale)
         confirm(f"/sales-orders/{sale}/confirm", seller)
         shipment = create("/shipments", warehouse, {"sales_order_id": sale,
                                                      "warehouse_id": production_warehouse,
@@ -100,13 +110,16 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         inspected = client.post(f"{base}/production-completions/{completion}/inspect",
                                 headers=warehouse, json={"accepted_quantity": "2", "qc_note": "全数合格"})
         assert inspected.status_code == 200, inspected.text
+        approve_document(client, admin, 'ProductionCompletion', completion)
         confirm(f"/production-completions/{completion}/post", warehouse)
         settlement = create('/production-costs/settlements', finance, {
             'work_order_id': work_order['id'], 'reference': 'SETTLE-CYCLE'})
+        settlement = execute_production_settlement(client, finance, settlement, account_headers=admin)
         assert settlement['total_amount'] == '14.00'
         assert settlement['allocations'][0]['amount'] == '14.00'
         produced = client.get(f"{base}/stock?warehouse_id={production_warehouse}", headers=warehouse).json()
         assert Decimal(next(row["quantity"] for row in produced if row["id"] == product)) == Decimal(2)
+        approve_document(client, admin, 'Shipment', shipment)
         confirm(f"/shipments/{shipment}/post", warehouse)
 
         def quantity(warehouse_id, material_id):
@@ -128,9 +141,11 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         create("/finance/payment-records", finance, {"kind": "payable", "order_id": purchase,
                                                       "action": "settlement", "amount": "12",
                                                       "reference": "PAY-CYCLE"})
+        execute_payment(client,finance,next(row for row in client.get(f"{base}/finance/payment-records",headers=finance).json() if row["reference"]=="PAY-CYCLE"),account_headers=admin)
         create("/finance/payment-records", finance, {"kind": "receivable", "order_id": sale,
                                                       "action": "settlement", "amount": "20",
                                                       "reference": "RECEIVE-CYCLE"})
+        execute_payment(client,finance,next(row for row in client.get(f"{base}/finance/payment-records",headers=finance).json() if row["reference"]=="RECEIVE-CYCLE"),account_headers=admin)
         assert {item["outstanding_amount"] for item in client.get(
             f"{base}/finance/accounts", headers=finance).json()} == {"0.00"}
 

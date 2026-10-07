@@ -1,5 +1,5 @@
 import { watch } from 'vue'
-import type { OpeningBalanceAction, SubledgerOpening, SubledgerPaymentInput } from '../../../../shared/erp-api'
+import type { OpeningBalanceAction, SubledgerOpening, SubledgerPaymentInput, SubledgerPayment } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
 
@@ -19,7 +19,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
   }
   watch(state.subledgerQuery, clearReport, { deep: true, flush: 'sync' })
-  watch(() => `${state.user.value?.id}:${state.user.value?.permissions.join('|')}`, () => {
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
     owner++; invalidateReads(); state.subledgerOpenings.value = []; state.subledgerPayments.value = []
     state.subledgerOptions.value = null; state.subledgerForm.value = emptyForm()
   }, { flush: 'sync' })
@@ -57,6 +57,11 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
       return false
     } finally { if (activity === loadingTicket && session === owner) state.subledgerLoading.value = false }
   }
+  async function refreshSubledgerApproval(): Promise<void> {
+    // 方案与资金使用独立列表；审批变化后同步原版本，恢复已查询的同一截止日余额。
+    const hadReport = !!state.subledgerReport.value
+    if (await loadSubledger() && hadReport) await querySubledger()
+  }
   async function editSubledger(item?: SubledgerOpening): Promise<boolean> {
     if (!can('subledger_opening.create') || !connected() || state.busy.value) return false
     const ticket = ++editTicket; const session = owner
@@ -77,7 +82,8 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
   async function write(permission: string, run: () => Promise<unknown>, message: string): Promise<boolean> {
     if (!can(permission) || !connected() || state.busy.value) return false
     const session = owner; let saved = false
-    await perform(async () => { await run(); saved = session === owner && can(permission) }, message)
+    // 排队写操作在发送前重新检查原会话，不能把期初或资金写入另一个实例。
+    await perform(async () => { if (session !== owner || !can(permission) || !connected()) throw new Error('会话或连接已变化，请重新打开分户方案。'); await run(); saved = session === owner && can(permission) }, message)
     if (!saved || session !== owner || !can(permission)) return false
     detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
     await loadSubledger()
@@ -98,6 +104,10 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     return saved
   }
   async function changeSubledgerStatus(item: SubledgerOpening, action: OpeningBalanceAction, reason: string): Promise<boolean> {
+    if (['submit','approve','reject'].includes(action)) return false
+    if (action === 'confirm' && item.approval?.status !== 'approved') return false
+    if (action === 'reverse' && item.reversal_approval?.status !== 'approved') return false
+    if (action === 'cancel' && ['submitted','approved'].includes(item.approval?.status ?? '')) return false
     const permission = ['approve','reject'].includes(action) ? 'subledger_opening.review' : `subledger_opening.${action}`
     return write(permission, () => window.nexora!.callApi('changeSubledgerStatus', { id: item.id, version: item.version, action, reason }), '分户期初状态已更新。')
   }
@@ -122,9 +132,17 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
       if (saved && session === owner && can('subledger_opening.view')) state.notice.value = '分户未结余额 CSV 已保存。'
     } catch (error) { if (session === owner) state.subledgerError.value = displayError(error) }
   }
-  return { loadSubledger, querySubledger, editSubledger, saveSubledger, changeSubledgerStatus, loadSubledgerDetail, clearSubledgerDetail, exportSubledger,
+  return { loadSubledger, refreshSubledgerApproval, querySubledger, editSubledger, saveSubledger, changeSubledgerStatus, loadSubledgerDetail, clearSubledgerDetail, exportSubledger,
     createSubledgerPayment: (input: SubledgerPaymentInput) => write('finance.record',
-      () => window.nexora!.callApi('createSubledgerPayment', { ...input }), '分户收付款已登记；凭证仍须独立审核过账。'),
+      () => window.nexora!.callApi('createSubledgerPayment', { ...input }), '分户资金草稿已保存，独立批准后执行才更新余额。'),
+    changeSubledgerPaymentStatus: (item: SubledgerPayment, action: 'post' | 'cancel', reason: string) => {
+      if (item.status !== 'draft' || action === 'post' && item.approval?.status !== 'approved'
+        || action === 'cancel' && ['submitted','approved'].includes(item.approval?.status ?? '')) return Promise.resolve(false)
+      // 排队发送前沿用实例、证书、账号及权限的会话复核，避免跨服务端写入。
+      return write(item.reverses_id ? 'finance.reverse' : 'finance.record',
+        () => window.nexora!.callApi('changeSubledgerPaymentStatus', { id: item.id, version: item.version, action, reason }),
+        action === 'post' ? '分户资金已执行。' : '分户资金草稿已取消。')
+    },
     reverseSubledgerPayment: (id: number, reason: string) => write('finance.reverse',
-      () => window.nexora!.callApi('reverseSubledgerPayment', { id, reason }), '已追加等额反向登记，原始记录保留。') }
+      () => window.nexora!.callApi('reverseSubledgerPayment', { id, reason }), '反向分户草稿已保存，仍须独立批准并执行。') }
 }

@@ -1,5 +1,6 @@
 """售后独立审核、数量占用、客户物品保管和收费来源的真实跨模块约束。"""
 
+from approval_test_helpers import approve_document, execute_payment, journal_approval_request
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -47,13 +48,19 @@ def erp(monkeypatch,tmp_path):
         part=api('POST','materials',{'sku':'PART','name':'维修备件','unit':'件'},status=201)['id']
         purchase=api('POST','purchase-orders',{'supplier_id':supplier,'lines':[
             {'material_id':m,'quantity':'20','unit_price':'1'} for m in (material,part)]},status=201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, actors['admin'], 'PurchaseOrder', purchase['id'])
         api('POST',f'purchase-orders/{purchase["id"]}/confirm')
         receipt=api('POST','receipts',{'supplier_id':supplier,'purchase_order_id':purchase['id'],
             'lines':[{'material_id':m,'quantity':'20'} for m in (material,part)]},status=201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, actors['admin'], 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         order=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'10','unit_price':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'SalesOrder', order['id'])
         api('POST',f'sales-orders/{order["id"]}/confirm')
         shipment=api('POST','shipments',{'sales_order_id':order['id'],'warehouse_id':1,'lines':[{'material_id':material,'quantity':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'Shipment', shipment['id'])
         shipment=api('POST',f'shipments/{shipment["id"]}/post')
         yield client,api,actors,shipment,material,part,order
 
@@ -69,6 +76,12 @@ def payload(erp,kind='repair',reference='AFTER-1',quantity='2',**extra):
 
 
 def action(api,row,operation,actor='admin',status=200,**extra):
+    if operation in ('submit', 'approve', 'reject', 'withdraw') and 'version' not in extra:
+        # 原测试显式改走统一步骤，其他实际交接仍使用原业务版本接口。
+        state=api('GET',f'system/document-approvals/AfterSalesCase/{row["id"]}',actor=actor)
+        result=api('POST',f'system/document-approvals/AfterSalesCase/{row["id"]}/{operation}',
+            {'version':state['version'],'reason':extra.get('reason','核对售后依据')},actor=actor,status=status)
+        return api('GET',f'{ROOT}/{row["id"]}',actor=actor) if status==200 else result
     return api('POST',f'{ROOT}/{row["id"]}/{operation}',{'version':row['version'],'reason':'核对售后依据',
         'evidence':'交接检验记录 A-002',**extra},actor=actor,status=status)
 
@@ -143,7 +156,7 @@ def test_v79_responsibility_upgrade_is_atomic_and_preserves_old_cases(erp,monkey
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     assert api('GET',f'{ROOT}/{old["id"]}')['responsibilities']==[]
 
@@ -177,9 +190,11 @@ def test_order_warranty_terms_follow_shipment_into_case_and_cannot_be_overridden
          'warranty_days':365,'warranty_basis':'  销售合同 W-365  '}]},status=201)
     assert order['lines'][0]['warranty_days']==365
     assert order['lines'][0]['warranty_basis']=='销售合同 W-365'
+    approve_document(erp[0], erp[2]['admin'], 'SalesOrder', order['id'])
     api('POST',f'sales-orders/{order["id"]}/confirm')
     shipment=api('POST','shipments',{'sales_order_id':order['id'],'warehouse_id':1,
         'lines':[{'material_id':material,'quantity':'2'}]},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', shipment['id'])
     shipment=api('POST',f'shipments/{shipment["id"]}/post')
     source_id=shipment['lines'][0]['id']
     original=next(item for item in api('GET','after-sales')['sources'] if item['shipment_line_id']==source_id)
@@ -242,7 +257,7 @@ def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,m
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
             (old_order['id'],)).fetchone()==(None,'')
     old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
@@ -322,7 +337,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -454,6 +469,7 @@ def test_repair_margin_combines_recognized_fee_parts_and_labor_without_hiding_ga
     row=api('POST',f'{ROOT}/{row["id"]}/labor',dict(version=row['version'],hours='1.50',
         reason='拆机维修',evidence='维修工单 M-1'),actor='warehouse',status=201)
     labor_id=row['labor'][0]['id']
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')
@@ -471,6 +487,7 @@ def test_repair_margin_combines_recognized_fee_parts_and_labor_without_hiding_ga
     assert complete['movements'][0]['source_line_id'] and complete['movements'][0]['cost_source']=='moving_average'
     assert 'repair_margin' not in api('GET',f'{ROOT}/{row["id"]}',actor='warehouse')
     row=api('GET',f'{ROOT}/{row["id"]}')
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     action(api,row,'reverse')
     reversed_margin=api('GET',margin_path,actor='reviewer')
     assert reversed_margin['complete'] and reversed_margin['revenue']=='0.00'
@@ -502,11 +519,13 @@ def test_repair_margin_waits_for_missing_stock_price_and_recomputes_after_valuat
     api=erp[1];part=erp[5]
     inbound=api('POST','warehouse-inbounds',dict(warehouse_id=1,reason='gift',
         note='待核价入库',reference='MARGIN-IN',lines=[dict(material_id=part,quantity='1')]),status=201)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseInbound', inbound['id'])
     api('POST',f'warehouse-inbounds/{inbound["id"]}/post')
     source_id=api('GET','inventory/valuation')['unpriced_movement_ids'][0]
     row=approved(erp,payload(erp,reference='MARGIN-UNPRICED',warehouse_id=1,
         parts=[dict(material_id=part,quantity='1')]))
     row=action(api,row,'receive')
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')
@@ -624,12 +643,15 @@ def test_paid_repair_keeps_customer_goods_out_of_stock_and_reconciles_original_o
         source=business_sources(db)[f'after_sales_repair:{row["id"]}']
         assert source['roles']=={'receivable':'5.50','repair_income':'-5.50'}
         assert source['blockers']==[] and source['movements']==[]
-    api('POST','finance/payment-records',{'kind':'receivable','order_id':order['id'],'action':'settlement',
+    paid=api('POST','finance/payment-records',{'kind':'receivable','order_id':order['id'],'action':'settlement',
         'amount':'105.50','reference':'服务收款'},status=201)
+    execute_payment(erp[0],erp[2]['admin'],paid)
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     row=action(api,row,'reverse')
     account=next(item for item in api('GET','finance/accounts') if item['kind']=='receivable' and item['order_id']==order['id'])
     assert account['business_amount']=='100.00' and account['outstanding_amount']=='-5.50'
     assert len(row['custody'])==2 and row['custody_quantity']=='0'
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', shipment['id'], intent='reverse', reason='来源更正')
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'来源更正'},status=201)
 
 
@@ -639,6 +661,7 @@ def test_repair_parts_use_company_outbound_and_require_effective_posting(erp):
     row=action(api,row,'receive')
     assert row['parts_status']=='draft'
     action(api,row,'inspect',inspection_result='pass',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')
@@ -653,11 +676,14 @@ def test_return_case_uses_existing_return_and_retains_audited_correction(erp):
     row=approved(erp,payload(erp,kind='return'))
     row=action(api,row,'process')
     action(api,row,'close',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
     row=action(api,row,'close')
     action(api,row,'reverse',status=409)
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'已有售后'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退回数量更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退回数量更正'},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     row=action(api,row,'reverse')
     assert row['status']=='reversed' and row['sales_return_id'] is not None
     assert api('GET','after-sales')['sources'][0]['remaining_quantity']=='10'
@@ -667,17 +693,23 @@ def test_exchange_cannot_ship_before_return_or_reverse_return_before_replacement
     _,api,_,_,material,_,_=erp
     row=action(api,approved(erp,payload(erp,kind='exchange')),'process')
     api('POST',f'sales-orders/{row["replacement_order_id"]}/confirm',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
+    approve_document(erp[0], erp[2]['admin'], 'SalesOrder', row['replacement_order_id'])
     api('POST',f'sales-orders/{row["replacement_order_id"]}/confirm')
     action(api,row,'close',status=409)
     replacement=api('POST','shipments',{'sales_order_id':row['replacement_order_id'],'warehouse_id':1,
         'lines':[{'material_id':material,'quantity':'2'}]},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', replacement['id'])
     api('POST',f'shipments/{replacement["id"]}/post')
     row=action(api,row,'close')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'需先更正换货'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', replacement['id'], intent='reverse', reason='換货更正')
     api('POST',f'shipments/{replacement["id"]}/reverse',{'reason':'換货更正'},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退货更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退货更正'},status=201)
     api('POST',f'sales-orders/{row["replacement_order_id"]}/cancel')
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     assert action(api,row,'reverse')['status']=='reversed'
 
 
@@ -713,7 +745,9 @@ def test_pending_cases_and_plain_returns_share_quantity_and_source_guards(erp):
     returned=api('POST','sales-returns',{'shipment_id':shipment['id'],'warehouse_id':1,'reason':'普通退货',
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'3'}]},status=201)
     api('POST',f'sales-returns/{returned["id"]}/post',status=409)
+    row=action(api,row,'withdraw')
     action(api,row,'cancel')
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', returned['id'])
     api('POST',f'sales-returns/{returned["id"]}/post')
     api('POST',ROOT,payload(erp,quantity='8',reference='AFTER-2'),status=409)
 
@@ -726,8 +760,8 @@ def test_concurrent_submission_and_process_never_double_allocate(erp):
     client,_,actors,_,_,_,_=erp
     def submit(row):
         barrier.wait(timeout=5)
-        return client.post(f'/api/v1/{ROOT}/{row["id"]}/submit',headers=actors['admin'],
-            json={'version':row['version'],'reason':'并发数量确认'}).status_code
+        return client.post(f'/api/v1/system/document-approvals/AfterSalesCase/{row["id"]}/submit',headers=actors['admin'],
+            json={'version':0,'reason':'并发数量确认'}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(submit,[first,second]))==[200,409]
     row=approved(erp,payload(erp,kind='return',quantity='2',reference='AFTER-3'))
@@ -776,10 +810,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)== 187
+    assert len(Base.metadata.tables)== 192
 
 
 def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
@@ -806,7 +840,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 
@@ -814,9 +848,11 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
 def test_exchange_cancelled_during_processing_has_a_complete_correction_path(erp):
     _,api,_,_,_,_,_=erp
     row=action(api,approved(erp,payload(erp,kind='exchange')),'process')
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
     api('POST',f'sales-orders/{row["replacement_order_id"]}/cancel')
     action(api,row,'cancel',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='客户取消换货')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'客户取消换货'},status=201)
     assert action(api,row,'cancel')['status']=='cancelled'
     assert api('GET','after-sales')['sources'][0]['remaining_quantity']=='10'
@@ -861,14 +897,21 @@ def test_repair_fee_and_correction_generate_independently_reviewed_balanced_jour
             fingerprint=source['fingerprint'],policy_version=source['policy_version'],reference=reference,
             journal_date=source['minimum_date'],reason='核对客户同意及交付'),status=201)
         path=f'finance/journals/{journal["id"]}'
-        journal=api('POST',path+'/submit',dict(version=journal['version'],reason='核对来源'))
-        api('POST',path+'/approve',dict(version=journal['version'],reason='不能自审'),status=409)
-        journal=api('POST',path+'/approve',dict(version=journal['version'],reason='独立审核'),actor='reviewer')
+        # 通过真实统一审批检查自审拒绝，随后由独立人员核对来源并批准。
+        submitted=journal_approval_request(erp[0],journal,'submit',reason='核对来源',headers=erp[2]['admin'])
+        assert submitted.status_code==200,submitted.text
+        journal=api('GET',path)
+        self_review=journal_approval_request(erp[0],journal,'approve',reason='不能自审',headers=erp[2]['admin'])
+        assert self_review.status_code==403,self_review.text
+        reviewed=journal_approval_request(erp[0],journal,'approve',reason='独立审核',headers=erp[2]['reviewer'])
+        assert reviewed.status_code==200,reviewed.text
+        journal=api('GET',path)
         return api('POST',path+'/post',dict(version=journal['version'],reason='登记售后费用'))
     original=post_source(f'after_sales_repair:{row["id"]}','REPAIR-FEE')
     assert original['total_debit']=='5.50'
     with orm_session() as db:
         assert business_sources(db)[f'after_sales_repair:{row["id"]}']['movements']==[]
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     action(api,row,'reverse')
     correction=post_source(f'after_sales_repair_reversal:{row["id"]}','REPAIR-FEE-REV')
     assert correction['total_debit']=='5.50'
@@ -941,3 +984,24 @@ def test_archive_uses_last_audit_before_end_instead_of_future_case_state(erp):
         assert frozen['case']['status']=='received' and frozen['custody_quantity']=='2'
         assert len(frozen['custody'])==1
         assert archive_cases(db,'2027-01-01')[0]['case']['status']==cancelled['status']
+
+
+def test_after_sales_children_exclude_original_submitter_before_new_author_migration(erp):
+    from app.core.models import DocumentApprovalAuthor, UserRole
+    client, api, actors, *_ = erp
+    row = api('POST', ROOT, payload(erp, kind='exchange'), status=201)
+    row = action(api, row, 'submit', actor='seller')
+    row = action(api, row, 'approve', actor='reviewer')
+    row = action(api, row, 'process')
+    for kind, identifier in [('SalesOrder', row['replacement_order_id']), ('SalesReturn', row['sales_return_id'])]:
+        with orm_session() as db:
+            assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
+                DocumentApprovalAuthor.document_type == kind, DocumentApprovalAuthor.document_id == identifier)) is None
+    with orm_session(write=True) as db:
+        # 原售后编制记录不能因为换货/退货生成另一张草稿就失去自审排除。
+        db.add(UserRole(user_id=3, role_code='admin'))
+    for kind, identifier in [('SalesOrder', row['replacement_order_id']), ('SalesReturn', row['sales_return_id'])]:
+        path = f'/api/v1/system/document-approvals/{kind}/{identifier}'
+        assert client.post(path + '/submit', headers=actors['admin'], json={'version': 0}).status_code == 200
+        assert not client.get(path, headers=actors['seller']).json()['can_review']
+        assert client.post(path + '/approve', headers=actors['seller'], json={'version': 1}).status_code == 403

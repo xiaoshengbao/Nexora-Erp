@@ -1,5 +1,6 @@
 """设备维护真实流程、独立处理、库存依赖、并发与写后故障回滚。"""
 
+from approval_test_helpers import approve_document
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -42,6 +43,7 @@ def erp(monkeypatch, tmp_path):
         part = api('POST','materials',{'sku':'SPARE','name':'维护备件','unit':'件'}, status=201)['id']
         inbound = api('POST','warehouse-inbounds',{'warehouse_id':1,'reason':'other','note':'备件期初',
             'lines':[{'material_id':part,'quantity':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'WarehouseInbound', inbound['id'])
         api('POST',f'warehouse-inbounds/{inbound["id"]}/post')
         asset = api('POST', ROOT+'/assets', asset_input(), status=201)
         yield client, api, actors, ids, asset, part
@@ -65,8 +67,25 @@ def plan_input(erp, **extra):
 
 
 def action(api, row, operation, actor='admin', status=200, **extra):
+    if operation in ('submit', 'approve', 'reject', 'withdraw'):
+        # 只把原送审/审核测试迁移到真实共用入口，不替业务执行隐式批准。
+        api('POST', f'system/document-approvals/MaintenanceJob/{row["id"]}/{operation}',
+            {'version': row['approval']['version'], 'reason': '按现场记录办理',
+             'evidence': '现场记录 W-001', **extra}, actor, status)
+        return api('GET', ROOT+f'/jobs/{row["id"]}') if status == 200 else None
     return api('POST', ROOT+f'/jobs/{row["id"]}/{operation}',
         {'version':row['version'], 'reason':'按现场记录办理', 'evidence':'现场记录 W-001', **extra}, actor, status)
+
+
+def approve_correction(api, row):
+    # 验收更正单独送审，固定原因和现场依据；原办理人员不能自审。
+    path = f'system/document-approvals/MaintenanceJob/{row["id"]}'
+    case = api('GET', path+'?intent=reverse')
+    case = api('POST', path+'/submit', {'intent':'reverse', 'version':case['version'],
+        'reason':'按现场记录办理', 'evidence':'现场记录 W-001'})
+    api('POST', path+'/approve', {'intent':'reverse', 'version':case['version'],
+        'reason':'独立复核验收更正', 'evidence':'核对原验收与现场记录'}, actor='third')
+    return api('GET', ROOT+f'/jobs/{row["id"]}')
 
 
 def approved(erp, **extra):
@@ -94,8 +113,8 @@ def test_maintenance_purchase_request_keeps_source_quantity_and_receipt_evidence
         {'lines': [{'material_id': part, 'quantity': '99'}]}, status=409)
     api('POST', path, {**payload, 'version': row['version'],
         'parts': [{'material_id': part, 'quantity': '2'}]}, status=409)
-    api('POST', f'purchase-requests/{request["id"]}/submit')
-    api('POST', f'purchase-requests/{request["id"]}/approve', actor='reviewer')
+    # 申请独立审批后才允许拆单；每张订单继续按原规则单独审批。
+    approve_document(erp[0], erp[2]["admin"], "PurchaseRequest", request["id"])
     supplier = api('POST', 'suppliers', {'name': '维修供应商'}, status=201)['id']
     order = api('POST', 'purchase-orders', {'supplier_id': supplier,
         'purchase_request_id': request['id'], 'lines': [{'material_id': part,
@@ -104,14 +123,20 @@ def test_maintenance_purchase_request_keeps_source_quantity_and_receipt_evidence
     evidence = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]
     assert evidence['lines'][0]['orders'][0]['id'] == order['id']
     assert evidence['lines'][0]['orders'][0]['quantity'] == '2'
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'PurchaseOrder', order['id'])
     api('POST', f'purchase-orders/{order["id"]}/confirm')
     goods = api('POST', 'purchase-goods-receipts', {'purchase_order_id': order['id'],
         'warehouse_id': 1, 'reference': '到货 EQ-1', 'lines': [{
         'purchase_order_line_id': order['lines'][0]['id'], 'accepted_quantity': '2',
         'rejected_quantity': '0'}]}, status=201)
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'PurchaseGoodsReceipt', goods['id'])
     receipt = api('POST', f'purchase-goods-receipts/{goods["id"]}/confirm')
     link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
     assert link['id'] == goods['id'] and link['inbound_status'] == 'draft'
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'Receipt', receipt['inbound_receipt_id'])
     api('POST', f'receipts/{receipt["inbound_receipt_id"]}/post')
     link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
     assert link['inbound_status'] == 'posted' and link['accepted_quantity'] == '2'
@@ -135,6 +160,7 @@ def reported(erp, **extra):
     api = erp[1]
     row = action(api, approved(erp, **extra), 'start')
     if row['parts_outbound_id']:
+        approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
         api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     return action(api, row, 'report', solution='更换轴承并试运行通过', labor_hours='1.25', service_amount='30.10')
 
@@ -149,6 +175,7 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     assert row['downtime']['ongoing'] and row['parts_status']=='draft'
     assert api('GET','stock')[0]['quantity']=='10'
     action(api,row,'report',status=409,solution='处理完毕',labor_hours='1',service_amount='0')
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row = action(api,row,'report',solution='处理完毕',labor_hours='1.25',service_amount='30.10')
     action(api,row,'accept',status=409)
@@ -156,8 +183,10 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     assert row['labor_hours']=='1.25' and row['service_amount']=='30.10'
     assert not row['downtime']['ongoing'] and row['downtime']['ended_by']==erp[3]['reviewer']
     assert api('GET',ROOT+f'/plans/{plan["id"]}')['next_due']==(date.fromisoformat(now()[:10])+timedelta(days=30)).isoformat()
-    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'耗材更正'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'], intent='reverse', reason='实物已归库')
+    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'实物已归库'},status=409)
     downtime = row['downtime']
+    row = approve_correction(api, row)
     row = action(api,row,'reverse')
     assert row['downtime']==downtime and row['plan_roll']['reversal_effect']=='restored_due'
     assert api('GET',ROOT+f'/plans/{plan["id"]}')['next_due']==plan['next_due']
@@ -171,11 +200,11 @@ def test_admin_cannot_review_own_or_edited_request(erp):
     _, api, _, _, _, _ = erp
     row = api('POST',ROOT+'/jobs',job_input(erp),status=201)
     row = action(api,row,'submit')
-    action(api,row,'approve',status=409)
+    action(api,row,'approve',status=403)
     row = action(api,row,'reject',actor='reviewer')
     row = api('PUT',ROOT+f'/jobs/{row["id"]}',{**job_input(erp), 'version':row['version']},actor='reviewer')
     row = action(api,row,'submit')
-    action(api,row,'approve',actor='reviewer',status=409)
+    action(api,row,'approve',actor='reviewer',status=403)
     row = action(api,row,'approve',actor='third')
     assert row['author_ids']==[1,erp[3]['reviewer']]
 
@@ -197,6 +226,7 @@ def test_cancel_requires_draft_outbound_cancel_but_retains_actual_consumption(er
     api, part = erp[1], erp[5]
     row = action(api,approved(erp,warehouse_id=1,parts=[{'material_id':part,'quantity':'1'}]),'start')
     action(api,row,'cancel',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row = action(api,row,'cancel',evidence='中途取消，但已使用备件不归库')
     assert row['status']=='cancelled' and row['parts_status']=='posted'
@@ -210,6 +240,7 @@ def test_cancel_requires_draft_outbound_cancel_but_retains_actual_consumption(er
 def test_consumed_parts_reversed_before_acceptance_prevent_false_acceptance(erp):
     api = erp[1]
     row = reported(erp,warehouse_id=1,parts=[{'material_id':erp[5],'quantity':'1'}])
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'], intent='reverse', reason='实际耗材领用错误')
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'实际耗材领用错误'},status=201)
     action(api,row,'accept',actor='reviewer',status=409)
     assert api('GET',ROOT+f'/jobs/{row["id"]}')['status']=='reported'
@@ -235,6 +266,7 @@ def test_reversal_preserves_a_newer_explicit_schedule(erp):
     row = action(api,reported(erp,kind='preventive',plan_id=plan['id']),'accept',actor='reviewer')
     advanced = api('GET',ROOT+f'/plans/{plan["id"]}')
     newer = api('PUT',ROOT+f'/plans/{plan["id"]}',{**plan_input(erp,next_due='2028-01-01'),'version':advanced['version']})
+    row = approve_correction(api, row)
     row = action(api,row,'reverse')
     assert row['plan_roll']['reversal_effect']=='retained_newer_schedule'
     assert api('GET',ROOT+f'/plans/{plan["id"]}')==newer
@@ -416,11 +448,11 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 93
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==11
-    assert len(Base.metadata.tables)== 187
+    assert len(Base.metadata.tables)== 192
 
 
 def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipment_schema,monkeypatch):
@@ -478,6 +510,7 @@ def test_hour_plan_due_acceptance_and_audited_reversal(erp):
     assert advanced['next_due_hours'] == '120.00' and not advanced['due']
     assert row['plan_roll']['reading_id'] == reading['id']
     assert [change['action'] for change in advanced['changes']] == ['create', 'advance']
+    row = approve_correction(api, row)
     row = action(api, row, 'reverse')
     assert row['plan_roll']['reversal_effect'] == 'restored_due'
     restored = api('GET', ROOT+f'/hour-plans/{plan["id"]}')
@@ -573,7 +606,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1

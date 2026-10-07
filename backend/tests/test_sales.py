@@ -1,5 +1,7 @@
 """验证销售订单分批出库、库存扣减、服务端权限及草稿竞争。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -34,6 +36,8 @@ def test_sales_orders_shipments_and_audit(monkeypatch, tmp_path):
         supplier = client.post(f"{base}/suppliers", headers=admin, json={"name": "供应商"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "3.125"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "EMPTY", "name": "空仓"}).json()["id"]
@@ -51,17 +55,22 @@ def test_sales_orders_shipments_and_audit(monkeypatch, tmp_path):
                             "lines": [{"material_id": material, "quantity": "1.125"}]}
         assert client.post(f"{base}/shipments", headers=warehouse, json=shipment_payload).status_code == 409
         assert client.post(f"{base}/sales-orders/{order_id}/confirm", headers=viewer).status_code == 403
+        approve_document(client, admin, 'SalesOrder', order_id)
         assert client.post(f"{base}/sales-orders/{order_id}/confirm", headers=seller).status_code == 200
         assert client.post(f"{base}/sales-orders/{order_id}/confirm", headers=seller).status_code == 409
 
         # 出库必须从指定仓扣减；库存不足时既不写流水，也不改变订单进度。
         empty = client.post(f"{base}/shipments", headers=warehouse, json={
             **shipment_payload, "warehouse_id": second}).json()["id"]
+        approve_document(client, admin, 'Shipment', empty)
         assert client.post(f"{base}/shipments/{empty}/post", headers=warehouse).status_code == 409
+        state = client.get(f'/api/v1/system/document-approvals/Shipment/{empty}', headers=admin).json()
+        assert client.post(f'/api/v1/system/document-approvals/Shipment/{empty}/withdraw', headers=admin, json={'version': state['version']}).status_code == 200
         assert client.post(f"{base}/shipments/{empty}/cancel", headers=warehouse).status_code == 200
         assert client.post(f"{base}/shipments/{empty}/post", headers=warehouse).status_code == 409
         first = client.post(f"{base}/shipments", headers=seller, json=shipment_payload).json()["id"]
         assert client.post(f"{base}/shipments/{first}/post", headers=seller).status_code == 403
+        approve_document(client, admin, 'Shipment', first)
         assert client.post(f"{base}/shipments/{first}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/shipments/{first}/post", headers=warehouse).status_code == 409
         partial = client.get(f"{base}/sales-orders", headers=seller).json()[0]
@@ -74,7 +83,9 @@ def test_sales_orders_shipments_and_audit(monkeypatch, tmp_path):
         rest = {**shipment_payload, "lines": [{"material_id": material, "quantity": "2.000"}]}
         a = client.post(f"{base}/shipments", headers=warehouse, json=rest).json()["id"]
         b = client.post(f"{base}/shipments", headers=warehouse, json=rest).json()["id"]
+        approve_document(client, admin, 'Shipment', a)
         assert client.post(f"{base}/shipments/{a}/post", headers=warehouse).status_code == 200
+        approve_document(client, admin, 'Shipment', b)
         assert client.post(f"{base}/shipments/{b}/post", headers=warehouse).status_code == 409
         assert client.get(f"{base}/sales-orders", headers=seller).json()[0]["status"] == "shipped"
         assert client.get(f"{base}/stock?warehouse_id=1", headers=admin).json()[0]["quantity"] == "0.000"

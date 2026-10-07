@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.access.security import require
+from app.core.models import ProductionCostSettlement
 from app.core.models import AccountingPeriod, Journal, JournalLine, PaymentRecord, OrderSettlementTransfer, PeriodClosing, User
 from app.core.orm import add_model, model_data, orm_session
 from app.finance.journals import VersionInput
@@ -78,7 +79,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     from app.core.models import QualityDisposition, QualityCostAllocation, ProductionSettlementReversal
     quality_records = list(db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
         QualityDisposition.posted_at < period.end_date + ' 24:00:00').order_by(QualityDisposition.id)))
-    unallocated_quality = [record.id for record in quality_records if db.scalar(select(QualityCostAllocation.settlement_id).where(
+    unallocated_quality = [record.id for record in quality_records if db.scalar(select(QualityCostAllocation.settlement_id).join(ProductionCostSettlement,ProductionCostSettlement.id==QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status=='active',
         QualityCostAllocation.disposition_id == record.id, ~select(ProductionSettlementReversal.id).where(
             ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists())) is None]
     if unallocated_quality:
@@ -109,16 +110,16 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         subledger=subledger_evidence,
         after_sales=archive_cases(db, period.end_date, valuation),
         quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(
-            select(QualityCostAllocation).where(QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
+            select(QualityCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status == 'active',QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
             policies=selection_options(db)['auxiliary_policies']),
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,
         profit_transfer=transfer,
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,
         payments=[model_data(item) for item in db.scalars(select(PaymentRecord).where(
-            PaymentRecord.created_at < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
+            PaymentRecord.status == 'executed', func.coalesce(PaymentRecord.executed_at, PaymentRecord.created_at) < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
         order_settlements=[model_data(item) for item in db.scalars(select(OrderSettlementTransfer).where(
-            OrderSettlementTransfer.created_at < period.end_date + ' 24:00:00').order_by(OrderSettlementTransfer.id))],
+            OrderSettlementTransfer.status == 'executed', func.coalesce(OrderSettlementTransfer.executed_at, OrderSettlementTransfer.created_at) < period.end_date + ' 24:00:00').order_by(OrderSettlementTransfer.id))],
         posted_journal_ids=list(db.scalars(select(Journal.id).where(
             Journal.journal_date <= period.end_date, Journal.status == 'posted').order_by(Journal.id))))
     return dict(period=snapshot(period), can_close=not blockers, blockers=blockers,

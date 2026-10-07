@@ -1,5 +1,6 @@
 """业务来源重算、独立审核、跨模块价格锁定和原子去重。"""
 
+from approval_test_helpers import execute_production_settlement, approve_document, prepare_purchase_return, execute_payment
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -51,6 +52,14 @@ def generate(client, key, reference='AUTO-1', expected=201):
 
 
 def transition(client, row, action, reviewer=None, expected=200):
+    if action in ('submit', 'approve', 'reject', 'withdraw'):
+        # 显式源凭证审批继续核验旧来源条件；被拒绝也来自真实版本审批，不能靠旧接口冲突掩盖。
+        base = f'/api/v1/system/document-approvals/Journal/{row["id"]}'
+        current = client.get(base, headers=reviewer).json()
+        response = client.post(base + '/' + action, headers=reviewer,
+            json={'version': current['version'], 'reason': '来源与科目核对'})
+        assert response.status_code == expected, response.text
+        return client.get(f'{JOURNALS}/{row["id"]}').json() if expected == 200 else response.json()
     response = client.post(f'{JOURNALS}/{row["id"]}/{action}',
         json=dict(version=row['version'], reason='来源与科目核对'), headers=reviewer)
     assert response.status_code == expected, response.text
@@ -72,7 +81,7 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     row = generate(client, key)
     assert row['business_source']['key'] == key and row['total_debit'] == '62.50'
     generate(client, key, 'DUPLICATE', 409)
-    transition(client, transition(client, row, 'submit'), 'approve', expected=409)
+    transition(client, transition(client, row, 'submit'), 'approve', expected=403)
     row = client.get(f'{JOURNALS}/{row["id"]}').json()
     row = transition(client, row, 'approve', reviewer)
     row = transition(client, row, 'post')
@@ -80,9 +89,11 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     # 实际销售收入与移动平均出库成本进入同一张平衡凭证。
     sales = request('POST', 'sales-orders', dict(customer_id=erp[3], reference='S1',
         lines=[dict(material_id=erp[4][0], quantity='2', unit_price='7')]), 201)
+    approve_document(client, dict(client.headers), 'SalesOrder', sales['id'])
     request('POST', f'sales-orders/{sales["id"]}/confirm')
     shipment = request('POST', 'shipments', dict(sales_order_id=sales['id'], warehouse_id=1,
         lines=[dict(material_id=erp[4][0], quantity='2')]), 201)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
     request('POST', f'shipments/{shipment["id"]}/post')
     key = f'shipment:{shipment["id"]}'
     assert source(client, key)['roles'] == dict(inventory='-6.25', receivable='14.00', income='-14.00', sales_cost='6.25')
@@ -90,11 +101,14 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     assert sale_journal['total_debit'] == '20.25'
     payment = request('POST', 'finance/payment-records', dict(kind='receivable', order_id=sales['id'],
         action='settlement', amount='14', reference='P1'), 201)
+    payment=execute_payment(client,None,payment)
     assert source(client, f'payment_record:{payment["id"]}')['roles'] == {'cash': '14.00', 'receivable': '-14.00'}
     post(client, generate(client, f'payment_record:{payment["id"]}', 'PAY-1'), reviewer)
     reverse = request('POST', f'finance/payment-records/{payment["id"]}/reverse', dict(reason='登记更正'), 201)
+    reverse=execute_payment(client,None,reverse)
     assert source(client, f'payment_record:{reverse["id"]}')['roles'] == {'cash': '-14.00', 'receivable': '14.00'}
     post(client, generate(client, f'payment_record:{reverse["id"]}', 'PAY-REV'), reviewer)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'], intent='reverse', reason='出库更正')
     request('POST', f'shipments/{shipment["id"]}/reverse', dict(reason='出库更正'), 201)
     reverse_key = next(item['key'] for item in client.get(BASE).json() if item['source_type'] == 'shipment_reversal')
     assert source(client, reverse_key)['roles'] == dict(inventory='6.25', receivable='-14.00', income='14.00', sales_cost='-6.25')
@@ -107,22 +121,27 @@ def test_returns_and_fee_reversal_keep_independent_sources(business):
     request('POST', f'receipts/{received["id"]}/post')
     returned = request('POST', 'purchase-returns', dict(receipt_id=received['id'], reason='退货',
         lines=[dict(receipt_line_id=received['lines'][0]['id'], quantity='1')]), 201)
+    prepare_purchase_return(client, dict(client.headers), returned['id'])
     request('POST', f'purchase-returns/{returned["id"]}/post')
     key = f'purchase_return:{returned["id"]}'
     assert source(client, key)['roles'] == {'inventory': '-3.12', 'payable': '3.13', 'price_variance': '-0.01'}
     post(client, generate(client, key, 'PUR-RET'), reviewer)
+    approve_document(client, dict(client.headers), 'PurchaseReturn', returned['id'], intent='reverse', reason='退货更正')
     request('POST', f'purchase-returns/{returned["id"]}/reverse', dict(reason='退货更正'), 201)
     reverse_key = next(item['key'] for item in client.get(BASE).json() if item['source_type'] == 'purchase_return_reversal')
     assert source(client, reverse_key)['roles'] == {'inventory': '3.12', 'payable': '-3.13', 'price_variance': '0.01'}
     post(client, generate(client, reverse_key, 'PUR-RET-REV'), reviewer)
     sales = request('POST', 'sales-orders', dict(customer_id=erp[3], reference='SALE',
         lines=[dict(material_id=erp[4][0], quantity='2', unit_price='7')]), 201)
+    approve_document(client, dict(client.headers), 'SalesOrder', sales['id'])
     request('POST', f'sales-orders/{sales["id"]}/confirm')
     shipment = request('POST', 'shipments', dict(sales_order_id=sales['id'], warehouse_id=1,
         lines=[dict(material_id=erp[4][0], quantity='2')]), 201)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
     request('POST', f'shipments/{shipment["id"]}/post')
     returned = request('POST', 'sales-returns', dict(shipment_id=shipment['id'], warehouse_id=1, reason='客户退回',
         lines=[dict(shipment_line_id=shipment['lines'][0]['id'], quantity='1')]), 201)
+    approve_document(client, dict(client.headers), 'SalesReturn', returned['id'])
     request('POST', f'sales-returns/{returned["id"]}/post')
     key = f'sales_return:{returned["id"]}'
     assert source(client, key)['roles'] == {'inventory': '3.13', 'receivable': '-7.00', 'income': '7.00', 'sales_cost': '-3.13'}
@@ -173,6 +192,7 @@ def test_stale_cost_blocks_draft_and_posted_cost_change_rolls_back(business):
     client, request, _, reviewer, erp = business
     inbound = request('POST', 'warehouse-inbounds', dict(warehouse_id=1, reference='FREE', reason='other', note='其他来源',
         lines=[dict(material_id=erp[4][0], quantity='3')]), 201)
+    approve_document(client, None, 'WarehouseInbound', inbound['id'])
     request('POST', f'warehouse-inbounds/{inbound["id"]}/post')
     key = f'other_inbound:{inbound["id"]}'
     generate(client, key, expected=409)
@@ -239,12 +259,14 @@ def test_inventory_accounting_amount_clears_fractional_tail(business):
     client, request, _, _, erp = business
     record = request('POST', 'warehouse-inbounds', dict(warehouse_id=1, reason='other', note='分位尾差',
         lines=[dict(material_id=erp[4][0], quantity='3')]), 201)
+    approve_document(client, None, 'WarehouseInbound', record['id'])
     request('POST', f'warehouse-inbounds/{record["id"]}/post')
     movement = source(client, f'other_inbound:{record["id"]}')['movements'][0]['id']
     request('POST', 'inventory/valuation/inputs', dict(movement_id=movement, unit_cost='1.005', reference='ROUND', reason='核价'), 201)
     for index in range(3):
         row = request('POST', 'warehouse-outbounds', dict(warehouse_id=1, reason='other', note='分批出清',
             lines=[dict(material_id=erp[4][0], quantity='1')]), 201)
+        approve_document(client, dict(client.headers), 'WarehouseOutbound', row['id'])
         request('POST', f'warehouse-outbounds/{row["id"]}/post')
     report = request('GET', 'inventory/valuation')
     assert [item['accounting_amount'] for item in report['movements']] == ['3.02', '-1.01', '-1.00', '-1.01']
@@ -284,12 +306,15 @@ def test_production_wip_and_charge_sources_are_priced_and_locked(business):
         kind='labor', amount='1.50', reference='LABOR'), 201)
     assert source(client, f'production_charge:{charge["id"]}')['roles'] == {'work_in_progress': '1.50', 'labor_accrual': '-1.50'}
     post(client, generate(client, f'production_charge:{charge["id"]}', 'LABOR-J'), reviewer)
+    approve_document(client, dict(client.headers), 'ProductionCompletion', finished['id'])
     request('POST', f'production-completions/{finished["id"]}/post')
     generate(client, f'production_completion:{finished["id"]}', 'COMPLETE', 409)
     settlement = request('POST', 'production-costs/settlements', dict(work_order_id=finished['work_order_id'], reference='COST'), 201)
+    settlement = execute_production_settlement(client, dict(client.headers), settlement)
     assert source(client, f'production_completion:{finished["id"]}')['roles'] == {'inventory': '14.00', 'work_in_progress': '-14.00'}
     post(client, generate(client, f'production_completion:{finished["id"]}', 'COMPLETE'), reviewer)
     # 结算冲销不能暗改已经进总账的完工成本。
+    approve_document(client, dict(client.headers), 'ProductionCostSettlement', settlement['id'], intent='reverse', reason='重结')
     request('POST', f'production-costs/settlements/{settlement["id"]}/reverse', dict(reason='重结'), 409)
 
 
@@ -345,5 +370,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

@@ -1,4 +1,7 @@
+import { createProductionAssociationActions } from './modules/production-association-actions'
 import type { DocumentNumberingInput } from '../../../shared/document-numbering'
+import { createDocumentApprovalCaseActions } from './modules/document-approval-case-actions'
+import { createDocumentApprovalActions } from './modules/document-approval-actions'
 import {createInventoryWarningActions} from './modules/inventory-warning-actions'
 import {createInventoryWarningAlerts} from './modules/inventory-warning-alerts'
 import {createPhysicalLotActions} from './modules/physical-lot-actions'
@@ -303,6 +306,16 @@ function createAppStore() {
   const inventoryWarningActions = createInventoryWarningActions(state, perform)
   const inventoryWarningAlerts = createInventoryWarningAlerts(state)
   const physicalLotActions = createPhysicalLotActions(state)
+  const documentApprovalActions = { ...createDocumentApprovalActions(state),
+    ...createDocumentApprovalCaseActions(state, refreshData, async target => {
+      // CRM、售后、处置和计划有独立列表和详情，审批变化后同步业务版本与可执行动作。
+      if (target.document_type === 'CrmQuote') await crmActions.refreshCrmApproval(target.document_id)
+      if (target.document_type === 'AfterSalesCase') await afterSalesActions.refreshAfterSalesApproval(target.document_id)
+      if (target.document_type === 'MaintenanceJob') await equipmentActions.refreshEquipmentApproval(target.document_id)
+      if (['SubledgerOpening','SubledgerPayment'].includes(target.document_type)) await subledgerActions.refreshSubledgerApproval()
+      if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
+      if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
+    }) }
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
@@ -356,6 +369,7 @@ function createAppStore() {
     window.removeEventListener('resize', revealCurrentTab)
   }
   return {
+    ...documentApprovalActions,
     ...state,
     activeTab,
     workspacePageVersion,
@@ -390,6 +404,7 @@ function createAppStore() {
     ...valuationActions,
     ...salesActions,
     ...productionActions,
+    ...createProductionAssociationActions(state),
     ...accessActions,
     ...menuActions,
     can,

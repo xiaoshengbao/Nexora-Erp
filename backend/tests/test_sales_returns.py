@@ -1,5 +1,7 @@
 """验证销售退货关联原出库、累计可退量和库存流水原子性。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -31,10 +33,13 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
             "code": "RETURN", "name": "退货仓"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         order = client.post(f"{base}/sales-orders", headers=seller, json={
             "customer_id": customer, "lines": [{"material_id": material,
                                                   "quantity": "2.125", "unit_price": "10.0000"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', order)
         client.post(f"{base}/sales-orders/{order}/confirm", headers=seller)
         shipment = client.post(f"{base}/shipments", headers=warehouse, json={
             "sales_order_id": order, "warehouse_id": 1,
@@ -45,6 +50,7 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
                    "lines": [{"shipment_line_id": line_id, "quantity": "1.125"}]}
         assert client.post(f"{base}/sales-returns", headers=seller, json=payload).status_code == 409
 
+        approve_document(client, admin, 'Shipment', shipment_id)
         client.post(f"{base}/shipments/{shipment_id}/post", headers=warehouse)
         assert client.post(f"{base}/sales-returns", headers=viewer, json=payload).status_code == 403
         assert client.post(f"{base}/sales-returns", headers=seller, json={
@@ -63,10 +69,14 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
         stale = client.post(f"{base}/sales-returns", headers=seller, json={
             **payload, "lines": [{"shipment_line_id": line_id, "quantity": "2.125"}]}).json()["id"]
         assert client.post(f"{base}/sales-returns/{first_id}/post", headers=seller).status_code == 403
+        approve_document(client, admin, 'SalesReturn', first_id)
         assert client.post(f"{base}/sales-returns/{first_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/sales-returns/{first_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/sales-returns/{first_id}/cancel", headers=warehouse).status_code == 409
+        approve_document(client, admin, 'SalesReturn', stale)
         assert client.post(f"{base}/sales-returns/{stale}/post", headers=warehouse).status_code == 409
+        state = client.get(f'/api/v1/system/document-approvals/SalesReturn/{stale}', headers=admin).json()
+        assert client.post(f'/api/v1/system/document-approvals/SalesReturn/{stale}/withdraw', headers=admin, json={'version': state['version']}).status_code == 200
         assert client.post(f"{base}/sales-returns/{stale}/cancel", headers=seller).status_code == 200
         assert client.get(f"{base}/stock?warehouse_id=1", headers=admin).json()[0]["quantity"] == "0.000"
         assert client.get(f"{base}/stock?warehouse_id={second}", headers=admin).json()[0]["quantity"] == "1.125"
@@ -85,6 +95,7 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
         # 剩余数量可再次退回；原出库流水和订单已出库状态始终保留。
         rest = client.post(f"{base}/sales-returns", headers=seller, json={
             **payload, "lines": [{"shipment_line_id": line_id, "quantity": "1.000"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', rest)
         assert client.post(f"{base}/sales-returns/{rest}/post", headers=warehouse).status_code == 200
         assert client.get(f"{base}/shipments", headers=seller).json()[0]["lines"][0]["returnable_quantity"] == "0.000"
         assert client.post(f"{base}/sales-returns", headers=seller, json=payload).status_code == 409
@@ -96,10 +107,13 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second, "to_warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "2.125"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         assert client.post(f"{base}/transfers/{transfer}/post", headers=admin).status_code == 200
+        approve_document(client, admin, 'SalesReturn', first_id, intent='reverse', reason='误退')
         assert client.post(reverse_url, headers=admin, json={"reason": "误退"}).status_code == 409
         assert next(item for item in client.get(f"{base}/sales-returns", headers=admin).json()
                     if item["id"] == first_id)["reversal_id"] is None
+        approve_document(client, admin, 'Transfer', transfer, intent='reverse', reason='恢复退回仓库存')
         assert client.post(f"{base}/transfers/{transfer}/reverse", headers=admin,
                            json={"reason": "恢复退回仓库存"}).status_code == 200
         reversed_result = client.post(reverse_url, headers=admin, json={"reason": "误退"})
@@ -118,6 +132,7 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
         assert movements[0]["sales_return_reversal_id"] == reversed_result.json()["reversal_id"]
         corrected = client.post(f"{base}/sales-returns", headers=seller, json=payload)
         assert corrected.status_code == 201
+        approve_document(client, admin, 'SalesReturn', corrected.json()['id'])
         assert client.post(f"{base}/sales-returns/{corrected.json()['id']}/post",
                            headers=warehouse).status_code == 200
         assert client.get(f"{base}/shipments", headers=seller).json()[0]["lines"][0]["returnable_quantity"] == "0.000"

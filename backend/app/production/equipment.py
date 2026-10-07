@@ -1,6 +1,9 @@
 """设备台账、日历维护与可追溯的执行验收，业务读写统一 ORM。"""
 
 from app.core.document_responses import NumberedRoute
+from app.core.document_approval import record_author
+from app.core import document_approval as approval
+from app.core.approval_documents import maintenance_snapshot, document_snapshot
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -18,7 +21,7 @@ from app.production.equipment_inputs import (EquipmentInput, EquipmentEdit, Plan
     JobInput, JobEdit, ActionInput, JobAction)
 from app.production.equipment_rules import (now, encoded, permission, get, version, unique, active_jobs,
     audit, independent, executors, validate_job, frozen_links, parts_status, parts_ready,
-    changes, downtime_data, job_data, RUNNING)
+    changes, downtime_data, job_data, RUNNING, authors)
 from app.production.equipment_hours import (latest_reading, reading_data, hour_plan_data,
                                             hours_text, audit_hour_plan)
 
@@ -192,6 +195,7 @@ def save_job(db, payload, user, row=None):
             setattr(row, field, value)
         row.version += 1
         row.status = 'draft'
+    record_author(db, 'MaintenanceJob', row.id, user['id'])
     audit(db, 'job', row, 'edit' if before else 'create', before, user, payload.reason)
     return job_data(db, row, user)
 
@@ -217,6 +221,29 @@ def finish_downtime(db, row, user, reason):
         entry.close_reason = reason
 
 
+def prepare_approval_action(db, row, action, user, reason, evidence):
+    # 新审批仍要求原来的两项依据；审核失效来源可驳回，不要求修复来源后才能拒绝。
+    if action in ('submit', 'approve', 'reject'):
+        if not reason.strip() or len(reason.strip()) > 200 or not evidence.strip() or len(evidence.strip()) > 600:
+            raise HTTPException(422, '维护操作原因与现场依据必填，分别最多二百字和六百字')
+    if action in ('submit', 'approve'):
+        frozen_links(db, row, check_meter_due=True)
+        if row.plan_due_date and row.plan_due_date > now()[:10]:
+            raise HTTPException(409, '周期计划尚未到期，不能提前提交或批准')
+    return model_data(row)
+
+
+def sync_approval_action(db, row, action, state, user_id, reason, evidence, before):
+    row.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        row.reviewed_by = None
+    elif action in ('approve', 'reject'):
+        row.reviewed_by = user_id
+    row.version += 1
+    audit(db, 'job', row, action, before, {'id': user_id},
+          reason.strip() or '撤回维护工单审批', evidence.strip())
+
+
 @router.post('/jobs/{identifier}/{action}')
 def change_job(identifier: int, action: JobAction, payload: ActionInput,
                user: dict = Depends(require('equipment.view'))):
@@ -230,6 +257,20 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
     with orm_session(write=True) as db:
         row = get(db, MaintenanceJob, identifier, '维护工单')
         version(row, payload.version)
+        if action in ('submit', 'approve', 'reject'):
+            raise HTTPException(409, '请从本单统一审批入口完成审核、核准与批准')
+        case = None
+        if action == 'start':
+            case = approval.require_maintenance_approved(db, row.id, maintenance_snapshot(db, row.id),
+                user['id'], 'equipment.execute')
+        elif action == 'reverse':
+            case = approval.require_approved(db, 'MaintenanceJob', row.id,
+                document_snapshot(db, 'MaintenanceJob', row.id, 'reverse', payload.reason, payload.evidence),
+                user['id'], intent='reverse', permission='equipment.reverse')
+        elif action == 'cancel':
+            pending = approval.find_case(db, 'MaintenanceJob', row.id)
+            if pending and pending.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回本单尚未执行的审批，再取消')
         before = model_data(row)
         expected = {'submit': ('draft','rejected'), 'approve': ('submitted',), 'reject': ('submitted',),
             'start': ('approved',), 'report': ('in_progress',), 'rework': ('reported',),
@@ -246,14 +287,7 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
             frozen_links(db, row, check_executor=action != 'accept',
                 check_work_order=action in ('submit','approve','start'),
                 check_meter_due=action in ('submit','approve','start'))
-        if action == 'submit':
-            if row.plan_due_date and row.plan_due_date > now()[:10]:
-                raise HTTPException(409, '周期计划尚未到期，不能提前提交')
-            row.status = 'submitted'
-        elif action in ('approve','reject'):
-            row.status = 'approved' if action == 'approve' else 'rejected'
-            row.reviewed_by = user['id']
-        elif action == 'start':
+        if action == 'start':
             if db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.equipment_id == row.equipment_id,
                     MaintenanceJob.status.in_(RUNNING))):
                 raise HTTPException(409, '设备已有执行中的维护工单，不能重叠停机')
@@ -264,6 +298,9 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
                     reason='other', note=f'设备维护耗材 {row.reference}'[:200], reference=row.reference, created_by=user['id']))
                 db.add_all([WarehouseOutboundLine(outbound_id=outbound.id, **part) for part in parts])
                 row.parts_outbound_id = outbound.id
+                # 原维护方案编制人员也不能审批派生的耗材出库单，保留原审计作者范围。
+                for author_id in authors(db, row):
+                    record_author(db, 'WarehouseOutbound', outbound.id, author_id)
             row.status = 'in_progress'
             row.started_at = now()
             db.add(MaintenanceDowntime(equipment_id=row.equipment_id, job_id=row.id, started_at=row.started_at,
@@ -336,4 +373,6 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
                 row.plan_roll_json = encoded(roll)
         row.version += 1
         audit(db, 'job', row, action, before, user, payload.reason, payload.evidence)
+        if case is not None and case.status == 'approved':
+            approval.mark_executed(db, case, user['id'], permission='equipment.reverse' if action == 'reverse' else 'equipment.execute')
         return job_data(db, row, user)

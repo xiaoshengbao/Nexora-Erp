@@ -12,7 +12,7 @@
 | `app/purchase/` | 采购申请、采购订单、采购收货、入库单、采购退货。 |
 | `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额、台账和按仓库预警。 |
 | `app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转销售草稿、销售订单及合同正文版本、出库、销售退货与售后退换修（含保修期限、内部工时成本核价与维修直接毛利）。 |
-| `app/production/` | BOM、工单、领退料、报工、工单成本、完工批次结算、不合格品处置与返工、MRP 日期计划及设备维护接口。 |
+| `app/production/` | BOM、工单、领退料、报工、只读生产关联查询、工单成本、完工批次结算、不合格品处置与返工、MRP 日期计划及设备维护接口。 |
 | `app/finance/` | 应收应付、订单余额、手工收付款、人工银行流水勾对与余额调节、总账科目、会计期间、期初余额、手工及业务来源凭证与附件、损益结转、已过账报表、公司财务报表与固定归档、辅助核算及期间结账与重开。 |
 | `app/reports/` | 采购执行、收退货、库存余额与收发存报表，及按原有权限返回的首页经营快照。 |
 | `app/service/` | 服务状态、局域网发现、系统服务、备份恢复。 |
@@ -44,11 +44,35 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 物料、供应商和客户资料、采购申请与订单、分批收货及待入库确认、采购退货待出库确认、其他入出库、多仓库存、调拨、盘点、独立调整、库存台账与基础报表已实现。销售与生产原有单据继续使用。确认入库、出库、退货、调拨或有差异的盘点会在单个事务中生成库存流水；重复确认返回冲突。所有数据由服务端 SQLite 保存，远程客户端没有离线副本或自动同步。
 
+报价 `CrmQuote` 已接入带版本的统一审批入口，提交前沿原领域冻结客户、联系人与物料标签，固定正文、商务条款及附件指纹；原创建、编辑、提交及附件参与者均不能自审。每步保留原报价审计和独立业务版本，最后一步才允许转单；转单和审批执行事件同事务提交，销售订单仍是独立待审草稿。旧 `/submit`、`/approve`、`/reject` 保留原权限、范围与版本校验后返回 409。详情及审批查询沿用客户归属；待审或批准报价取消、编辑或变更附件须先撤回。
+
 ## 实例级单据编号
 
 数据库第 88 版为 29 类主单增加只读 `document_no`，并增加 `document_numbering_settings` 与 `document_number_sequences`。`app/core/document_types.py` 维护前缀白名单，`document_numbering.py` 提供时区换算与 ORM 同事务流水，`document_responses.py` 在已授权响应补充主单和来源编号；不改变历史快照或财务指纹。`app/service/document_numbering.py` 提供认证后的配置 GET 和管理员 PUT，并在全局依赖拒绝未配置的业务写入。升级后须由管理员选择规则再补号，启动不自动选择风格。
 
 指定时区依赖 `tzdata` 并通过 PyInstaller 收集完整包，以统一 Windows、macOS 与独立服务的 IANA 数据。本机模式仍读取系统当前时区。详见 [编号规则、接口和升级边界](../docs/document-numbering.md)。
+
+## 单据统一审批（实施中）
+
+第 89 版迁移新增按单据类型保存的审批模板、模板变更、审批实例、追加事件与作者记录，默认一位独立批准人员，最多五步。模板读取接口为 `GET /api/v1/system/document-approvals` 和 `GET /{document_type}`；管理员通过 `PUT /{document_type}` 提交 `version`、`steps: [{name, role}]`。服务端固定审核权限，非法输入返回 422，非管理员修改返回 403，过期版本返回 409。模板变更仅影响下一次送审。
+
+`app/core/document_approval.py` 提供共用事务服务，送审固定内容与模板，版本递增，建单/编辑/送审人员不能审核本单，各步骤由不同人员完成；执行核对批准内容，事件与业务事务共同回滚。模板和审批历史使用 ORM，审计记录禁止更新和删除。迁移不重写历史单据、金额、数量、单号或批次证据。
+
+其他入库已接入 `GET /api/v1/system/document-approvals/WarehouseInbound/{id}` 和 `POST /{id}/submit|approve|reject|withdraw`，携带 `version`、`intent: execute|reverse` 及意见或冲销原因。查看、建单送审、独立审核、冲销送审分别沿用 `other_inbound.view`、`other_inbound.create`、`other_inbound.review`、`other_inbound.reverse`。普通确认和可选实物批次均须完成全部步骤，确认与审批执行事件在同一库存事务内提交；冲销单独审批固定原因，原批准不可复用。旧客户端直接确认未批准草稿返回 409。历史已执行单据保留原记录。
+
+采购订单 `PurchaseOrder`、收货 `PurchaseGoodsReceipt`、入库 `Receipt` 已接入同一单据审批入口；原 `confirm`/`post` 写事务内核对批准正文并追加执行记录。三阶段分别送审，不继承上游批准；收货只生成未送审入库草稿。查看权限沿用 `inventory.view` / `purchase_receiving.view`，审核分别使用 `purchase_order.review` / `purchase_receiving.review` / `receipt.review`；采购入库冲销按 `receipt.reverse` 单独送审固定原因。批准后普通入库无需批次请求体，可选批次仍守恒并在失败时整体回滚。其余领域仍在需求分支接入，不代表 29 类全部完成。
+
+采购退货 `PurchaseReturn` 与仓库出库 `WarehouseOutbound` 已接入独立审批。退货 `submit` 在批准后生成出库草稿、记录父单执行；出库另行批准后才扣库存。旧退货 `post` 不再自动生成并确认子单；父单批准与转单、子单批准及父子正文一致性均须满足。升级前尚未执行的出库草稿可在父单重新批准后复用，但子单待审或批准时必须先撤回以记录转单人员。维护、售后耗材子单保留原方案作者排除自审。普通出库无需批次请求体，可选批次仍逐行守恒；采购退货和其他出库冲销各自单独审批固定原因，库存与执行事件在原事务内提交或回滚。取消退货时同时检查父子审批进度。
+
+调拨 `Transfer`、盘点 `Stocktake` 和库存调整 `StockAdjustment` 已接入相同版本审批与独立冲销审批。调拨固定双仓与数量；盘点固定账面、实盘和原流水检查点，批准后仍拒绝期间新增流水；调整固定原因及有符号数量。确认和冲销继续在原事务内重核余额与可选批次，不生成部分流水。原调整单状态跟随统一审批，升级前待执行的 `submitted` / `approved` / `rejected` 状态须重新送审，第一次送审将原人员、时间和意见保存在不可改写的事件中，并单独展示为历史依据。原无版本 `/stock-adjustments/{id}/submit|approve|reject` 返回 409，引导升级至统一入口；未批准不能利用旧确认路径跳过模板。
+
+销售订单 `SalesOrder`、销售出库 `Shipment` 与销售退货 `SalesReturn` 已分别接入统一审批，沿用 `sales.view` 及原客户归属检查，审核使用各自独立权限。订单固定价格、保修与合同正文/附件指纹；草稿审批期间修改合同依据返回 409，已确认订单仍保留原追加合同证据能力。报价转单和售后派生退货/换货草稿送审时从原审计恢复编制人员，禁止原方案作者审核下游。出库、退货保留原剩余数量、售后占用、库存与实物分配检查，执行和冲销与审批事件原子提交；两者均支持批准后的普通确认和可选实物批次，冲销另行批准固定原因。
+
+**当前处于需求分支开发阶段，29 类业务入口已接入，整体交付仍待完成。** 生产关联查询与全量验收仍待完成，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+
+采购申请 `PurchaseRequest` 已接入统一步骤；旧无版本审批入口不能绕过自审、步骤或并发约束。转订单在原事务重核批准正文及剩余额度，第一次成功转换记录执行，后续合法拆单不重复追加执行事件。派生申请及子订单从 MRP、维护和申请编制审计恢复自审排除人员，每张订单仍独立审批。
+
+工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人不能审核自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前 29 类审批入口已接入，生产关联查询及全量验收尚未完成。
 
 ## 基础资料与供货关系
 
@@ -58,7 +82,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 仓库提供 [50 条物料演示数据及本机导入工具](../scripts/demo/README.md)，覆盖电子、五金、塑料、包装与辅料。工具须在服务升级后显式指定目标实例、现有管理员和备份路径；整批 ORM 写入并记录审计，重复导入跳过已有示例档案，不在启动时自动生成数据。
 
-客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
+客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，送审或批准后须先撤回才能修改附件，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
 客户新增前可通过 `POST /api/v1/customers/duplicate-candidates` 查询当前账号可见范围内的相似名称；候选来自客户 ORM 模型，仅读取并提示，不自动合并或阻止用户确认后的新增。接口要求 `customer.manage`，细则见 [客户关系规则](../docs/customer-relations.md)。
 
@@ -78,7 +102,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 第 84 版起，`POST /api/v1/equipment/jobs/{id}/purchase-requests` 可从已批准或执行中的维护工单建立备件采购申请草稿，使用 `equipment.view` 和采购申请查看、创建权限。申请明细受工单计划耗材与未取消申请累计数量约束，采购页不能直接修订该来源申请；取消后可从工单重建。工单详情可追溯申请、订单、收货及仓库入库状态，实际采购仍走既有审批、转单和入库流程。规则见 [设备维护](../docs/equipment-maintenance.md)。
 
-数据库第 29 版新增采购申请、申请明细和订单明细来源关联。`GET /api/v1/purchase-requests` 查询申请及每行已转、待转数量；`POST /purchase-requests` 建草稿，`PUT /purchase-requests/{id}` 修改草稿或驳回后的申请，`/submit` 提交审批，`/approve` 与 `/reject` 由有审批权限的人处理，驳回必须填写原因，`/cancel` 取消尚未被有效订单使用的申请。修改驳回申请会恢复为草稿，需重新提交。查看、建改、提交、审批、取消分别要求 `purchase_request.view`、`purchase_request.create`、`purchase_request.submit`、`purchase_request.review`、`purchase_request.cancel`；管理员默认可全部操作，采购员和仓库员默认可查看、建改、提交及取消，审批权限默认仅管理员拥有，也可授予自定义角色。审批不要求与建单人不同。
+数据库第 29 版新增采购申请、申请明细和订单明细来源关联。`GET /api/v1/purchase-requests` 查询申请及每行已转、待转数量；`POST /purchase-requests` 建草稿，`PUT /purchase-requests/{id}` 修改草稿或驳回后的申请，原 `/submit`、`/approve`、`/reject` 返回 409，改由带版本的统一单据审批入口提交、独立批准及驳回，`/cancel` 取消尚未被有效订单使用的申请。修改驳回申请会恢复为草稿，需重新提交。查看、建改、提交、审批、取消分别要求 `purchase_request.view`、`purchase_request.create`、`purchase_request.submit`、`purchase_request.review`、`purchase_request.cancel`；管理员默认可全部操作，采购员和仓库员默认可查看、建改、提交及取消，审批权限默认仅管理员拥有，也可授予自定义角色。建单、编辑、提交人员及派生来源作者不能自审，多步审批须由不同人员完成。待审或批准时必须先撤回才能取消。首次成功转订单时与审批执行事件一起提交，后续分批转单继续核对固定批准正文及剩余额度；新订单独立送审，不继承申请批准。旧已批准的未转余额需要重新审批，原订单和原审核记录保留，全部转完的旧申请不补造批准。
 
 `POST /api/v1/purchase-orders` 可选传 `purchase_request_id`，并为每条明细传 `purchase_request_line_id`。服务端在写事务内校验申请已批准、物料匹配以及数量不超过待转量；未取消的订单草稿也占用申请额度，取消订单后释放。每张订单只关联一张申请，同一申请可按明细和数量拆成多张订单、分别选择供应商；不关联申请的直接采购继续可用。旧订单保留原样，不推断申请来源。申请和订单本身均不改变库存或应付。
 
@@ -96,7 +120,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 `GET /api/v1/finance/receivables-payables` 逐行列出已确认销售出库形成的应收、采购入库形成的应付及销售、采购退货形成的负向调整。每笔记录包含往来单位、订单、来源单据与明细、物料、数量、原单价、确认人和确认时间。金额按每行数量乘原单价四舍五入到分，币种暂固定为人民币。草稿与取消单不产生金额；升级前的已确认单据同样从原记录推导，无需改写历史。没有采购订单单价的入库及其退货标记为待核价，不计入已知应付总额。此接口需要 `finance.view`，仅内置管理员和财务员默认拥有；其他角色需管理员显式授权。当前合计是业务净额；订单级收付款和未结金额由下述独立记录计算，税费和自动转总账尚未实现。
 
-`GET /api/v1/finance/overview` 在同一读取事务中返回金额来源、订单余额、收付款记录和订单间核销，供桌面工作台显示。`GET /api/v1/finance/accounts` 也可单独按已发生业务的订单查询业务净额、收付款净额、未结金额和来源行编号；负未结额表示需退款的贷方余额。`GET /api/v1/finance/payment-records` 返回全部手工收付款与冲销记录。`POST /api/v1/finance/payment-records` 以 `kind`（`receivable` 或 `payable`）、`order_id`、`action`（`settlement` 收款/付款或 `refund` 退款）、正金额、外部 `reference` 和可选 `note` 登记。金额最多两位小数，不得超过当前订单未结金额或贷方余额；写事务同时核对余额，防止并行超额。同一订单、类别和动作的参考号不得重复。`POST /api/v1/finance/payment-records/{id}/reverse` 以原因新增等额反向记录；原记录保留，且只能冲销一次。查看需要 `finance.view`，登记和冲销分别需要 `finance.record`、`finance.reverse`；管理员和财务员默认拥有。系统仅记录人工录入的资金事实，不连接银行，也不自动证明资金已到账；无采购订单单价的旧入库目前无法在系统内登记对应付款，需后续补价流程。
+`GET /api/v1/finance/overview` 在同一读取事务中返回金额来源、订单余额、收付款记录和订单间核销，供桌面工作台显示。`GET /api/v1/finance/accounts` 也可单独按已发生业务的订单查询业务净额、收付款净额、未结金额和来源行编号；负未结额表示需退款的贷方余额。`GET /api/v1/finance/payment-records` 返回全部手工收付款与冲销记录。`POST /api/v1/finance/payment-records` 以 `kind`（`receivable` 或 `payable`）、`order_id`、`action`（`settlement` 收款/付款或 `refund` 退款）、正金额、外部 `reference` 和可选 `note` 登记。金额最多两位小数，保存前校验订单来源与限额，保存为待执行草稿；统一独立逐步审批批准后，通过 `POST /api/v1/finance/payment-records/{id}/post` 提交正整数 `version` 与二百字以内必填 `reason`，在写事务重新核对当前余额、期间和固定正文后才生效。批准不预占余额，两个合法草稿并行执行不能超额。`/{id}/cancel` 取消未执行草稿；审批中或已批准需先撤回。未取消的同一订单、类别和动作参考号不得重复，取消记录保留且不复用编号。`POST /api/v1/finance/payment-records/{id}/reverse` 以原因新增等额反向草稿，新编号关联原单，仍需独立批准与执行；有效反向草稿占用原单冲销入口，取消后可重新申请。第 90 版迁移为历史记录保留原金额、时间、人员与经济指纹，标记已执行，不补造批准。余额、银行勾对、业务凭证和结账只读取已执行资金，发生日期取执行时间；反向操作从提交到执行均校验 `finance.reverse`。查看需要 `finance.view`，登记和冲销分别需要 `finance.record`、`finance.reverse`；管理员和财务员默认拥有。系统仅记录人工录入的资金事实，不连接银行，也不自动证明资金已到账；无采购订单单价的旧入库目前无法在系统内登记对应付款，需后续补价流程。
 
 第 85 版增加现有订单间贷方核销：`GET/POST /api/v1/finance/order-settlements` 查看、登记，`POST /{id}/reverse` 追加撤销；余额和权限规则见 [订单间贷方核销](../docs/order-settlements.md)。仅在同一客户或供应商的订单间转移分户贷方，不产生第二笔收付款。
 
@@ -106,7 +130,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产工单
 
-`POST /api/v1/work-orders` 使用启用的 BOM、目标报工数量及目标仓库创建草稿。服务端在写事务内固定 BOM 版本引用，并按目标数量与 BOM 基准产量计算每个组件的需求，向上取整到库存的三位精度。`GET /api/v1/work-orders` 返回工单、需料快照、净领料与剩余数量，以及已报工、合格、不合格和待报工数量；`POST /api/v1/work-orders/{id}/release` 下达草稿，BOM 已停用时拒绝下达，须取消草稿并按新版本建单；`/cancel` 可取消未发料的草稿或已下达工单。旧工单在 BOM 换版后仍保留原组件和数量。查看要求 `production.view`，创建、下达、取消分别要求 `work_order.create`、`work_order.release`、`work_order.cancel`；管理员与生产计划员默认拥有，仓库员可查看。工单创建和下达不锁定库存；目标仓库用于合格成品入库。
+`POST /api/v1/work-orders` 使用启用的 BOM、目标报工数量及目标仓库创建草稿。服务端在写事务内固定 BOM 版本引用，并按目标数量与 BOM 基准产量计算每个组件的需求，向上取整到库存的三位精度。`GET /api/v1/work-orders` 返回工单、需料快照、净领料与剩余数量，以及已报工、合格、不合格和待报工数量；`POST /api/v1/work-orders/{id}/release` 须本单独立批准后下达草稿，BOM 已停用时拒绝下达，须取消草稿并按新版本建单；`/cancel` 可取消未发料的草稿或已下达工单。旧工单在 BOM 换版后仍保留原组件和数量。查看要求 `production.view`，创建、下达、取消分别要求 `work_order.create`、`work_order.release`、`work_order.cancel`；管理员与生产计划员默认拥有，仓库员可查看。工单创建和下达不锁定库存；目标仓库用于合格成品入库。
 
 ## 生产领料
 
@@ -114,11 +138,11 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产退料更正
 
-`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。旧客户端省略请求体仍可确认，但留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
+`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。本单独立批准后，客户端可省略请求体普通确认，留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
 
 ## 完工报工与基础质检
 
-`POST /api/v1/production-completions` 为生产中的工单建立分批报工草稿，保存本批报工数量及可选参考号；`GET /api/v1/production-completions` 查看记录。`POST /api/v1/production-completions/{id}/inspect` 由有质检权限的操作员填写合格数量及质检说明，不合格数量由报工数减合格数计算。`/post` 仅确认已质检单据，在同一写事务中核对累计已确认报工不超过工单目标，并按累计报工数量核对每个组件的净领料是否达到 BOM 快照比例；仅合格品生成进入工单目标仓库的正向库存流水，可选提交 `lots: [{quantity, manufactured_on, expires_on}]` 固定合格品实物批次，数量之和须等于合格数量。整批不合格不产生库存流水或实物批次；旧客户端省略批次请求体仍按原行为确认，差额在批次核对页可见。全部目标报工确认后工单变为“已完工”。两个草稿可并存，但后确认的草稿若超出目标会返回 409。`/cancel` 可取消草稿或已质检但未入库的单据，已确认入库不能直接取消。查看要求 `production.view`；创建、质检、确认、取消分别要求 `production_completion.create`、`production_completion.inspect`、`production_completion.post`、`production_completion.cancel`。管理员有全部权限；计划员可创建和取消，仓库员可质检与确认。目标为报工总数，包含质检不合格数；不合格品不进入可用库存，不合格品处置与返工的基础规则见 [不合格品规则](../docs/quality-rework.md)；完工成本结算仍按工单来源和金额分配，与实物批次区分。这是记录数量与说明的基础质检，没有批次检验标准或现场实物核验。
+`POST /api/v1/production-completions` 为生产中的工单建立分批报工草稿，保存本批报工数量及可选参考号；`GET /api/v1/production-completions` 查看记录。`POST /api/v1/production-completions/{id}/inspect` 由有质检权限的操作员填写合格数量及质检说明，不合格数量由报工数减合格数计算。`/post` 仅确认已质检且完成本单独立批准的单据，在同一写事务中核对累计已确认报工不超过工单目标，并按累计报工数量核对每个组件的净领料是否达到 BOM 快照比例；仅合格品生成进入工单目标仓库的正向库存流水，可选提交 `lots: [{quantity, manufactured_on, expires_on}]` 固定合格品实物批次，数量之和须等于合格数量。整批不合格不产生库存流水或实物批次；本单批准后省略批次请求体可普通确认，差额在批次核对页可见。全部目标报工确认后工单变为“已完工”。两个草稿可并存，但后确认的草稿若超出目标会返回 409。`/cancel` 可取消草稿或已质检但未入库的单据，已确认入库不能直接取消。查看要求 `production.view`；创建、质检、确认、取消分别要求 `production_completion.create`、`production_completion.inspect`、`production_completion.post`、`production_completion.cancel`。管理员有全部权限；计划员可创建和取消，仓库员可质检与确认。目标为报工总数，包含质检不合格数；不合格品不进入可用库存，不合格品处置与返工的基础规则见 [不合格品规则](../docs/quality-rework.md)；完工成本结算仍按工单来源和金额分配，与实物批次区分。这是记录数量与说明的基础质检，没有批次检验标准或现场实物核验。
 
 `POST /api/v1/production-completions/{id}/reverse` 仅管理员可按原因冲销已确认完工单。服务端在一个写事务内检查目标仓库仍有足量合格成品，新增独立冲销记录；合格数量大于零时追加负向库存流水，已登记实物批次按原分配反向扣回，批次已被耗用则返回 409 并整单回滚；原报工、质检和入库流水不被改写。冲销后的报工、合格和不合格数量不再计入工单当前累计；若工单原已完工，则恢复“生产中”并允许重新报工。库存不足或重复冲销返回 409。原单查询会展示冲销原因、操作人和时间；当前不支持部分冲销；工单成本可在独立归集页面查询。
 
@@ -130,7 +154,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 183 张静态模型表及第 85 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 192 张静态模型表及第 93 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 ## 多仓库库存与调拨
 
@@ -218,9 +242,9 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 手工凭证
 
-第 41 版新增手工凭证、分录与操作审计。`/api/v1/finance/journals` 提供建改、提交、独立批准/驳回、过账、取消及建立冲销草稿，各动作独立授权。金额精确到分且借贷平衡；任何建单、编辑或提交过此凭证的账号均不能审核，包括管理员。过账后保存科目快照；冲销交换原借贷，须再次独立审核过账，原凭证保留。所有写操作填写原因；建单从版本 1 开始，修改与状态操作校验旧版本并递增，冲销校验原版本但不改原记录，新冲销草稿为版本 1；事务内保留完整审计；并发或失败不部分写入。详见 [手工凭证规则](../docs/manual-journals.md)。不自动生成业务凭证，也不改变库存、应收应付或资金记录。
+第 41 版新增手工凭证、分录与操作审计。`/api/v1/finance/journals` 提供建改、过账、取消及建立冲销草稿，各动作独立授权；送审、逐步批准/驳回及撤回由统一单据审批入口提供，原审核接口拒绝旧客户端绕过。金额精确到分且借贷平衡；任何建单、编辑或提交过此凭证的账号均不能审核，包括管理员。过账后保存科目快照；冲销交换原借贷，须再次独立审核过账，原凭证保留。所有写操作填写原因；建单从版本 1 开始，修改与状态操作校验旧版本并递增，冲销校验原版本但不改原记录，新冲销草稿为版本 1；事务内保留完整审计；并发或失败不部分写入。详见 [手工凭证规则](../docs/manual-journals.md)。不自动生成业务凭证，也不改变库存、应收应付或资金记录。
 
-第 73 版的 `app/finance/journal_attachments.py` 为全部总账凭证提供附件元数据、原文读取、上传及追加式撤销接口，查看需要 `journal.view`，上传和撤销另需 `journal.attachment`。PDF、PNG、JPEG 单文件最多 5 MiB，每凭证最多 10 个有效附件；内容、SHA-256 和操作者通过 ORM 写入 SQLite，现有数据库备份包含原文。桌面文件路径只经系统对话框交给主进程；已取消凭证或已结账期间不允许改动附件。详见 [总账凭证附件](../docs/journal-attachments.md)。
+第 73 版的 `app/finance/journal_attachments.py` 为全部总账凭证提供附件元数据、原文读取、上传及追加式撤销接口，查看需要 `journal.view`，上传和撤销另需 `journal.attachment`。PDF、PNG、JPEG 单文件最多 5 MiB，每凭证最多 10 个有效附件；内容、SHA-256 和操作者通过 ORM 写入 SQLite，现有数据库备份包含原文。桌面文件路径只经系统对话框交给主进程；已取消凭证、已结账期间、正在审批或已批准待过账的凭证不允许改动附件；过账后原批准附件只读，追加的补证不改变原批准正文。详见 [总账凭证附件](../docs/journal-attachments.md)。
 
 ## 已过账总账报表
 
@@ -228,7 +252,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 正式期初余额
 
-第 42 版新增 `opening_balances`、`opening_balance_lines`、`opening_balance_changes`。`app/finance/opening_balances.py` 使用 ORM，提供唯一启用方案、版本校验、独立审核、确认与启用前撤销。接口及规则见 [期初余额](../docs/opening-balances.md)。不存在过账凭证时可首次建立；确认后报表只计期初，不增加本期发生额；首次过账后不能重设期初。迁移不猜测历史余额，客户端和服务端须同步升级。
+第 42 版新增 `opening_balances`、`opening_balance_lines`、`opening_balance_changes`。`app/finance/opening_balances.py` 使用 ORM，提供唯一启用方案、版本校验、固定模板的一至五步独立审批、批准后确认与另行审批的启用前撤销。旧送审/批准/驳回接口拒绝绕过，待审/批准草稿先撤回再取消；确认和撤销在原事务校验批准正文及原启用约束，审计、期初状态和执行事件失败一起回滚，历史已确认单不补造审批。接口及规则见 [期初余额](../docs/opening-balances.md)。不存在过账凭证时可首次建立；确认后报表只计期初，不增加本期发生额；首次过账后不能重设期初。迁移不猜测历史余额，客户端和服务端须同步升级。
 
 ## 期间结账与历史成本锁定
 
@@ -252,11 +276,11 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 历史未结单据分户期初
 
-第 48 版新增分户方案、原单、审计及资金四张 ORM 表，此迁移后共 104 张静态模型表。历史明细与已确认总账期初逐完整辅助组合勾稽，由另一账号审核后启用；资金登记、追加冲销、业务凭证来源及结账快照沿用统一会话和期间锁定。路由模块 app/finance/subledger_openings.py 在 main.py 装配，跨模块约束由 subledger_rules.py 复用。独立权限、API、首次启用限制及升级见 [分户期初](../docs/subledger-openings.md)，客户端和服务端须同步升级。
+第 48 版新增分户方案、原单、审计及资金四张 ORM 表，此迁移后共 104 张静态模型表。历史明细与已确认总账期初逐完整辅助组合勾稽，经统一一至五步独立批准后启用；撤销另行批准并固定原确认依据，旧原生审核入口返回 409；资金登记、追加冲销、业务凭证来源及结账快照沿用统一会话和期间锁定。路由模块 app/finance/subledger_openings.py 在 main.py 装配，跨模块约束由 subledger_rules.py 复用。独立权限、API、首次启用限制及升级见 [分户期初](../docs/subledger-openings.md)，客户端和服务端须同步升级。
 
 ## MRP 物料需求计划
 
-第 49 版新增五张 ORM 表及独立权限，共 109 张静态表。`app/production/mrp.py` 装配日期计划、参数、固定结果、来源检查、独立审核和采购申请/工单转单接口；纯 Decimal 引擎在 `mrp_engine.py`，来源通过 `mrp_sources.py` 复用调用方会话。转单与关联、版本及审计原子提交，不记库存；计划员增加采购申请查看/建单/提交/取消权限。详细日期口径、草稿预计供给、目标仓库、容量和交期限制见 [MRP 规则](../docs/material-planning.md)。
+第 49 版新增五张 ORM 表及独立权限，共 109 张静态表。`app/production/mrp.py` 装配日期计划、参数、固定结果、来源检查、共用分步审批和采购申请/工单转单接口；纯 Decimal 引擎在 `mrp_engine.py`，来源通过 `mrp_sources.py` 复用调用方会话。首次转单还须在同一事务记录审批执行；后续剩余建议沿固定批准分批转换，目标草稿各自独立审批。旧原生提交/批准/驳回入口返回 409，旧批准不代替新审批。转单与关联、版本及审计原子提交，不记库存；计划员增加采购申请查看/建单/提交/取消权限。详细日期口径、草稿预计供给、目标仓库、容量和交期限制见 [MRP 规则](../docs/material-planning.md)。
 
 ## 不合格品处置与返工
 
@@ -285,7 +309,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 实物批次数据基础
 
-第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表；第 57 版新增历史批次补证记录表；第 58 版新增旧流水检查点和逐笔补证两张表；第 59 版新增成对补证关联表；第 60 版新增成组补证及配对关联两张表，当时共 140 张；第 61 版增加客户归属审计表；第 62 版增加供应商与仓库资料审计两张表；第 63 版增加三张运行小时维护表；第 64 版增加售后维修工时表；第 65 版增加商机概率列；第 66 版增加已确认领料冲销表；第 67 版增加已确认退料冲销表；第 68 版新增库存预警最近观测与事件两张表，第 68 版时共 151 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货的关联仓库出库也可提交相同批次请求体；销售出库 `/shipments/{id}/post` 可提交 `lines: [{shipment_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `shipment.post`；仓库调拨 `/transfers/{id}/post` 可提交 `lines: [{transfer_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `transfer.post`。盘点 `/stocktakes/{id}/available-lots` 沿用 `stocktake.post`，`/{id}/post` 可逐行提交差异绝对值对应的 `lots`，盘亏选已有批次、盘盈可选已有批次或登记“盘点发现”新批次，零差异不产生分配；冲销沿原批次回写，余额不足整单回滚。库存调整 `/stock-adjustments/{id}/available-lots` 沿用 `adjustment.post`；已审批单 `/{id}/post` 可逐行指定已有批次，正向调整也可创建标为“调整新增”的新批次，负向只扣已有批次；冲销沿原分配，余额不足整单回滚。上述确认和冲销均固定原分配。销售退货 `/sales-returns/{id}/available-lots` 沿用 `sales_return.post` 返回原出库批次剩余可退量；`/{id}/post` 可逐行指定原批次或登记“退货新批次”，冲销沿本次实际回仓批次反向扣除。旧客户端省略请求体仍可确认并显示差额。生产领退料已接入，未来新增来源仍须逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
+第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表；第 57 版新增历史批次补证记录表；第 58 版新增旧流水检查点和逐笔补证两张表；第 59 版新增成对补证关联表；第 60 版新增成组补证及配对关联两张表，当时共 140 张；第 61 版增加客户归属审计表；第 62 版增加供应商与仓库资料审计两张表；第 63 版增加三张运行小时维护表；第 64 版增加售后维修工时表；第 65 版增加商机概率列；第 66 版增加已确认领料冲销表；第 67 版增加已确认退料冲销表；第 68 版新增库存预警最近观测与事件两张表，第 68 版时共 151 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。确认可省略批次请求体，已接入统一审批的采购入库和其他入库仍须先批准；未登记数量明确成为批次差额。其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货的关联仓库出库也可提交相同批次请求体；销售出库 `/shipments/{id}/post` 可提交 `lines: [{shipment_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `shipment.post`；仓库调拨 `/transfers/{id}/post` 可提交 `lines: [{transfer_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `transfer.post`。盘点 `/stocktakes/{id}/available-lots` 沿用 `stocktake.post`，`/{id}/post` 可逐行提交差异绝对值对应的 `lots`，盘亏选已有批次、盘盈可选已有批次或登记“盘点发现”新批次，零差异不产生分配；冲销沿原批次回写，余额不足整单回滚。库存调整 `/stock-adjustments/{id}/available-lots` 沿用 `adjustment.post`；已审批单 `/{id}/post` 可逐行指定已有批次，正向调整也可创建标为“调整新增”的新批次，负向只扣已有批次；冲销沿原分配，余额不足整单回滚。上述确认和冲销均固定原分配。销售退货 `/sales-returns/{id}/available-lots` 沿用 `sales_return.post` 返回原出库批次剩余可退量；`/{id}/post` 可逐行指定原批次或登记“退货新批次”，冲销沿本次实际回仓批次反向扣除。旧客户端省略请求体仍可确认并显示差额。生产领退料已接入，未来新增来源仍须逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
 
 第 57 版 `POST /api/v1/inventory/physical-lots/reclassifications` 要求 `physical_lot.reclassify`，提交历史未识别批次、仓库、精确数量、至少 10 字的现场依据及可选真实批号/日期。服务端在 ORM 写事务内核对旧批次现存量与正式库存差额，建立明确标为现场补证的新批次，保留转出/转入、操作人与时间；不改正式库存流水和移动加权成本。原批次及新批次历史均可下钻查看补证记录。`POST /api/v1/inventory/physical-lots/reclassifications/{id}/reverse` 可凭原因追加冲销，若新批次现存量不足或已冲销则拒绝。该接口只处理第 56 版迁移形成的历史未识别结存，不替代旧客户端未分配流水的逐笔补证。
 
@@ -298,3 +322,21 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 ## 业务物料选项
 
 报价 `/api/v1/crm/options`、售后 `/api/v1/after-sales`、设备维护 `/api/v1/equipment/overview`、质检 `/api/v1/production-quality` 与库存预警 `/api/v1/inventory/warnings` 的 `materials` 附带当前物料的分类、规格、封装、品牌、制造商料号、技术参数、合规信息及备注，并提供 `category_name` 中文分类名称。统一使用 `app.catalog.material_rules.material_choice_data` 的展示字段白名单；原接口权限保持不变，不要求额外取得库存查看权限，不返回编辑版本、供应商联系方式或业务价格。物料列表与 MRP 选项也提供中文分类名称；MRP 只在选项响应中补充，计算来源、指纹与固定快照保持原结构。此变更无数据库迁移，也不改变历史单据。
+
+
+售后 `AfterSalesCase` 已接入统一方案审批与独立结案更正；固定原来源、方案、收费选择及附件，沿原客户范围授权。原无审批版本的提交/批准/驳回返回 409。批准后 `process` 或 `receive` 与下游草稿、客户物品保管及审批执行事件在同一 ORM 事务提交；收件、检验、交还不作为普通库存入库。派生单独立审批，办理中的后续作业证据可追加，原批准附件不覆盖。结案更正须另行批准固定原因，继续核对期间和关联单据依赖，详见 [售后规则](../docs/after-sales.md)。
+
+
+维护工单 `MaintenanceJob` 已接入统一步骤和验收更正审批。方案固定设备/计划/生产来源、执行人、耗材和附件指纹；操作原因最多二百字，独立现场依据最多六百字，两项分别留存在原维护审计及审批事件。旧 `/jobs/{id}/submit|approve|reject` 返回 409。首次备件申请或开始维护与审批执行事件同事务提交，后续分批申请和开始继续核对原固定方案，不重复记录执行；采购申请及耗材出库各自审批。原方案批准附件不可撤销，已开始办理的作业附件可以追加。验收更正固定原实际结果、计划推进、附件指纹及更正原因/依据，仍保留独立验收、库存和较新计划规则；已执行旧维护记录不补造批准，未开始旧批准需重新送审。
+
+总账凭证 `Journal` 已接入共用一至五步审批；手工、业务来源、损益结转和独立冲销凭证都先送审批准，再使用原过账接口。原提交/批准/驳回保留原权限与业务版本核验后返回 409，客户端改走带审批版本的统一入口。每次审批保留二百字必填依据和原追加审计，未全部批准不投影为原已批准状态，正在审批或已批准须先撤回才能取消。过账事务同时重核固定正文、借贷、科目、辅助组合、开放期间、期初与业务/结转来源，再追加执行事件；故障全部回滚。附件作者不能自审，送审期间冻结附件，过账后保留原批准票据并允许按原规则追加后续补证。详情见 [凭证规则](../docs/manual-journals.md) 与 [附件规则](../docs/journal-attachments.md)。
+
+第 91 版将历史分户收付款接入 `SubledgerPayment` 统一独立审批；原单、控制科目与完整辅助快照固定。保存及批准不计入未结余额、银行勾对、业务来源或结账；`POST /api/v1/finance/subledger-openings/payments/{id}/post|cancel` 以当前正整数版本和必填二百字依据执行或取消，实际资金日期取执行时间。反向记录另建新号草稿，提交至执行均要求 `finance.reverse`。迁移保留旧经济字段与指纹，原人员/时间作为历史执行事实，不伪造审批。详见 [分户期初](../docs/subledger-openings.md)。
+
+第 92 版将订单间核销及独立反向草稿接入 `OrderSettlementTransfer` 审批；保存及批准不改变双方余额，执行在写锁内复核当前贷方和待结。`POST /api/v1/finance/order-settlements/{id}/post|cancel` 要求业务版本和必填二百字内依据；反向的送审和执行均要求 `finance.reverse`。历史经济事实保留且不补造审批，取消草稿释放参考及反向申请占用但不复用编号；期间归档只纳入实际已执行核销。详见 [订单间核销](../docs/order-settlements.md)。
+
+第 93 版为 `ProductionCostSettlement` 增加预计草稿、原生版本及执行/取消记录；旧正式分摊及编号保留，不伪造审批。POST 建单只保存预计分摊，POST `/{id}/post|cancel` 携带严格版本与必填二百字以内依据；批准后执行须复算全部当前成本与来源，改变则返回 409。只有正式有效结算参与计价、来源锁定、返工携入、损失凭证及期间归档。冲销另行以 `intent=reverse` 审批固定原因，并保留原分摊。详见 [完工成本规则](../docs/production-cost-settlement.md)。
+
+## 生产关联单据查询
+
+`app/production/associations.py` 使用只读 ORM 快照提供工单和完工单的 `/associations` 查询，要求 `production.view`；入库及供应商来源另需 `inventory.view`。响应始终标明工单范围，固定领料实物分配/有效补证与显式请求的同物料采购参考分开，退料及冲销历史保留，未分配数量明确提示来源证据缺口。参考每物料最多 50 条有效入库，截止最后有效领料或未领料工单创建时间，不表示当前库存。新增接口没有数据库迁移，不改库存、计价、编号、批次及历史指纹，不返回价格、金额或客户信息。详细边界见 [审批与关联清单](../docs/document-approval-and-links.md)。

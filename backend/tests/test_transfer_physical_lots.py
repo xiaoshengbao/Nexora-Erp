@@ -1,5 +1,6 @@
 """调拨批次跨仓移动、异常回滚及沿原分配冲销。"""
 
+from approval_test_helpers import approve_document
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -27,6 +28,8 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
             'code': 'TRANSFER-LOT-2', 'name': '调拨目标仓'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '2.000'}]}]}).json()
@@ -41,6 +44,7 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
         assert options.status_code == 200
         assert [(lot['lot_id'], lot['quantity']) for lot in options.json()['lines'][0]['lots']] == [
             (lot_a, '1.000'), (lot_b, '2.000')]
+        approve_document(client, auth, 'Transfer', transfer_id)
         post_url = f'{base}/transfers/{transfer_id}/post'
         allocation = {'lines': [{'transfer_line_id': line_id, 'lots': [
             {'lot_id': lot_a, 'quantity': '0.500'}, {'lot_id': lot_b, 'quantity': '1.000'}]}]}
@@ -71,6 +75,7 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
         quantities = {(row['warehouse_id'], row['lot_id']): row['quantity'] for row in overview['rows']}
         assert quantities == {(1, lot_a): '0.500', (1, lot_b): '1.000',
                               (target, lot_a): '0.500', (target, lot_b): '1.000'}
+        approve_document(client, auth, 'Transfer', transfer_id, intent='reverse', reason='目标仓选择错误')
         reversed_result = client.post(f'{base}/transfers/{transfer_id}/reverse', headers=auth,
                                       json={'reason': '目标仓选择错误'})
         assert reversed_result.status_code == 200
@@ -104,6 +109,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         inbound = client.post(f'{base}/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '来源',
             'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
+        approve_document(client, auth, 'WarehouseInbound', inbound["id"])
         posted_inbound = client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=auth,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'],
                              'lots': [{'quantity': '2.000'}]}]}).json()
@@ -111,6 +117,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         transfer = client.post(f'{base}/transfers', headers=auth, json={
             'from_warehouse_id': 1, 'to_warehouse_id': target,
             'lines': [{'material_id': material, 'quantity': '1.000'}]}).json()
+        approve_document(client, auth, 'Transfer', transfer["id"])
         posted = client.post(f'{base}/transfers/{transfer["id"]}/post', headers=auth,
             json={'lines': [{'transfer_line_id': transfer['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '1.000'}]}]})
@@ -118,9 +125,11 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         outbound = client.post(f'{base}/warehouse-outbounds', headers=auth, json={
             'warehouse_id': target, 'reason': 'sample', 'note': '已领用',
             'lines': [{'material_id': material, 'quantity': '0.500'}]}).json()
+        approve_document(client, auth, 'WarehouseOutbound', outbound['id'])
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200
+        approve_document(client, auth, 'Transfer', transfer['id'], intent='reverse', reason='误调拨')
         reverse_url = f'{base}/transfers/{transfer["id"]}/reverse'
         assert client.post(reverse_url, headers=auth, json={'reason': '误调拨'}).status_code == 409
         current = next(row for row in client.get(f'{base}/transfers', headers=auth).json()

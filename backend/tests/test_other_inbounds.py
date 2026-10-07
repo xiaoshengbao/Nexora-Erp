@@ -1,5 +1,6 @@
 """其他入库只能由单据确认入账，且不会形成采购应付。"""
 
+from approval_test_helpers import approve_document
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -26,6 +27,7 @@ def test_other_inbound_post_and_audited_reverse(monkeypatch, tmp_path):
         assert created.status_code == 201
         inbound_id = created.json()["id"]
         assert client.get(f"{base}/stock", headers=admin).json()[0]["quantity"] == "0"
+        approve_document(client, admin, 'WarehouseInbound', inbound_id)
         assert client.post(f"{base}/warehouse-inbounds/{inbound_id}/post", headers=admin).status_code == 200
         assert client.post(f"{base}/warehouse-inbounds/{inbound_id}/post", headers=admin).status_code == 409
         assert client.get(f"{base}/stock", headers=admin).json()[0]["quantity"] == "2"
@@ -37,12 +39,15 @@ def test_other_inbound_post_and_audited_reverse(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": 1, "to_warehouse_id": second_warehouse,
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         assert client.post(f"{base}/transfers/{transfer}/post", headers=admin).status_code == 200
+        approve_document(client, admin, 'WarehouseInbound', inbound_id, intent='reverse', reason='误录')
         assert client.post(f"{base}/warehouse-inbounds/{inbound_id}/reverse", headers=admin,
                            json={"reason": "误录"}).status_code == 409
         back = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second_warehouse, "to_warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', back)
         assert client.post(f"{base}/transfers/{back}/post", headers=admin).status_code == 200
         reversed_entry = client.post(f"{base}/warehouse-inbounds/{inbound_id}/reverse",
                                      headers=admin, json={"reason": "误录"})

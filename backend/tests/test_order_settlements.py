@@ -1,5 +1,7 @@
 """订单间贷方核销的金额、归属、权限和追加式撤销。"""
 
+from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment, execute_order_settlement
+
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -34,21 +36,27 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         purchase = client.post(f'{base}/purchase-orders', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '6',
                                                 'unit_price': '4'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase)
         client.post(f'{base}/purchase-orders/{purchase}/confirm', headers=admin)
         receipt_doc = client.post(f'{base}/receipts', headers=admin, json={
             'supplier_id': supplier, 'purchase_order_id': purchase,
             'lines': [{'material_id': material, 'quantity': '6'}]}).json()
         receipt = receipt_doc['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f'{base}/receipts/{receipt}/post', headers=admin).status_code == 200
 
         def sale(party):
             order = client.post(f'{base}/sales-orders', headers=admin, json={
                 'customer_id': party, 'lines': [{'material_id': material, 'quantity': '2',
                                                   'unit_price': '10'}]}).json()['id']
+            approve_document(client, admin, 'SalesOrder', order)
             client.post(f'{base}/sales-orders/{order}/confirm', headers=admin)
             shipment = client.post(f'{base}/shipments', headers=admin, json={
                 'sales_order_id': order, 'warehouse_id': 1,
                 'lines': [{'material_id': material, 'quantity': '2'}]}).json()
+            approve_document(client, admin, 'Shipment', shipment['id'])
             assert client.post(f'{base}/shipments/{shipment["id"]}/post', headers=admin).status_code == 200
             return order, shipment
 
@@ -56,12 +64,15 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         target, _ = sale(customer)
         foreign, _ = sale(other_customer)
         payment_path = f'{base}/finance/payment-records'
-        assert client.post(payment_path, headers=finance, json={
+        paid=client.post(payment_path, headers=finance, json={
             'kind': 'receivable', 'order_id': source, 'action': 'settlement',
-            'amount': '20', 'reference': 'BANK-1'}).status_code == 201
+            'amount': '20', 'reference': 'BANK-1'})
+        assert paid.status_code == 201
+        execute_payment(client,finance,paid.json(),account_headers=admin)
         returned = client.post(f'{base}/sales-returns', headers=admin, json={
             'shipment_id': shipment['id'], 'warehouse_id': 1, 'reason': '退回一件',
             'lines': [{'shipment_line_id': shipment['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
+        approve_document(client, admin, 'SalesReturn', returned)
         assert client.post(f'{base}/sales-returns/{returned}/post', headers=admin).status_code == 200
         path = f'{base}/finance/order-settlements'
         draft = {'kind': 'receivable', 'from_order_id': source, 'to_order_id': target,
@@ -84,6 +95,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             return {item['order_id']: item for item in client.get(
                 f'{base}/finance/accounts', headers=finance).json() if item['kind'] == 'receivable'}
 
+        execute_order_settlement(client,finance,transfer,account_headers=admin)
         assert balances()[source]['outstanding_amount'] == '-4.00'
         assert balances()[target]['outstanding_amount'] == '14.00'
         assert balances()[source]['settled_amount'] == '20.00'
@@ -105,31 +117,40 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         assert client.post(reverse, headers=finance, json={'reason': '重复'}).status_code == 409
         assert client.post(f'{path}/{undone.json()["id"]}/reverse', headers=finance,
             json={'reason': '重复'}).status_code == 409
+        execute_order_settlement(client,finance,undone.json(),account_headers=admin)
         assert balances()[source]['outstanding_amount'] == '-10.00'
         assert balances()[target]['outstanding_amount'] == '20.00'
         assert client.post(path, headers=finance, json={**draft,
             'reference': 'OFFSET-NEW'}).status_code == 201
 
         # 供应商应付沿用同一规则，订单编号相同也不能跨应收、应付类别抵扣。
-        assert client.post(payment_path, headers=finance, json={
+        paid=client.post(payment_path, headers=finance, json={
             'kind': 'payable', 'order_id': purchase, 'action': 'settlement',
-            'amount': '24', 'reference': 'PAY-SUP'}).status_code == 201
+            'amount': '24', 'reference': 'PAY-SUP'})
+        assert paid.status_code == 201
+        execute_payment(client,finance,paid.json(),account_headers=admin)
         purchase_return = client.post(f'{base}/purchase-returns', headers=admin, json={
             'receipt_id': receipt, 'reason': '退一件',
             'lines': [{'receipt_line_id': receipt_doc['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
+        prepare_purchase_return(client, admin, purchase_return)
         assert client.post(f'{base}/purchase-returns/{purchase_return}/post', headers=admin).status_code == 200
         purchase_target = client.post(f'{base}/purchase-orders', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2',
                                                 'unit_price': '4'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase_target)
         client.post(f'{base}/purchase-orders/{purchase_target}/confirm', headers=admin)
         next_receipt = client.post(f'{base}/receipts', headers=admin, json={
             'supplier_id': supplier, 'purchase_order_id': purchase_target,
             'lines': [{'material_id': material, 'quantity': '2'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', next_receipt)
         assert client.post(f'{base}/receipts/{next_receipt}/post', headers=admin).status_code == 200
         payable_transfer = client.post(path, headers=finance, json={
             'kind': 'payable', 'from_order_id': purchase, 'to_order_id': purchase_target,
             'amount': '4.00', 'reference': 'SUP-OFFSET', 'reason': '供应商退货抵扣新订单'})
         assert payable_transfer.status_code == 201
+        execute_order_settlement(client,finance,payable_transfer.json(),account_headers=admin)
         payable_accounts = {item['order_id']: item for item in client.get(
             f'{base}/finance/accounts', headers=finance).json() if item['kind'] == 'payable'}
         assert payable_accounts[purchase]['outstanding_amount'] == '0.00'
@@ -146,4 +167,4 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             headers=finance, json={'reason': '锁期撤销'})
         assert locked_reverse.status_code == 409 and '锁定' in locked_reverse.json()['detail']
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93

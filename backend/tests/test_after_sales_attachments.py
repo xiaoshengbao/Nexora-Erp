@@ -92,9 +92,11 @@ def test_permission_and_customer_scope(erp):
 
 def test_closed_case_keeps_attachment_read_only(erp):
     _, api, *_ = erp
-    case = approved(erp, payload(erp))
+    case = api('POST', ROOT, payload(erp), status=201)
     base = path(case['id'])
     item = api('POST', base, attachment(), status=201)
+    case = action(api, case, 'submit')
+    case = action(api, case, 'approve', actor='reviewer')
     case = action(api, case, 'receive')
     case = action(api, case, 'inspect', inspection_result='pass')
     action(api, case, 'close')
@@ -124,7 +126,7 @@ def test_v73_upgrade_preserves_cases_and_replays_safely(erp):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?', (case['id'],)).fetchone()[0] == 'draft'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.attachment'").fetchone()[0] == 3
     api('POST', path(case['id']), attachment(), status=201)

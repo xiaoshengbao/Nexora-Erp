@@ -1,5 +1,6 @@
 """验证移动平均、来源沿用、缺价隔离以及人工核价修订留痕。"""
 
+from approval_test_helpers import approve_document
 from fastapi.testclient import TestClient
 
 from app.core.database import connection, migrate
@@ -34,11 +35,15 @@ def test_moving_average_and_late_price_audit(monkeypatch, tmp_path):
             order = client.post(f"{base}/purchase-orders", headers=admin, json={
                 "supplier_id": supplier,
                 "lines": [{"material_id": material, "quantity": "10", "unit_price": price}]}).json()["id"]
+            # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+            approve_document(client, admin, 'PurchaseOrder', order)
             assert client.post(f"{base}/purchase-orders/{order}/confirm",
                                headers=admin).status_code == 200
             receipt = client.post(f"{base}/receipts", headers=admin, json={
                 "supplier_id": supplier, "purchase_order_id": order,
                 "lines": [{"material_id": material, "quantity": "10"}]}).json()["id"]
+            # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+            approve_document(client, admin, 'Receipt', receipt)
             assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
             receipt_movements.append(client.get(f"{base}/movements", headers=admin).json()[0]["id"])
         snapshot = client.get(url, headers=admin).json()
@@ -51,21 +56,25 @@ def test_moving_average_and_late_price_audit(monkeypatch, tmp_path):
         order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer,
             "lines": [{"material_id": material, "quantity": "5", "unit_price": "20"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', order)
         client.post(f"{base}/sales-orders/{order}/confirm", headers=admin)
         shipment = client.post(f"{base}/shipments", headers=admin, json={
             "sales_order_id": order, "warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "5"}]}).json()
+        approve_document(client, admin, 'Shipment', shipment['id'])
         client.post(f"{base}/shipments/{shipment['id']}/post", headers=admin)
         assert client.get(url, headers=admin).json()["total_amount"] == "112.50"
         returned = client.post(f"{base}/sales-returns", headers=admin, json={
             "shipment_id": shipment["id"], "warehouse_id": 1, "reason": "退回",
             "lines": [{"shipment_line_id": shipment["lines"][0]["id"], "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', returned)
         client.post(f"{base}/sales-returns/{returned}/post", headers=admin)
         assert client.get(url, headers=admin).json()["total_amount"] == "127.50"
 
         inbound = client.post(f"{base}/warehouse-inbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "gift", "note": "赠品入库", "reference": "GIFT-1",
             "lines": [{"material_id": material, "quantity": "3"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseInbound', inbound)
         client.post(f"{base}/warehouse-inbounds/{inbound}/post", headers=admin)
         unpriced = client.get(url, headers=admin).json()
         movement_id = unpriced["unpriced_movement_ids"][0]
@@ -110,11 +119,13 @@ def test_unpriced_stock_clears_only_after_full_depletion(monkeypatch, tmp_path):
         inbound = client.post(f"{base}/warehouse-inbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "opening", "note": "期初入库",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseInbound', inbound)
         client.post(f"{base}/warehouse-inbounds/{inbound}/post", headers=admin)
         assert client.get(f"{base}/inventory/valuation", headers=admin).json()["total_amount"] is None
         outbound = client.post(f"{base}/warehouse-outbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "sample", "note": "样品出库",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseOutbound', outbound)
         assert client.post(f"{base}/warehouse-outbounds/{outbound}/post", headers=admin).status_code == 200
         result = client.get(f"{base}/inventory/valuation", headers=admin).json()
         assert result["materials"][0]["amount"] == "0.00"
@@ -138,7 +149,7 @@ def test_v35_upgrade_preserves_stock_and_adds_cost_permissions(monkeypatch, tmp_
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 88
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 93
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == "旧物料"
         assert db.execute("SELECT COUNT(*) FROM inventory_cost_inputs").fetchone()[0] == 0
         grants = set(db.execute("""SELECT role_code FROM role_permissions

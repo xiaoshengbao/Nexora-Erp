@@ -1,5 +1,7 @@
 """销售出库逐批扣减、确认回滚与原分配冲销。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -25,6 +27,8 @@ def test_shipment_lots_are_selected_and_reversed_atomically(monkeypatch, tmp_pat
             'sku': 'SHIP-LOT', 'name': '销售批次物料', 'unit': '件'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '2.000'}]}]}).json()
@@ -34,6 +38,7 @@ def test_shipment_lots_are_selected_and_reversed_atomically(monkeypatch, tmp_pat
         order = client.post(f'{base}/sales-orders', headers=auth, json={
             'customer_id': customer, 'lines': [
                 {'material_id': material, 'quantity': '2.000', 'unit_price': '5.00'}]}).json()
+        approve_document(client, auth, 'SalesOrder', order['id'])
         assert client.post(f'{base}/sales-orders/{order["id"]}/confirm', headers=auth).status_code == 200
         shipment = client.post(f'{base}/shipments', headers=auth, json={
             'sales_order_id': order['id'], 'warehouse_id': 1,
@@ -44,6 +49,7 @@ def test_shipment_lots_are_selected_and_reversed_atomically(monkeypatch, tmp_pat
         assert options.status_code == 200
         assert [(item['lot_id'], item['quantity']) for item in options.json()['lines'][0]['lots']] == [
             (lot_a, '1.000'), (lot_b, '2.000')]
+        approve_document(client, auth, 'Shipment', shipment_id)
         post_url = f'{base}/shipments/{shipment_id}/post'
         allocation = {'lines': [{'shipment_line_id': line_id, 'lots': [
             {'lot_id': lot_a, 'quantity': '0.500'}, {'lot_id': lot_b, 'quantity': '1.000'}]}]}
@@ -72,6 +78,7 @@ def test_shipment_lots_are_selected_and_reversed_atomically(monkeypatch, tmp_pat
                               params={'material_id': material}).json()
         assert overview['fully_allocated']
         assert [item['quantity'] for item in overview['rows']] == ['0.500', '1.000']
+        approve_document(client, auth, 'Shipment', shipment_id, intent='reverse', reason='误出库')
         reversed_result = client.post(f'{base}/shipments/{shipment_id}/reverse', headers=auth,
                                       json={'reason': '误出库'})
         assert reversed_result.status_code == 201

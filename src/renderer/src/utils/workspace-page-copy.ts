@@ -2,8 +2,8 @@ import type { WorkspaceRouteKey } from '../router/workspace-routes'
 
 // 页面说明紧随外部主标题；卡片专注操作、筛选与业务内容。
 export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string>> = {
-  otherInbounds: '登记期初、赠品等非采购来源入库，确认后增加库存。',
-  warehouseOutbounds: '查看其他用途出库与采购退货，确认后扣减库存。',
+  otherInbounds: '登记期初、赠品等非采购来源入库，独立审批通过并确认后增加库存。',
+  warehouseOutbounds: '其他用途与采购退货出库均须独立批准，确认后扣减库存；指定实物批次可选。',
   stock: '按仓库查看物料当前库存，数量随已确认的出入库单据更新。',
   inventoryWarnings: '按仓库现存量识别缺货和低库存，阈值修订保留版本与历史。未配置的组合不参与预警。',
   physicalLots: '按仓库与物料核对实物批次结存、未分配差额和来源历史；历史未识别期初不代表真实批号。',
@@ -28,11 +28,11 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   productionCompletions: '记录报工、质检与合格品入库，保留取消及冲销记录。',
   boms: '维护成品配方与版本，同一成品只允许一个启用版本。',
   workOrders: '查看工单需料与报工进度，下达后办理领料和完工。',
-  purchase: '查看采购明细、入库进度与订单状态。确认订单后按采购流程收货入库。',
-  receipts: '采购收货生成待入库单，仓库确认后增加库存；错误记录可填写原因冲销。',
-  purchaseReturns: '按原入库明细办理退货，提交后由仓库确认出库。',
+  purchase: '查看采购明细、审批与入库进度。批准后确认订单，再按采购流程收货入库。',
+  receipts: '采购收货生成待入库草稿，独立批准后由仓库确认入库；实物批次登记可选，冲销须另行审批。',
+  purchaseReturns: '按原入库明细办理退货，独立批准后生成出库草稿；出库另行批准，退货冲销也需单独审批。',
   purchaseRequests: '登记采购需求，审批通过后可按剩余数量分批生成采购订单。',
-  goodsReceipts: '按采购订单登记实收与拒收数量，确认合格数量后生成待入库单。',
+  goodsReceipts: '按采购订单登记实收与拒收数量，批准后确认收货并生成需独立审批的入库草稿。',
   purchaseReports: '按供应商、物料和日期查询采购报表，表格与 CSV 使用同一份服务端筛选结果。',
   inventoryValuation: '按公司范围的物料移动加权平均计算；缺少价格来源时金额显示待核价。',
   finance: '按订单核对业务净额、收付款净额与未结金额。',

@@ -31,12 +31,14 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
   transform(code,id){if(id.endsWith('.vue'))return code.replace(/'naive-ui'/g,"'virtual:all-lot-naive'")},
   resolveId(id,importer){
    if(id==='virtual:all-lot-naive')return '\0all-lot-naive'
-   if(importer?.includes('/views/workspace/')&&id.endsWith('/store/app-store'))return '\0all-lot-store'
+   // 关联查询独立测试，此处只验证十一类批次执行，不加载真实应用 store。
+   if(id.endsWith('/ProductionAssociationDialog.vue'))return '\0all-lot-association'
+   if((importer?.includes('/views/workspace/')||importer?.includes('/components/workspace/DocumentApprovalDialog'))&&id.endsWith('/store/app-store'))return '\0all-lot-store'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0all-lot-table'
    if(id.endsWith('/WorkspaceSelect.vue'))return '\0all-lot-select'
    if(id.endsWith('/AppButton.vue'))return '\0all-lot-button'
    if(id.endsWith('/AppInput.vue'))return '\0all-lot-input'
-  },load(id){return {'\0all-lot-store':storeModule,'\0all-lot-table':tableStub,'\0all-lot-naive':modalStub,
+  },load(id){return {'\0all-lot-association':'export default {render:()=>null}','\0all-lot-store':storeModule,'\0all-lot-table':tableStub,'\0all-lot-naive':modalStub,
    '\0all-lot-button':`import {defineComponent,h} from 'vue';export default defineComponent({props:['type','disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,type:p.type,disabled:p.disabled},slots.default?.())}})`,
    '\0all-lot-input':`import {defineComponent,h} from 'vue';export default defineComponent({props:['modelValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.modelValue,disabled:p.disabled})}})`,
    '\0all-lot-select':`import {defineComponent,h} from 'vue';export default defineComponent({props:['options'],setup(p){return()=>h('span',(p.options??[]).map(o=>o.label).join(' / '))}})`}[id]}
@@ -45,6 +47,8 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
  const {usePiniaAppStore,fixture}=await server.ssrLoadModule('\0all-lot-store')
  for(const config of lotViewCases){
   const seed=documentLotFixture(config),pinia=createPinia(),store=usePiniaAppStore(pinia)
+  // 已接入审批的入库批次操作属于批准后的仓库执行，不能让布局测试绕过新审批前提。
+  if(['otherInbounds','receipts','warehouseOutbounds','transfers','stocktakes','stockAdjustments'].includes(seed.state))seed.record.approval={status:'approved'}
   store[seed.state]=[seed.record];fixture.options=seed.options;fixture.sent=[];fixture.fail=true
   const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/'+seed.file)
   const originalSetup=View.setup;let bindings

@@ -1,5 +1,7 @@
 """客户关系的来源归属、历史证据、审批职责和并发转单。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
@@ -151,13 +153,22 @@ def test_probability_migration_preserves_old_opportunities_as_unrated(seeded, mo
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT probability_percent FROM crm_opportunities WHERE id = ?',
                           (opportunity['id'],)).fetchone()[0] is None
     assert client.get(C+'/forecast', headers=admin).json()['unrated_count'] == 1
 
 
 def action(client,headers,record,command,reason='核对依据',status=200,**extra):
+    if command in ('submit', 'approve', 'reject', 'withdraw'):
+        # 真实统一接口携带审批版本，成功后读取原详情获得最新业务版本。
+        path = B+f'/system/document-approvals/CrmQuote/{record["id"]}'
+        response = client.post(path+'/'+command, headers=headers, json={
+            'version': record.get('approval', {}).get('version', 0), 'reason': reason, **extra})
+        assert response.status_code == status, response.text
+        if status == 200:
+            return client.get(C+f'/records/quote/{record["id"]}', headers=headers).json()
+        return response.json() if status != 500 else None
     response = client.post(C+f'/quotes/{record["id"]}/{command}',headers=headers,
         json={'version':record['version'],'reason':reason,**extra})
     assert response.status_code == status,response.text
@@ -227,6 +238,7 @@ def test_quote_pdf_labels_historical_copy_and_rejects_cancelled(seeded, monkeypa
                            json={**payload, 'reference': 'Q-cancel'}).json()
     separate = action(client, admin, separate, 'submit')
     separate = action(client, seeded[2], separate, 'approve')
+    separate = action(client, admin, separate, 'withdraw')
     separate = action(client, admin, separate, 'cancel')
     assert client.get(C+f'/quotes/{separate["id"]}/pdf', headers=admin).status_code == 409
     converted = action(client, seller, quote, 'convert', acceptance_reference='客户接受依据',
@@ -531,10 +543,13 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     assert client.post(B+'/sales-orders',headers=seller,json=order_input).status_code == 404
     assert all(row['id'] != order['id'] for row in client.get(B+'/sales-orders',headers=seller).json())
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=seller).status_code == 404
+    approve_document(client, admin, 'SalesOrder', order['id'])
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
     supplier=client.post(B+'/suppliers',headers=admin,json={'name':'隔离测试供货方'}).json()['id']
     receipt=client.post(B+'/receipts',headers=admin,json={'supplier_id':supplier,
         'lines':[{'material_id':materials[0],'quantity':'2'}]}).json()
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, admin, 'Receipt', receipt['id'])
     assert client.post(B+f'/receipts/{receipt["id"]}/post',headers=admin).status_code == 200
     shipment_input={'sales_order_id':order['id'],'warehouse_id':1,
         'lines':[{'material_id':materials[0],'quantity':'1'}]}
@@ -542,6 +557,7 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     assert client.post(B+'/shipments',headers=seller,json=shipment_input).status_code == 404
     assert all(row['id'] != shipment['id'] for row in client.get(B+'/shipments',headers=seller).json())
     assert client.post(B+f'/shipments/{shipment["id"]}/cancel',headers=seller).status_code == 404
+    approve_document(client, admin, 'Shipment', shipment['id'])
     assert client.post(B+f'/shipments/{shipment["id"]}/post',headers=admin).status_code == 200
     return_input={'shipment_id':shipment['id'],'warehouse_id':1,'reason':'客户退货',
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'1'}]}
@@ -589,7 +605,7 @@ def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded, remove_eq
         db.execute('PRAGMA user_version=60')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -626,6 +642,7 @@ def test_complete_crm_workflow_keeps_snapshot_and_does_not_post_stock(seeded):
     assert history[0]['after']['sales_order_id'] == order['id']
     assert history[0]['changed_by_name'] == 'seller'
     # 已转单并不等于收款或出库，仍必须经过既有订单流程。
+    approve_document(client, admin, 'SalesOrder', order['id'])
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
 
 
@@ -634,14 +651,14 @@ def test_review_excludes_every_author_even_after_edit_and_resubmission(seeded):
     _,_,data = base_records(seeded)
     quote = client.post(C+'/quotes',headers=seller,json=data).json()
     quote = action(client,admin,quote,'submit')
-    action(client,admin,quote,'approve',status=409)
+    action(client,admin,quote,'approve',status=403)
     action(client,seller,quote,'approve',status=403)
     quote = action(client,reviewer,quote,'reject',reason='价格须更正')
     quote = client.put(C+f'/quotes/{quote["id"]}',headers=admin,json={**data,
         'version':quote['version'],'reason':'修订价格','lines':[{'material_id':data['lines'][0]['material_id'],'quantity':'2','unit_price':'3'}]}).json()
     assert quote['status'] == 'draft' and quote['total_amount'] == '6.00'
     quote = action(client,seller,quote,'submit')
-    action(client,admin,quote,'approve',status=409)
+    action(client,admin,quote,'approve',status=403)
     quote = action(client,reviewer,quote,'approve')
     assert set(quote['review_blocked']) == {1,3}
     audits = client.get(C+f'/records/quote/{quote["id"]}/changes',headers=admin).json()
@@ -788,6 +805,7 @@ def test_lost_stage_requires_cancellation_of_active_approval(seeded):
     edit = {'customer_id':opp['customer_id'],'contact_id':contact['id'],'title':opp['title'],'owner_id':1,
         'stage':'lost','estimated_amount':'0','expected_close_date':'2030-01-31','version':1,'reason':'预算取消'}
     assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 409
+    quote = action(client,admin,quote,'withdraw')
     action(client,admin,quote,'cancel')
     assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 200
     assert client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-2'}).status_code == 409
@@ -853,13 +871,13 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='seller' AND permission_code='crm.view'").fetchone()[0] == 1
         assert not db.execute("SELECT 1 FROM role_permissions WHERE role_code='seller' AND permission_code='crm_quote.review'").fetchone()
-        assert len(Base.metadata.tables) == 187
+        assert len(Base.metadata.tables) == 192
 
 
 def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm_schema,monkeypatch):
@@ -881,3 +899,25 @@ def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm
         assert db.execute('PRAGMA user_version').fetchone()[0] == 49
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='crm_quotes'").fetchone()
         assert not db.execute("SELECT 1 FROM permissions WHERE code='crm.view'").fetchone()
+
+
+def test_converted_order_excludes_original_quote_submitter_without_new_author_rows(seeded):
+    from app.core.models import DocumentApprovalAuthor, UserRole
+    client, admin, reviewer, seller, *_ = seeded
+    _, opportunity, data = base_records(seeded)
+    quote = client.post(C + '/quotes', headers=admin, json=data).json()
+    quote = action(client, seller, quote, 'submit')
+    quote = action(client, reviewer, quote, 'approve')
+    converted = action(client, admin, quote, 'convert', acceptance_reference='客户确认依据',
+                       opportunity_version=opportunity['version'])
+    identifier = converted['sales_order_id']
+    with orm_session(write=True) as db:
+        # 模拟没有新作者记录的旧派生草稿；原报价提交人升级为管理员仍然不能自审。
+        assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
+            DocumentApprovalAuthor.document_type == 'SalesOrder', DocumentApprovalAuthor.document_id == identifier)) is None
+        db.add(UserRole(user_id=3, role_code='admin'))
+    path = B + f'/system/document-approvals/SalesOrder/{identifier}'
+    assert client.post(path + '/submit', headers=admin, json={'version': 0}).status_code == 200
+    assert not client.get(path, headers=seller).json()['can_review']
+    assert client.post(path + '/approve', headers=seller, json={'version': 1}).status_code == 403
+    assert client.post(path + '/approve', headers=reviewer, json={'version': 1}).status_code == 200

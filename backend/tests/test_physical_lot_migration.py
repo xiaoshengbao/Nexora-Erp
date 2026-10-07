@@ -1,5 +1,6 @@
 """旧库存批次期初只承认逐仓余额，不伪造历史实物来源。"""
 
+from approval_test_helpers import approve_document
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
@@ -30,10 +31,12 @@ def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_pa
             inbound_id = client.post('/api/v1/warehouse-inbounds', headers=auth, json={
                 'warehouse_id': target_warehouse, 'reason': 'opening', 'note': '旧期初',
                 'lines': [{'material_id': material_id, 'quantity': quantity}]}).json()['id']
+            approve_document(client, auth, 'WarehouseInbound', inbound_id)
             assert client.post(f'/api/v1/warehouse-inbounds/{inbound_id}/post', headers=auth).status_code == 200
         outbound_id = client.post('/api/v1/warehouse-outbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'sample', 'note': '旧出库',
             'lines': [{'material_id': material_id, 'quantity': '0.125'}]}).json()['id']
+        approve_document(client, auth, 'WarehouseOutbound', outbound_id)
         assert client.post(f'/api/v1/warehouse-outbounds/{outbound_id}/post', headers=auth).status_code == 200
 
     with orm_session() as db:
@@ -74,6 +77,7 @@ def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_pa
         new_inbound = client.post('/api/v1/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '升级后新入库',
             'lines': [{'material_id': material_id, 'quantity': '0.125'}]}).json()['id']
+        approve_document(client, auth, 'WarehouseInbound', new_inbound)
         assert client.post(f'/api/v1/warehouse-inbounds/{new_inbound}/post', headers=auth).status_code == 200
         after = client.get(path, headers=auth, params={
             'warehouse_id': 1, 'material_id': material_id}).json()
@@ -126,4 +130,4 @@ def test_failed_lot_upgrade_rolls_back_all_new_tables(monkeypatch, tmp_path, rem
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name LIKE 'physical_lot_%'").fetchone()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93

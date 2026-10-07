@@ -1,6 +1,9 @@
 """采购订单及入库关联；订单数量只由已确认入库单消耗。"""
 
 from app.core.document_responses import NumberedRoute
+# 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
+from app.core import document_approval as approval
+from app.core.approval_documents import purchase_order_snapshot, purchase_request_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_HALF_UP
@@ -180,6 +183,7 @@ def order_data(db: Session, order_id: int) -> dict:
     return {
         **dict(row),
         "purchase_request_id": next(iter(request_ids), None),
+        "approval": approval.case_data(approval.find_case(db, "PurchaseOrder", order_id)),
         "lines": lines,
         "total_amount": str(total),
     }
@@ -325,6 +329,7 @@ def create_purchase_order(
                 .first()
             ):
                 raise HTTPException(422, "物料不存在")
+        request_approval = None
         if payload.purchase_request_id is not None:
             request = (
                 db.execute(
@@ -339,6 +344,8 @@ def create_purchase_order(
                 raise HTTPException(422, "采购申请不存在")
             if request["status"] != "approved":
                 raise HTTPException(409, "只有已批准的采购申请可转订单")
+            request_approval = approval.require_conversion_approved(db, 'PurchaseRequest',
+                payload.purchase_request_id, purchase_request_snapshot(db, payload.purchase_request_id), user['id'])
             for line in payload.lines:
                 source = (
                     db.execute(
@@ -382,6 +389,9 @@ def create_purchase_order(
                         purchase_order_line_id=line_id, purchase_request_line_id=line.purchase_request_line_id
                     ),
                 )
+        # 第一次成功转单与授权执行事件一起提交，失败时申请额度、订单和事件全部回滚。
+        if request_approval is not None and request_approval.status == 'approved':
+            approval.mark_executed(db, request_approval, user['id'])
         return order_data(db, cursor.id)
 
 
@@ -399,11 +409,14 @@ def confirm_purchase_order(order_id: int, user: dict = Depends(require("purchase
             raise HTTPException(404, "采购订单不存在")
         if row["status"] != "draft":
             raise HTTPException(409, "只能确认草稿采购订单")
+        approved = approval.require_approved(db, 'PurchaseOrder', order_id,
+            purchase_order_snapshot(db, order_id), user['id'])
         db.execute(
             update(PurchaseOrder)
             .where((PurchaseOrder.id == order_id))
             .values(status="confirmed", confirmed_by=user["id"], confirmed_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return order_data(db, order_id)
 
 
@@ -422,6 +435,9 @@ def cancel_purchase_order(order_id: int, user: dict = Depends(require("purchase_
         # 已有确认入库的数据不能通过取消订单抹去；后续退货应走独立单据。
         if row["status"] not in ("draft", "confirmed"):
             raise HTTPException(409, "已入库或已取消的采购订单不可取消")
+        pending = approval.find_case(db, 'PurchaseOrder', order_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批，再取消采购订单')
         db.execute(
             update(PurchaseOrder)
             .where((PurchaseOrder.id == order_id))

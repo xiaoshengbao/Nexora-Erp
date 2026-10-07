@@ -38,11 +38,53 @@ def connection() -> Iterator[sqlite3.Connection]:
         db.close()
 
 
+def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_records') -> None:
+    # 表重建属于结构迁移，仅由 migrate 调用；业务读写继续通过 ORM 会话。
+    if table not in ('payment_records', 'subledger_payments', 'order_settlement_transfers'):
+        raise ValueError('不支持的资金迁移表')
+    original = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    if original is None:
+        # 仅权限的旧结构诊断夹具不包含业务表，不能凭空生成残缺的资金表。
+        return
+    if 'status' in {row[1] for row in db.execute(f'PRAGMA table_info({table})')}:
+        return
+    indexes = [row[0] for row in db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (table,))]
+    # SQLite 不能删除内联 UNIQUE；临时表原样复制全部列，仅取消后的草稿释放引用及参考号。
+    temporary = table + '_approval_upgrade'
+    statement = re.sub(r'CREATE TABLE\s+"?' + table + r'"?', 'CREATE TABLE ' + temporary, original[0], count=1, flags=re.I)
+    statement = re.sub(r'(reverses_id\s+INTEGER)\s+UNIQUE', r'\1', statement, count=1, flags=re.I)
+    if table == 'subledger_payments':
+        statement = re.sub(r',\s*UNIQUE\s*\(opening_line_id\s*,\s*action\s*,\s*reference\s*\)', '', statement, count=1, flags=re.I)
+    db.execute(statement)
+    db.execute(f'INSERT INTO {temporary} SELECT * FROM {table}')
+    db.execute(f'DROP TABLE {table}')
+    db.execute(f'ALTER TABLE {temporary} RENAME TO {table}')
+    for column in ("status TEXT NOT NULL DEFAULT 'executed' CHECK(status IN ('draft','executed','cancelled'))",
+                   'version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)',
+                   'executed_by INTEGER REFERENCES users(id)', 'executed_at TEXT',
+                   'cancelled_by INTEGER REFERENCES users(id)', 'cancelled_at TEXT',
+                   "cancellation_reason TEXT NOT NULL DEFAULT ''"):
+        db.execute(f'ALTER TABLE {table} ADD COLUMN {column}')
+    # 迁移保留旧登记时间与人员作为执行事实，不补造审批、流水或业务凭证。
+    db.execute(f'UPDATE {table} SET executed_by=created_by, executed_at=created_at')
+    for statement in indexes:
+        if any(name in statement for name in ('payment_records_reference', 'order_settlement_reference')):
+            statement += " AND status <> 'cancelled'"
+        db.execute(statement)
+    db.execute(f"CREATE UNIQUE INDEX {table}_active_reversal ON {table}(reverses_id) WHERE status <> 'cancelled'")
+    if table == 'subledger_payments':
+        db.execute("CREATE UNIQUE INDEX subledger_payments_reference ON subledger_payments(opening_line_id,action,reference) WHERE status <> 'cancelled'")
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 88:
+        if version > 93:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
+        if version < 92:
+            # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
+            db.execute('PRAGMA foreign_keys = OFF')
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
             db.executescript("""
@@ -2678,3 +2720,102 @@ def migrate() -> None:
                     db.execute(f'ALTER TABLE {table} ADD COLUMN document_no TEXT CHECK(document_no IS NULL OR length(trim(document_no)) > 0)')
                 db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS {table}_document_no ON {table}(document_no)')
             db.execute('PRAGMA user_version = 88')
+
+        if version < 89:
+            # 只增加审批基础结构，不替历史已执行单据补造批准记录。
+            from app.core.approval_catalog import APPROVAL_TYPES
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_policies (
+                document_type TEXT PRIMARY KEY, version INTEGER NOT NULL CHECK(version >= 1),
+                steps_json TEXT NOT NULL, configured_by INTEGER REFERENCES users(id), configured_at TEXT)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_policy_changes (
+                id INTEGER PRIMARY KEY, document_type TEXT NOT NULL REFERENCES document_approval_policies(document_type),
+                version INTEGER NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(document_type, version))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_cases (
+                id INTEGER PRIMARY KEY, document_type TEXT NOT NULL REFERENCES document_approval_policies(document_type),
+                document_id INTEGER NOT NULL CHECK(document_id > 0), intent TEXT NOT NULL CHECK(intent IN ('execute','reverse')),
+                version INTEGER NOT NULL CHECK(version > 0), generation INTEGER NOT NULL CHECK(generation > 0),
+                policy_version INTEGER NOT NULL, steps_json TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+                content_digest TEXT NOT NULL, authors_json TEXT NOT NULL, current_step INTEGER NOT NULL CHECK(current_step >= 0),
+                status TEXT NOT NULL CHECK(status IN ('submitted','approved','rejected','withdrawn','executed')),
+                submitted_by INTEGER NOT NULL REFERENCES users(id), submitted_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                executed_by INTEGER REFERENCES users(id), executed_at TEXT,
+                UNIQUE(document_type, document_id, intent))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_events (
+                id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES document_approval_cases(id),
+                version INTEGER NOT NULL, generation INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('submit','approve','reject','withdraw','execute')),
+                step INTEGER NOT NULL CHECK(step >= 0), actor_id INTEGER NOT NULL REFERENCES users(id),
+                reason TEXT NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(case_id, version))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_authors (
+                document_type TEXT NOT NULL, document_id INTEGER NOT NULL CHECK(document_id > 0),
+                user_id INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(document_type, document_id, user_id))''')
+            # 结构层禁止重写审计，包含绕过 ORM 的更新和删除。
+            for table in ('document_approval_events', 'document_approval_policy_changes', 'document_approval_authors'):
+                for action in ('UPDATE', 'DELETE'):
+                    db.execute(f'''CREATE TRIGGER IF NOT EXISTS {table}_immutable_{action.lower()}
+                        BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, '审批历史不能修改或删除'); END''')
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'users' in tables:
+                db.executemany('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                    VALUES (?,1,?)''', [(name, '[{"name":"批准","role":null}]') for name in APPROVAL_TYPES])
+            if {'permissions', 'role_permissions', 'permission_groups', 'roles'} <= tables:
+                # 新审核权限不会自动授给执行人员；管理员也必须由另一位人员独立审核。
+                for rule in APPROVAL_TYPES.values():
+                    if rule.native_workflow:
+                        continue
+                    group = db.execute('SELECT group_code FROM permissions WHERE code=?',
+                                       (rule.execute_permission,)).fetchone()
+                    if group is None:
+                        continue
+                    label = '审核收付款与核销' if rule.review_permission == 'finance.review' else '审核' + rule.title
+                    db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                               (rule.review_permission, label, group[0]))
+                    if db.execute("SELECT 1 FROM roles WHERE code='admin'").fetchone():
+                        db.execute("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES ('admin',?)",
+                                   (rule.review_permission,))
+            db.execute('PRAGMA user_version = 89')
+
+        if version < 90:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            _migrate_payment_records(db)
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('资金审批迁移发现无效关联，本次升级已回滚')
+            db.execute('PRAGMA user_version = 90')
+
+        if version < 91:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            _migrate_payment_records(db, 'subledger_payments')
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('分户资金审批迁移发现无效关联，本次升级已回滚')
+            db.execute('PRAGMA user_version = 91')
+
+        if version < 92:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 只增加核销执行状态，保留原双方订单、金额、时间、编号及撤销引用。
+            _migrate_payment_records(db, 'order_settlement_transfers')
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('订单核销审批迁移发现无效关联，本次升级已回滚')
+            db.execute('PRAGMA user_version = 92')
+
+        if version < 93:
+            # 保留旧结算全部分摊、费用、指纹及原执行事实，不造审批。
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_cost_settlements'").fetchone():
+                columns = {r[1] for r in db.execute('PRAGMA table_info(production_cost_settlements)')}
+                if 'status' not in columns:
+                    for column in ("status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft','active','cancelled'))",
+                                   'version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)',
+                                   'executed_by INTEGER REFERENCES users(id)', 'executed_at TEXT',
+                                   'cancelled_by INTEGER REFERENCES users(id)', 'cancelled_at TEXT',
+                                   "cancellation_reason TEXT NOT NULL DEFAULT ''"):
+                        db.execute(f'ALTER TABLE production_cost_settlements ADD COLUMN {column}')
+                    db.execute('UPDATE production_cost_settlements SET executed_by=created_by,executed_at=created_at')
+            db.execute('PRAGMA user_version = 93')

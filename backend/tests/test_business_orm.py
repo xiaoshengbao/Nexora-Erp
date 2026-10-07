@@ -1,5 +1,7 @@
 """ORM 单据迁移须保留写入后回滚、跨模块状态和并发确认约束。"""
 
+from approval_test_helpers import approve_document, prepare_purchase_return
+
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -46,13 +48,15 @@ def erp(monkeypatch, tmp_path):
             },
             201,
         )
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, dict(client.headers), 'PurchaseOrder', purchase['id'])
         request("POST", f'purchase-orders/{purchase["id"]}/confirm')
         yield client, request, supplier, customer, materials, warehouse, purchase
 
 
 def receipt(erp, quantity="10.000"):
-    _, request, supplier, _, materials, _, purchase = erp
-    return request(
+    client, request, supplier, _, materials, _, purchase = erp
+    result = request(
         "POST",
         "receipts",
         {
@@ -62,10 +66,13 @@ def receipt(erp, quantity="10.000"):
         },
         201,
     )
+    # 显式业务夹具提供可执行入库单，不拦截或自动放宽任何被测接口。
+    approve_document(client, dict(client.headers), 'Receipt', result['id'])
+    return result
 
 
 def completion(erp):
-    _, request, _, _, materials, _, _ = erp
+    client, request, _, _, materials, _, _ = erp
     bom = request(
         "POST",
         "boms",
@@ -79,6 +86,7 @@ def completion(erp):
     order = request(
         "POST", "work-orders", {"bom_id": bom["id"], "warehouse_id": 1, "target_quantity": "2.000"}, 201
     )
+    approve_document(client, dict(client.headers), 'WorkOrder', order['id'])
     request("POST", f'work-orders/{order["id"]}/release')
     issue = request(
         "POST",
@@ -90,6 +98,7 @@ def completion(erp):
         },
         201,
     )
+    approve_document(client, dict(client.headers), 'MaterialIssue', issue['id'])
     request("POST", f'material-issues/{issue["id"]}/post')
     row = request(
         "POST", "production-completions", {"work_order_id": order["id"], "reported_quantity": "2.000"}, 201
@@ -168,6 +177,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'Transfer', source['id'])
         if case.endswith("reverse"):
             request("POST", f'transfers/{source["id"]}/post')
         path = f'transfers/{source["id"]}/' + ("reverse" if case.endswith("reverse") else "post")
@@ -182,6 +192,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        prepare_purchase_return(client, dict(client.headers), source['id'])
         path = f'purchase-returns/{source["id"]}/post'
     elif case == "shipment_post":
         order = request(
@@ -195,6 +206,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'SalesOrder', order['id'])
         request("POST", f'sales-orders/{order["id"]}/confirm')
         source = request(
             "POST",
@@ -206,14 +218,25 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'Shipment', source['id'])
         path = f'shipments/{source["id"]}/post'
     else:
+        # 独立审批完成后，再验证原库存约束或失败回滚。
         source = completion(erp)
+        approve_document(client, dict(client.headers), 'ProductionCompletion', source['id'])
         if case.endswith("reverse"):
             request("POST", f'production-completions/{source["id"]}/post')
         path = f'production-completions/{source["id"]}/' + ("reverse" if case.endswith("reverse") else "post")
     if case.endswith("reverse"):
         payload = {"reason": "更正原单"}
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    if case == 'transfer_reverse':
+        approve_document(client, dict(client.headers), 'Transfer', source['id'], intent='reverse', reason='更正原单')
+    if case == 'receipt_reverse':
+        approve_document(client, dict(client.headers), 'Receipt', source['id'], intent='reverse', reason='更正原单')
+    # 独立审批完成后，再验证原库存约束或失败回滚。
+    if case == 'completion_reverse':
+        approve_document(client, dict(client.headers), 'ProductionCompletion', source['id'], intent='reverse', reason='更正原单')
     before = snapshots(request)
     before_flush, after_flush = fail_after_model_flush(StockMovement)
     event.listen(Session, "before_flush", before_flush)
@@ -243,6 +266,8 @@ def test_goods_receipt_generated_inbound_failure_can_retry_without_reserving_twi
         },
         201,
     )
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, dict(client.headers), 'PurchaseGoodsReceipt', source['id'])
     before_flush, after_flush = fail_after_model_flush(Receipt)
     event.listen(Session, "before_flush", before_flush)
     event.listen(Session, "after_flush_postexec", after_flush)
@@ -255,6 +280,8 @@ def test_goods_receipt_generated_inbound_failure_can_retry_without_reserving_twi
     assert request("GET", "purchase-goods-receipts")[0]["status"] == "draft"
     result = request("POST", f'purchase-goods-receipts/{source["id"]}/confirm')
     assert result["inbound_status"] == "draft" and len(request("GET", "receipts")) == 1
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, dict(client.headers), 'Receipt', result['inbound_receipt_id'])
     request("POST", f'receipts/{result["inbound_receipt_id"]}/post')
     assert {line["remaining_quantity"] for line in request("GET", "purchase-orders")[0]["lines"]} == {"4.000"}
 
@@ -267,8 +294,8 @@ def test_request_quota_and_order_links_roll_back_after_insert(erp):
         {"lines": [{"material_id": m, "quantity": "1.125"} for m in materials[:2]]},
         201,
     )
-    request("POST", f'purchase-requests/{source["id"]}/submit')
-    request("POST", f'purchase-requests/{source["id"]}/approve')
+    # 申请独立审批后才允许拆单；每张订单继续按原规则单独审批。
+    approve_document(client, dict(client.headers), "PurchaseRequest", source["id"])
     payload = {
         "supplier_id": supplier,
         "purchase_request_id": source["id"],
@@ -322,6 +349,8 @@ def test_concurrent_confirmations_cannot_overconsume_order_or_stock(erp, kind):
             )["id"]
             for _ in range(2)
         ]
+        for item in ids:
+            approve_document(client, dict(client.headers), 'Transfer', item)
         paths = [f"/api/v1/transfers/{item}/post" for item in ids]
     barrier = Barrier(2)
 

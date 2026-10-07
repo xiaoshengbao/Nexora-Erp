@@ -1,5 +1,7 @@
 """验证应收应付只来自已确认单据，退货冲减且历史无价入库不伪造金额。"""
 
+from approval_test_helpers import approve_document, prepare_purchase_return
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,6 +31,8 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         purchase_order = client.post(f"{base}/purchase-orders", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125",
                                                "unit_price": "2.3456"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase_order)
         client.post(f"{base}/purchase-orders/{purchase_order}/confirm", headers=admin)
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "purchase_order_id": purchase_order,
@@ -37,6 +41,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         sales_order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer, "lines": [{"material_id": material, "quantity": "1.125",
                                                "unit_price": "10.0050"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', sales_order)
         client.post(f"{base}/sales-orders/{sales_order}/confirm", headers=admin)
         shipment = client.post(f"{base}/shipments", headers=admin, json={
             "sales_order_id": sales_order, "warehouse_id": 1,
@@ -44,7 +49,10 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         shipment_id = shipment["id"]
         # 草稿金额不进入应收应付；确认后按单据行精确舍入到分。
         assert client.get(f"{base}/finance/receivables-payables", headers=finance).json()["entries"] == []
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
+        approve_document(client, admin, 'Shipment', shipment_id)
         client.post(f"{base}/shipments/{shipment_id}/post", headers=admin)
         snapshot = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert snapshot["receivable_amount"] == "11.26"
@@ -59,7 +67,9 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": receipt_id, "reason": "供应商退货",
             "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "0.125"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', sale_return)
         client.post(f"{base}/sales-returns/{sale_return}/post", headers=admin)
+        prepare_purchase_return(client, admin, purchase_return)
         client.post(f"{base}/purchase-returns/{purchase_return}/post", headers=admin)
         adjusted = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert adjusted["receivable_amount"] == "10.01"
@@ -71,6 +81,8 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         legacy_receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "1"}]}).json()
         legacy = legacy_receipt["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', legacy)
         client.post(f"{base}/receipts/{legacy}/post", headers=admin)
         unpriced = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert unpriced["unpriced_count"] == 1
@@ -83,6 +95,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         unknown_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": legacy, "reason": "退回未定价物料",
             "lines": [{"receipt_line_id": legacy_receipt["lines"][0]["id"], "quantity": "0.5"}]}).json()["id"]
+        prepare_purchase_return(client, admin, unknown_return)
         client.post(f"{base}/purchase-returns/{unknown_return}/post", headers=admin)
         with_unknown_return = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert with_unknown_return["unpriced_count"] == 2

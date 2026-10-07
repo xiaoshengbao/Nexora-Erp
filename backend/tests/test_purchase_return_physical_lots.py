@@ -1,5 +1,7 @@
 """采购退货的实物批次选择、失败回滚及原分配冲销。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -26,6 +28,8 @@ def test_purchase_return_lots_follow_warehouse_gate_and_reverse(monkeypatch, tmp
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
         receipt_line = receipt['lines'][0]['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt_line, 'lots': [
                 {'quantity': '1.000', 'supplier_lot': 'A'},
@@ -35,6 +39,7 @@ def test_purchase_return_lots_follow_warehouse_gate_and_reverse(monkeypatch, tmp
             'receipt_id': receipt['id'], 'reason': '来料退回', 'lines': [
                 {'receipt_line_id': receipt_line, 'quantity': '1.500'}]}).json()
         return_id = returned['id']
+        approve_document(client, auth, 'PurchaseReturn', return_id)
         submitted = client.post(f'{base}/purchase-returns/{return_id}/submit', headers=auth).json()
         outbound_id = submitted['outbound_id']
         outbound_line_id = next(item for item in client.get(f'{base}/warehouse-outbounds',
@@ -44,6 +49,8 @@ def test_purchase_return_lots_follow_warehouse_gate_and_reverse(monkeypatch, tmp
         assert options.status_code == 200
         assert [(item['lot_id'], item['quantity']) for item in options.json()['lines'][0]['lots']] == [
             (lot_a, '1.000'), (lot_b, '2.000')]
+        # 出库另行批准后仍核对原批次数量与可用量。
+        approve_document(client, auth, 'WarehouseOutbound', outbound_id)
         post_url = f'{base}/warehouse-outbounds/{outbound_id}/post'
         body = {'lines': [{'outbound_line_id': outbound_line_id, 'lots': [
             {'lot_id': lot_a, 'quantity': '0.500'}, {'lot_id': lot_b, 'quantity': '1.000'}]}]}
@@ -74,6 +81,7 @@ def test_purchase_return_lots_follow_warehouse_gate_and_reverse(monkeypatch, tmp
         assert overview['fully_allocated']
         assert [item['quantity'] for item in overview['rows']] == ['0.500', '1.000']
 
+        approve_document(client, auth, 'PurchaseReturn', return_id, intent='reverse', reason='误退货')
         reversed_result = client.post(f'{base}/purchase-returns/{return_id}/reverse',
                                       headers=auth, json={'reason': '误退货'})
         assert reversed_result.status_code == 201

@@ -1,4 +1,6 @@
+import type { ProductionAssociationOperations } from './production-association-api'
 import type { DocumentNumberingOperations, NumberedDocument } from './document-numbering'
+import type { DocumentApprovalOperations, DocumentApprovalState } from './document-approval-api'
 import type { Supplier, SupplierInput } from './supplier-api'
 export type { Supplier, SupplierInput } from './supplier-api'
 import type {InventoryWarningOperations} from './inventory-warning-api'
@@ -144,6 +146,8 @@ export interface JournalLine extends JournalLineInput {
   category: LedgerCategory; normal_balance: 'debit' | 'credit'
 }
 export interface Journal extends NumberedDocument {
+  // 新服务返回本凭证独立审批；旧响应缺失时客户端不开放过账。
+  approval?: DocumentApprovalState
   id: number; reference: string; journal_date: string; period_id: number; period_code: string; note: string
   currency: 'CNY'; status: JournalStatus; version: number; reversal_of_id: number | null; reversal_journal_id: number | null
   created_by: number; created_by_name: string; created_at: string; author_ids: number[]
@@ -154,6 +158,7 @@ export interface Journal extends NumberedDocument {
   profit_transfer?: { period_id: number; evidence: ProfitTransferEvidence; policy: ProfitTransferPolicy } | null
 }
 export interface JournalAttachment {
+  can_reverse?: boolean
   id: number; journal_id: number; file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
   byte_count: number; sha256: string; reason: string; created_by: number; created_by_name: string; created_at: string
   reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
@@ -243,16 +248,17 @@ export interface BusinessJournalCandidate extends BusinessJournalEvidence {
 }
 export interface BusinessJournalOptions extends Partial<AuxiliarySelectionOptions> { policy: BusinessJournalPolicy; roles: Record<BusinessJournalRole, string>; accounts: LedgerAccount[] }
 export interface BusinessJournalGenerateInput { source_key: string; fingerprint: string; policy_version: number; reference: string; journal_date: string; reason: string; auxiliary_by_role?: Partial<Record<BusinessJournalRole, AuxiliaryReference[]>> }
-export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' }
+export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' | 'withdraw' }
 export type OpeningBalanceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'confirmed' | 'cancelled' | 'reversed'
 export type OpeningBalanceAction = 'submit' | 'approve' | 'reject' | 'confirm' | 'cancel' | 'reverse'
 export interface OpeningBalanceInput { reference: string; effective_date: string; note: string; reason: string; lines: JournalLineInput[] }
 export interface OpeningBalance extends Omit<Journal, 'journal_date' | 'status' | 'posted_by' | 'posted_at' | 'reversal_of_id' | 'reversal_journal_id' | 'lines'> {
   effective_date: string; status: OpeningBalanceStatus; active_key: number | null
+  reversal_approval?: DocumentApprovalState; reversal_reason?: string
   confirmed_by: number | null; confirmed_at: string | null; reversed_by: number | null; reversed_at: string | null
   lines: (Omit<JournalLine, 'journal_id'> & { opening_balance_id: number })[]
 }
-export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' }
+export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' | 'withdraw' }
 export type SubledgerKind = 'receivable' | 'payable'
 export interface SubledgerControl { kind: SubledgerKind; account_id: number }
 export interface SubledgerLineInput {
@@ -273,6 +279,7 @@ export interface SubledgerReconciliation {
   rows: { account_id: number; auxiliary: AuxiliarySnapshot[]; ledger_amount: string; subledger_amount: string; difference: string }[]
 }
 export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines'>, NumberedDocument {
+  approval?: DocumentApprovalState; reversal_approval?: DocumentApprovalState; reversal_reason?: string
   id: number; effective_date: string; status: OpeningBalance['status']; version: number; active_key: number | null
   lines: SubledgerLine[]; evidence: SubledgerReconciliation | null; currency: 'CNY'; author_ids: number[]
   created_by: number; created_by_name: string; created_at: string
@@ -282,10 +289,13 @@ export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines
 }
 export interface SubledgerOptions extends AuxiliarySelectionOptions { accounts: LedgerAccount[]; opening_balance: OpeningBalance | null }
 export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpening, 'created_by_name' | 'author_ids'>> {
-  action: OpeningBalanceAction | 'create' | 'update'
+  action: OpeningBalanceAction | 'create' | 'update' | 'withdraw'
 }
 export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
 export interface SubledgerPayment extends NumberedDocument {
+  // 草稿及审批不产生资金事实；执行时间用于未结余额与来源凭证。
+  status: 'draft' | 'executed' | 'cancelled'; version: number; approval?: DocumentApprovalState
+  executed_by: number | null; executed_at: string | null; cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
   id: number; opening_line_id: number; action: 'settlement' | 'refund' | 'reversal'; amount: string; reference: string; note: string
   reverses_id: number | null; created_by: number; created_by_name: string; created_at: string; currency: 'CNY'
   kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
@@ -315,6 +325,9 @@ export interface AccountingPeriodInput {
 }
 // 非采购入库沿用单据确认和冲销模式，不进入采购应付来源。
 export interface OtherInbound extends NumberedDocument {
+  // 审批进度与仓库状态分开，未批准的草稿不能确认入库。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -339,6 +352,11 @@ export interface OtherInbound extends NumberedDocument {
 }
 // 出库确认才扣库存；后续采购退货沿用仓库确认单。
 export interface WarehouseOutbound extends NumberedDocument {
+  // 执行与冲销各自批准；旧响应缺省时界面关闭执行入口。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
+  // 退货出库由采购退货原单冲销，关联 ID 与其他出库冲销分别保存。
+  purchase_return_reversal_id?: number | null
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -365,6 +383,9 @@ export interface WarehouseOutbound extends NumberedDocument {
 }
 // 正负调整量在审批前固定，审批人与建单人必须不同。
 export interface StockAdjustment extends NumberedDocument {
+  // 审批缺省时不能确认；状态由服务端统一审批事务提供。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -439,6 +460,9 @@ export interface ReceivedLine extends ReceiptLine {
   physical_lots: ReceiptPhysicalLot[]
 }
 export interface Receipt extends NumberedDocument {
+  reversal_approval?: DocumentApprovalState
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   supplier_id: number
   supplier_name: string
@@ -473,6 +497,8 @@ export interface GoodsReceiptLine {
   rejection_reason: string
 }
 export interface GoodsReceipt extends NumberedDocument {
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   purchase_order_id: number
   supplier_id: number
@@ -500,6 +526,8 @@ export interface PurchaseRequestLine extends ReceiptLine {
   remaining_quantity: string
 }
 export interface PurchaseRequest extends NumberedDocument {
+  // 审批流程由服务端统一保存，原申请状态继续用于分批转单。
+  approval?: DocumentApprovalState
   id: number
   reference: string
   note: string
@@ -528,6 +556,8 @@ export interface PurchaseOrderLine extends ReceiptLine {
   line_total: string
 }
 export interface PurchaseOrder extends NumberedDocument {
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   purchase_request_id: number | null
   supplier_id: number
@@ -551,6 +581,10 @@ export interface PurchaseReturnLine extends ReceiptLine {
   line_total: string | null
 }
 export interface PurchaseReturn extends NumberedDocument {
+  // 退货转单和下游出库分别审批，进度不包含下游敏感正文。
+  approval?: DocumentApprovalState
+  outbound_approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   receipt_id: number
   supplier_id: number
@@ -618,6 +652,15 @@ export interface FinanceAccount {
 }
 // 原收付款和冲销均为独立、不可编辑的记录，负金额表示退款或反向冲销。
 export interface PaymentRecord extends NumberedDocument {
+  // 草稿金额不进入余额，审批与业务执行版本分别校验。
+  status: 'draft' | 'executed' | 'cancelled'
+  version: number
+  approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   kind: 'receivable' | 'payable'
   order_id: number
@@ -634,6 +677,15 @@ export interface PaymentRecord extends NumberedDocument {
   currency: 'CNY'
 }
 export interface OrderSettlementTransfer extends NumberedDocument {
+  // 核销与撤销均先保存独立草稿，批准后执行才改变双方余额。
+  status: 'draft' | 'executed' | 'cancelled'
+  version: number
+  approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   kind: 'receivable' | 'payable'
   party_id: number
@@ -745,6 +797,8 @@ export interface WorkOrderLine {
 }
 // 工单组件需求在建单时固定，旧 BOM 停用也不会改变已下达工单。
 export interface WorkOrder extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
   id: number
   bom_id: number
   bom_version: number
@@ -790,6 +844,9 @@ export interface MaterialIssueLine {
 }
 // 确认后的领料单生成独立负向库存流水；原单据保留供追溯。
 export interface MaterialIssue extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   work_order_id: number
   warehouse_id: number
@@ -822,6 +879,9 @@ export interface MaterialReturnLine {
 }
 // 退料引用原领料明细并回到原仓库，确认后生成独立正向流水。
 export interface MaterialReturn extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   material_issue_id: number
   work_order_id: number
@@ -844,6 +904,9 @@ export interface MaterialReturn extends NumberedDocument {
 }
 // 完工单记录报工与质检结果；确认时只有合格数量进入成品仓库。
 export interface ProductionCompletion extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   work_order_id: number
   warehouse_id: number
@@ -929,6 +992,15 @@ export interface ProductionMaterialSource {
   cost_entry_id: number | null
 }
 export interface ProductionCostSettlement extends NumberedDocument {
+  // 草稿中的金额及分摊为预计值，仅正式执行才计入库存成本。
+  version: number
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   work_order_id: number
   reference: string
@@ -942,7 +1014,7 @@ export interface ProductionCostSettlement extends NumberedDocument {
   created_by: number
   created_by_name: string
   created_at: string
-  status: 'active' | 'reversed'
+  status: 'draft' | 'active' | 'cancelled' | 'reversed'
   reversal_id: number | null
   reversal_reason: string | null
   reversed_by_name: string | null
@@ -974,6 +1046,8 @@ export interface SalesOrderLine extends ReceiptLine {
   line_total: string
 }
 export interface SalesOrder extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
   id: number
   customer_id: number
   customer_name: string
@@ -1027,6 +1101,9 @@ export interface SalesOrderContractAttachmentList {
   items: SalesOrderContractAttachment[]
 }
 export interface Shipment extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   sales_order_id: number
   warehouse_id: number
@@ -1061,6 +1138,9 @@ export interface SalesReturnLine extends ReceiptLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface SalesReturn extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   shipment_id: number
   sales_order_id: number
@@ -1110,6 +1190,9 @@ export interface StocktakeLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface Stocktake extends NumberedDocument {
+  // 审批缺省时不能确认；状态由服务端统一审批事务提供。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -1221,7 +1304,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
+export interface ErpOperations extends ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }
@@ -1347,6 +1430,7 @@ export interface ErpOperations extends DocumentNumberingOperations, MrpOperation
   querySubledger: { input: SubledgerQuery; output: SubledgerReport }
   subledgerPayments: { input: undefined; output: SubledgerPayment[] }
   createSubledgerPayment: { input: SubledgerPaymentInput; output: SubledgerPayment }
+  changeSubledgerPaymentStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerPayment }
   reverseSubledgerPayment: { input: { id: number; reason: string }; output: SubledgerPayment }
   openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions> }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }
@@ -1395,7 +1479,9 @@ export interface ErpOperations extends DocumentNumberingOperations, MrpOperation
   decideBankBalanceReport: { input: { reportId: number; action: 'approve' | 'reject'; reason: string }; output: Omit<BankBalanceReport['decisions'][number], 'created_by_name'> }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
+  changePaymentRecordStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: PaymentRecord }
   createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }
+  changeOrderSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: OrderSettlementTransfer }
   reverseOrderSettlement: { input: { transferId: number; reason: string }; output: OrderSettlementTransfer }
   boms: { input: undefined; output: Bom[] }
   createBom: { input: { product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
@@ -1427,6 +1513,7 @@ export interface ErpOperations extends DocumentNumberingOperations, MrpOperation
   productionCosts: { input: undefined; output: ProductionCostReport }
   productionCostSettlements: { input: undefined; output: ProductionCostSettlement[] }
   settleProductionCost: { input: { work_order_id: number; reference: string; note: string }; output: ProductionCostSettlement }
+  changeProductionSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: ProductionCostSettlement }
   reverseProductionSettlement: { input: { settlementId: number; reason: string }; output: ProductionCostSettlement }
   recordMaterialValuation: { input: { material_issue_line_id: number; unit_cost: string; reference: string; note: string }; output: ProductionCostEntry }
   recordProductionCharge: { input: { work_order_id: number; kind: 'labor' | 'overhead'; amount: string; reference: string; note: string }; output: ProductionCostEntry }

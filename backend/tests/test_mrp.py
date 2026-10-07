@@ -1,5 +1,7 @@
 """验证共享组件、日期净需求、来源快照、职责分离和事务转单。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from decimal import Decimal
@@ -120,6 +122,8 @@ def seeded(monkeypatch, tmp_path):
         supplier = client.post(BASE+'/suppliers', headers=admin, json={'name':'供应商'}).json()['id']
         receipt = client.post(BASE+'/receipts', headers=admin, json={'supplier_id':supplier,'warehouse_id':1,
             'lines':[{'material_id':r,'quantity':'5'}]}).json()['id']
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(BASE+f'/receipts/{receipt}/post', headers=admin).status_code == 200
         yield client, admin, login('reviewer'), login('planner'), login('viewer'), material_ids, supplier
 
@@ -132,18 +136,21 @@ def payload(client, admin, materials, reference='PLAN-1'):
         'manual_demands':[{'material_id':materials[0],'quantity':'2','due_date':'2030-01-10','reference':'额外订单'}]}
 
 
+def approval_action(client, actor, identifier, action, reason):
+    # 明确走新审批版本，不替业务请求自动批准，保留原失败和并发测试。
+    path = BASE + f'/system/document-approvals/MrpPlan/{identifier}'
+    state = client.get(path, headers=actor).json()
+    response = client.post(path + '/' + action, headers=actor,
+        json={'version': state['version'], 'reason': reason, 'intent': 'execute'})
+    assert response.status_code == 200, response.text
+    return client.get(MRP + f'/plans/{identifier}', headers=actor).json()
+
 def approved(client, admin, reviewer, data):
     response = client.post(MRP+'/plans', headers=admin, json=data)
     assert response.status_code == 201, response.text
     record = response.json()
-    response = client.post(MRP+f'/plans/{record["id"]}/submit', headers=admin,
-        json={'version':record['version'],'reason':'确认来源'})
-    assert response.status_code == 200, response.text
-    record = response.json()
-    response = client.post(MRP+f'/plans/{record["id"]}/approve', headers=reviewer,
-        json={'version':record['version'],'reason':'独立核对'})
-    assert response.status_code == 200, response.text
-    return response.json()
+    approval_action(client, admin, record['id'], 'submit', '确认来源')
+    return approval_action(client, reviewer, record['id'], 'approve', '独立核对')
 
 
 def test_full_plan_workflow_snapshot_and_conversion_do_not_change_stock(seeded):
@@ -155,12 +162,11 @@ def test_full_plan_workflow_snapshot_and_conversion_do_not_change_stock(seeded):
     record = client.post(MRP+'/plans', headers=admin, json=data).json()
     assert client.post(MRP+f'/plans/{record["id"]}/convert', headers=admin,
         json={'version':1,'suggestion_key':'1:2030-01-10','reason':'未审核'}).status_code == 409
-    assert client.post(MRP+f'/plans/{record["id"]}/submit', headers=admin,
-        json={'version':1,'reason':'提交'}).status_code == 200
-    assert client.post(MRP+f'/plans/{record["id"]}/approve', headers=admin,
-        json={'version':2,'reason':'本人审核'}).status_code == 403
-    assert client.post(MRP+f'/plans/{record["id"]}/approve', headers=reviewer,
-        json={'version':2,'reason':'独立核对'}).status_code == 200
+    approval_action(client, admin, record['id'], 'submit', '提交')
+    state = client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=admin).json()
+    assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=admin,
+        json={'version':state['version'],'reason':'本人审核'}).status_code == 403
+    approval_action(client, reviewer, record['id'], 'approve', '独立核对')
     detail = client.get(MRP+f'/plans/{record["id"]}', headers=planner).json()
     assert detail['snapshot']['sources']['movements']
     assert "'=原料" in detail['csv']
@@ -199,9 +205,12 @@ def test_existing_sales_purchases_and_work_orders_have_complete_dated_sources(se
     customer = client.post(BASE+'/customers', headers=admin, json={'name':'客户'}).json()['id']
     sale = client.post(BASE+'/sales-orders', headers=admin, json={'customer_id':customer,
         'lines':[{'material_id':a,'quantity':'2','unit_price':'1'}]}).json()['id']
+    approve_document(client, admin, 'SalesOrder', sale)
     assert client.post(BASE+f'/sales-orders/{sale}/confirm', headers=admin).status_code == 200
     purchase = client.post(BASE+'/purchase-orders', headers=admin, json={'supplier_id':supplier,
         'lines':[{'material_id':r,'quantity':'20','unit_price':'1'}]}).json()['id']
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, admin, 'PurchaseOrder', purchase)
     assert client.post(BASE+f'/purchase-orders/{purchase}/confirm', headers=admin).status_code == 200
     bom = next(row for row in client.get(BASE+'/boms', headers=admin).json() if row['product_material_id'] == b)
     work = client.post(BASE+'/work-orders', headers=admin, json={'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'}).json()
@@ -306,10 +315,10 @@ def test_v48_upgrade_preserves_stock_and_is_idempotent(seeded, remove_mrp_schema
     migrate()
     migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert len(Base.metadata.tables) == 187
+        assert len(Base.metadata.tables) == 192
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='planner' AND permission_code='purchase_request.create'").fetchone()[0] == 1
 
 
@@ -338,16 +347,14 @@ def test_upgrade_failure_rolls_back_new_tables(seeded, remove_mrp_schema, monkey
 def test_previous_submitter_cannot_review_after_resubmission(seeded):
     client, admin, reviewer, planner, viewer, materials, _ = seeded
     record = client.post(MRP+'/plans', headers=admin, json=payload(client, admin, materials)).json()
-    record = client.post(MRP+f'/plans/{record["id"]}/submit', headers=planner,
-        json={'version':record['version'],'reason':'初次提交'}).json()
-    record = client.post(MRP+f'/plans/{record["id"]}/reject', headers=reviewer,
-        json={'version':record['version'],'reason':'退回核对'}).json()
-    record = client.post(MRP+f'/plans/{record["id"]}/submit', headers=admin,
-        json={'version':record['version'],'reason':'重新提交'}).json()
+    approval_action(client, planner, record['id'], 'submit', '初次提交')
+    approval_action(client, reviewer, record['id'], 'reject', '退回核对')
+    record = approval_action(client, admin, record['id'], 'submit', '重新提交')
     assert len(record['author_ids']) == 2
     # 后续授予审核权限不能消除这个账号已经参与编制的事实。
     client.post(BASE+'/roles', headers=admin, json={'code':'mrp_review','label':'计划审核','permissions':['mrp.view','mrp.review']})
     planner_id = client.get(BASE+'/auth/me', headers=planner).json()['id']
     client.put(BASE+f'/users/{planner_id}/roles', headers=admin, json={'roles':['planner','mrp_review']})
-    assert client.post(MRP+f'/plans/{record["id"]}/approve', headers=planner,
-        json={'version':record['version'],'reason':'历史提交人审核'}).status_code == 403
+    state = client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=planner).json()
+    assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=planner,
+        json={'version':state['version'],'reason':'历史提交人审核'}).status_code == 403

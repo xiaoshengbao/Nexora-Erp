@@ -7,6 +7,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.models import ProductionCostSettlement
 from app.core.models import (PaymentRecord, ProductionCostEntry, ProductionCostReversal, Material, Warehouse,
     SubledgerPayment, SubledgerOpeningLine, QualityDisposition, QualityCostAllocation,
     ProductionSettlementReversal)
@@ -73,13 +74,17 @@ def business_sources(db: Session) -> dict[str, dict]:
         item['business'].append({key: entry[key] for key in (
             'source_line_id', 'order_id', 'party_id', 'material_id', 'quantity', 'unit_price',
             'amount', 'kind', 'posted_at')})
-    for record in db.scalars(select(PaymentRecord).order_by(PaymentRecord.id)):
-        item = group('payment_record', record.id, record.created_at)
-        item['records'].append(model_data(record))
-    for record in db.scalars(select(SubledgerPayment).order_by(SubledgerPayment.id)):
+    for record in db.scalars(select(PaymentRecord).where(PaymentRecord.status == 'executed').order_by(PaymentRecord.id)):
+        item = group('payment_record', record.id, record.executed_at or record.created_at)
+        # 审批元数据不进入旧资金的经济指纹，升级不能使已过账来源凭证失效。
+        item['records'].append({key: value for key, value in model_data(record).items() if key not in (
+            'status', 'version', 'executed_by', 'executed_at', 'cancelled_by', 'cancelled_at', 'cancellation_reason')})
+    for record in db.scalars(select(SubledgerPayment).where(SubledgerPayment.status == 'executed').order_by(SubledgerPayment.id)):
         line = db.get(SubledgerOpeningLine, record.opening_line_id)
-        item = group('subledger_payment', record.id, record.created_at)
-        item['records'].append(dict(**model_data(record), kind=line.kind,
+        item = group('subledger_payment', record.id, record.executed_at or record.created_at)
+        # 审批状态不改变迁移前经济指纹，旧凭证继续对应同一资金事实。
+        item['records'].append(dict(**{key: value for key, value in model_data(record).items() if key not in (
+            'status', 'version', 'executed_by', 'executed_at', 'cancelled_by', 'cancelled_at', 'cancellation_reason')}, kind=line.kind,
             party_id=line.customer_id or line.supplier_id, account_id=line.account_id,
             document_reference=line.document_reference, auxiliary=json.loads(line.auxiliary_json)))
     charges = {record.id: record for record in db.scalars(select(ProductionCostEntry)
@@ -92,7 +97,7 @@ def business_sources(db: Session) -> dict[str, dict]:
             item['records'].extend((model_data(reversal), model_data(charges[reversal.entry_id])))
     for disposition in db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
         QualityDisposition.loss_treatment == 'expense').order_by(QualityDisposition.id)):
-        allocation = db.scalar(select(QualityCostAllocation).where(
+        allocation = db.scalar(select(QualityCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status == 'active',
             QualityCostAllocation.disposition_id == disposition.id,
             ~select(ProductionSettlementReversal.id).where(
                 ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists()))

@@ -1,5 +1,7 @@
 """验证分批领料、库存与剩余需料的事务核对，以及不可改写的流水来源。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -30,6 +32,8 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1,
             "lines": [{"material_id": component, "quantity": "2"} for component in components]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second_warehouse = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "PROD", "name": "生产仓"}).json()["id"]
@@ -48,6 +52,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         assert client.get(f"{base}/material-issues", headers=viewer).status_code == 403
         assert client.post(f"{base}/material-issues", headers=viewer, json=payload).status_code == 403
         assert client.post(f"{base}/material-issues", headers=planner, json=payload).status_code == 409
+        approve_document(client, admin, 'WorkOrder', order_id)
         client.post(f"{base}/work-orders/{order_id}/release", headers=planner)
         for invalid in ("0", "0.0001", "NaN"):
             assert client.post(f"{base}/material-issues", headers=planner, json={
@@ -65,6 +70,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         issue_id = draft.json()["id"]
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["lines"][0]["remaining_quantity"] == "2.000"
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=planner).status_code == 403
+        approve_document(client, admin, 'MaterialIssue', issue_id)
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{issue_id}/cancel", headers=warehouse).status_code == 409
@@ -83,6 +89,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": 1, "to_warehouse_id": second_warehouse,
             "lines": [{"material_id": components[0], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         client.post(f"{base}/transfers/{transfer}/post", headers=admin)
         mixed = client.post(f"{base}/material-issues", headers=warehouse, json={
             **payload, "warehouse_id": second_warehouse,
@@ -95,12 +102,14 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         transfer_back = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second_warehouse, "to_warehouse_id": 1,
             "lines": [{"material_id": components[0], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer_back)
         client.post(f"{base}/transfers/{transfer_back}/post", headers=admin)
 
         # 两份草稿都可以建立，先确认的一份会让后确认的超出剩余需料。
         remaining = {**payload, "lines": [{"work_order_line_id": line_ids[0], "quantity": "1"}]}
         first = client.post(f"{base}/material-issues", headers=warehouse, json=remaining).json()["id"]
         stale = client.post(f"{base}/material-issues", headers=warehouse, json=remaining).json()["id"]
+        approve_document(client, admin, 'MaterialIssue', first)
         assert client.post(f"{base}/material-issues/{first}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-issues/{stale}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{stale}/cancel", headers=warehouse).status_code == 200

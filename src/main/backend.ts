@@ -1,4 +1,8 @@
+import { productionAssociationInput, validateProductionAssociations } from '../shared/production-association-api.ts'
+import { validateProductionSettlementResponse } from '../shared/production-settlement-api.ts'
+import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
+import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord, validateDocumentApprovalResponse } from '../shared/document-approval-api.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -562,6 +566,19 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'documentNumbering': return { method: 'GET', path: '/api/v1/system/document-numbering' }
     case 'saveDocumentNumbering': return { method: 'PUT', path: '/api/v1/system/document-numbering', body: documentNumberingBody(payload) }
+    // 单据动作固定路由、类型白名单及版本校验，客户端不能传入执行状态或业务快照。
+    case 'documentApproval': {
+      const target = documentApprovalTarget(payload)
+      return { method: 'GET', path: `/api/v1/system/document-approvals/${target.document_type}/${target.document_id}?intent=${target.intent}` }
+    }
+    case 'actDocumentApproval': {
+      const target = documentApprovalTarget(payload), body = documentApprovalActionBody(payload)
+      const action = (payload as ErpOperations['actDocumentApproval']['input']).action
+      return { method: 'POST', path: `/api/v1/system/document-approvals/${target.document_type}/${target.document_id}/${action}`, body }
+    }
+    case 'documentApprovalPolicies': return { method: 'GET', path: '/api/v1/system/document-approvals' }
+    case 'documentApprovalPolicy': return { method: 'GET', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}` }
+    case 'saveDocumentApprovalPolicy': return { method: 'PUT', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}`, body: documentApprovalPolicyBody(payload) }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
     case 'inventoryWarnings': {
       if(payload!==undefined && (!payload || typeof payload!=='object' || Array.isArray(payload)))throw new Error('预警查询范围无效')
@@ -1232,6 +1249,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/subledger-openings/lines/${positiveId(payload, 'line_id')}/payments`,
         body: { action: command, amount, reference, reason } }
     }
+    case 'changeSubledgerPaymentStatus': {
+      const row = payload as ErpOperations['changeSubledgerPaymentStatus']['input']
+      // 固定资金动作及版本，只传业务依据，拒绝越过统一审批伪造执行结果。
+      if (!['post','cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+          || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('分户资金执行参数无效')
+      return { method: 'POST', path: `/api/v1/finance/subledger-openings/payments/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reverseSubledgerPayment': return { method: 'POST', path: `/api/v1/finance/subledger-openings/payments/${positiveId(payload, 'id')}/reverse`,
       body: { reason: (payload as ErpOperations['reverseSubledgerPayment']['input']).reason } }
     case 'openingBalanceOptions': return { method: 'GET', path: '/api/v1/finance/opening-balances/options' }
@@ -1301,11 +1326,30 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'createBankBalanceReport': return { method: 'POST', path: '/api/v1/finance/bank-balance/reports', body: bankBalanceBody(payload, 'report') }
     case 'decideBankBalanceReport': return { method: 'POST', path: `/api/v1/finance/bank-balance/reports/${positiveId(payload, 'reportId')}/decision`, body: bankBalanceBody(payload, 'decision') }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
+    case 'changePaymentRecordStatus': {
+      // 只开放固定资金动作，不能用路径片段或客户端批准字段绕过服务端。
+      const row = payload as ErpOperations['changePaymentRecordStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('资金操作参数无效')
+      return { method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }
     }
-    case 'createOrderSettlement': return { method: 'POST', path: '/api/v1/finance/order-settlements', body: payload }
+    case 'createOrderSettlement': {
+      // 创建只发送业务正文；编号、批准和执行字段必须由服务端产生。
+      const { kind, from_order_id, to_order_id, amount, reference, reason } = payload as ErpOperations['createOrderSettlement']['input']
+      return { method: 'POST', path: '/api/v1/finance/order-settlements', body: { kind, from_order_id, to_order_id, amount, reference, reason } }
+    }
+    case 'changeOrderSettlementStatus': {
+      const row = payload as ErpOperations['changeOrderSettlementStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('核销操作参数无效')
+      return { method: 'POST', path: `/api/v1/finance/order-settlements/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reverseOrderSettlement': return {
       method: 'POST', path: `/api/v1/finance/order-settlements/${positiveId(payload, 'transferId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }
@@ -1381,9 +1425,25 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/production-completions/${completionId}/reverse`,
         body: { reason: fields.reason } }
     }
+    case 'productionAssociations': {
+      // 类型与编号只能选择两个固定只读地址，参考记录默认不加载。
+      const row = productionAssociationInput(payload)
+      return { method:'GET', path:`/api/v1/${row.kind === 'work_order' ? 'work-orders' : 'production-completions'}/${row.id}/associations?include_references=${row.include_references}` }
+    }
     case 'productionCosts': return { method: 'GET', path: '/api/v1/production-costs' }
     case 'productionCostSettlements': return { method: 'GET', path: '/api/v1/production-costs/settlements' }
-    case 'settleProductionCost': return { method: 'POST', path: '/api/v1/production-costs/settlements', body: payload }
+    case 'settleProductionCost': {
+      const { work_order_id, reference, note } = payload as ErpOperations['settleProductionCost']['input']
+      return { method: 'POST', path: '/api/v1/production-costs/settlements', body: { work_order_id, reference, note } }
+    }
+    case 'changeProductionSettlementStatus': {
+      // 执行地址与正文均使用白名单，客户端不得伪造批准人员或分摊金额。
+      const row = payload as ErpOperations['changeProductionSettlementStatus']['input']
+      if (!['post','cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('结算操作参数无效')
+      return { method:'POST',path:`/api/v1/production-costs/settlements/${positiveId(payload,'id')}/${row.action}`,
+        body:{version:row.version,reason:row.reason.trim()} }
+    }
     case 'reverseProductionSettlement': {
       const settlementId = positiveId(payload, 'settlementId')
       const fields = payload as ErpOperations['reverseProductionSettlement']['input']
@@ -1574,6 +1634,11 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     throw new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`)
   }
   validateDocumentNumbers(data)
+  // 业务列表与执行响应同样校验审批状态，避免格式错误直接开放确认按钮。
+  validateDocumentApprovalResponse(data)
+  validatePaymentRecordResponse(data)
+  validateProductionSettlementResponse(data)
+  if (action === 'productionAssociations') validateProductionAssociations(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')
@@ -1582,6 +1647,15 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') setSessionToken(null)
   if (action === 'documentNumbering' || action === 'saveDocumentNumbering') validateDocumentNumbering(data)
+  if (action === 'documentApproval' || action === 'actDocumentApproval') {
+    validateDocumentApprovalRecord(data)
+    const target = documentApprovalTarget(payload)
+    if (data.document_type !== target.document_type || data.document_id !== target.document_id || data.intent !== target.intent) {
+      throw Error('服务端返回了其他单据的审批结果，请重新读取。')
+    }
+  }
+  if (action === 'documentApprovalPolicies') validateDocumentApprovalPolicies(data)
+  if (action === 'documentApprovalPolicy' || action === 'saveDocumentApprovalPolicy') validateDocumentApprovalPolicy(data)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   if (action === 'customerImportPreview') validateCustomerImportPreview(data,
     customerImportNames(payload))
