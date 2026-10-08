@@ -50,7 +50,7 @@ def purchase_request_snapshot(db: Session, identifier: int) -> dict:
         MaintenancePurchaseRequest.purchase_request_id == identifier).order_by(MaintenancePurchaseRequest.id)))
     jobs = list(db.scalars(select(MaintenanceJob).where(MaintenanceJob.id.in_([row.job_id for row in links]))
                           .order_by(MaintenanceJob.id)))
-    # 原计划作者、维护方案作者及本单转换人都参与编制，不能通过自动建单后自审。
+    # 原计划作者、维护方案作者及本单转换人均保留编制溯源，审批资格按按钮权限核验。
     authors = {row.created_by for row in [*conversions, *plans, *links, *jobs]}
     authors.update(row.submitted_by for row in plans if row.submitted_by is not None)
     authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
@@ -157,7 +157,7 @@ def outbound_snapshot(db: Session, identifier: int) -> dict:
                           .order_by(MaintenanceJob.id)))
     cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.parts_outbound_id == identifier)
                            .order_by(AfterSalesCase.id)))
-    # 旧服务派生的待执行草稿可能没有新作者表记录，须从原方案编制审计恢复排除范围。
+    # 旧服务派生的待执行草稿可能没有新作者表记录，须从原方案编制审计恢复作者范围。
     authors = {row.created_by for row in [*jobs, *cases]}
     authors.update(row.submitted_by for row in cases if row.submitted_by is not None)
     authors.update(db.scalars(select(MaintenanceChange.changed_by).where(
@@ -270,7 +270,7 @@ def quote_snapshot(db: Session, identifier: int) -> dict:
 
 
 def sales_source_authors(db: Session, order_id: int) -> list[int]:
-    # 新旧派生草稿都从原审计恢复编制人员，转换人或原方案作者不能审核下游。
+    # 新旧派生草稿都从原审计恢复编制人员，保留下游作者溯源但不作为审批资格限制。
     quotes = list(db.scalars(select(CrmQuote).where(CrmQuote.sales_order_id == order_id)))
     cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.replacement_order_id == order_id)))
     authors = {row.created_by for row in [*quotes, *cases]}
