@@ -5,24 +5,35 @@ import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
 
 // 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
 const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'
-export const usePiniaAppStore=defineStore('inbound-details-test',()=>({
- error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
- otherInbounds:ref([]),otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
- initialDetailId:ref(0),can:()=>false,localTime:value=>value,
- createOtherInbound(){throw Error('查看详情不应创建')},postOtherInbound(){throw Error('查看详情不应确认')},
- cancelOtherInbound(){throw Error('查看详情不应取消')},reverseOtherInbound(){throw Error('查看详情不应冲销')}
-}))`
+export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
+ const otherInboundReopenForms=ref({}), otherInbounds=ref([]), permissions=ref([]), calls=ref([]), fail=ref(false), error=ref(''), documentApprovalRecord=ref(null)
+ const update=(id,status)=>{calls.value.push([status,id]); if(fail.value){error.value='操作失败';return}
+ otherInbounds.value=otherInbounds.value.map(item=>item.id===id?{...item,status}:item)}
+ return { error,permissions,calls,fail,documentApprovalRecord,
+ notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
+ otherInbounds,otherInboundReopenForms,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
+ initialDetailId:ref(0),can:key=>permissions.value.includes(key),localTime:value=>value,
+ prepareOtherInboundReopen(id){calls.value.push(['reopen',id]);otherInboundReopenForms.value[id]={lines:[]};return true},
+ createOtherInbound(){throw Error('查看详情不应创建')},async postOtherInbound(id){update(id,'posted')},
+ async cancelOtherInbound(id){update(id,'cancelled')},async reverseOtherInbound(id){calls.value.push(['reverse',id])},
+ async openDocumentApproval(target){calls.value.push(['approval',target]);documentApprovalRecord.value={status:'approved',reversal_reason:'已批准原因'};return true},
+ closeDocumentApproval(){calls.value.push(['closeApproval'])}
+ }
+})`
+
 const tableSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',[
  slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),
- ...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)
+ h('header',p.columns.map(c=>h('span',{'data-column':c.key},c.title))),
+ ...p.data.map(row=>h('article',{'data-row':row.id},p.columns.map(c=>h('div',{'data-cell':c.key},slots['cell-'+c.key]?.({row}))))),p.data.length?null:h('p',p.emptyText)
 ])}})`
 const buttonSource = `import {defineComponent,h} from 'vue'
 export const buttons=[]
-export default defineComponent({props:['type','disabled'],setup(p,{slots,attrs}){return()=>{
+export default defineComponent({props:['type','disabled','variant'],setup(p,{slots,attrs}){return()=>{
  const content=slots.default?.();buttons.push({props:p,attrs,content});return h('button',{...attrs,type:p.type,disabled:p.disabled},content)
 }}})`
 const modalSource = `import {defineComponent,h} from 'vue'
@@ -69,34 +80,79 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const draft=JSON.stringify(store.otherInboundForm)
  store.connectionLost=true
  store.busy=true
- assert.match(await render(),/查看详情/)
- const view=buttons.find(b=>text(b.content)==='查看详情')
+ let html=await render()
+ // 核对真实列插槽，防止元信息再次挤回单号列；只读且断线时单号仍能打开对应记录。
+ for(const [key,title] of [['document','单据号'],['time','时间'],['status','状态'],['operator','处理人']]) {
+  assert.ok(html.includes(`<span data-column="${key}">${title}</span>`),title)
+ }
+ const cell=key=>html.match(new RegExp(`<div data-cell="${key}">([\\s\\S]*?)</div>`))?.[1]
+ assert.match(cell('document'),/QTRK-20261007-000003/)
+ assert.doesNotMatch(cell('document'),/建单人|2026-10-07T06:00:00Z|待送审/)
+ assert.equal(cell('time'),shortLocalTime(inbound.created_at))
+ // 核对真实页面配置，时间须紧挨操作列并显式固定，不能只是移动了表头文案。
+ assert.deepEqual(vnode.component.setupState.columns.map(column=>column.key), ['document','status','operator','source','lines','time','actions'])
+ assert.equal(vnode.component.setupState.columns.find(column=>column.key==='time').fixed, 'right')
+ // 状态标签保留可读文案；颜色区分业务阶段，装饰圆点对读屏隐藏。
+ const assertStatus=(label,tone)=>{
+  const content=cell('status')
+  assert.equal(content.replace(/<[^>]*>/g,'').trim(),label)
+  assert.ok(content.includes(`app-status-tag--${tone}`))
+  assert.match(content,/class="app-status-tag__dot" aria-hidden="true"/)
+ }
+ assertStatus('待送审','pending')
+ assert.equal(cell('operator'),'建单人')
+ assert.doesNotMatch(cell('actions'),/查看详情/)
+ const view=buttons.find(b=>text(b.content)===inbound.document_no)
+ assert.equal(view.props.type,'button')
+ assert.equal(view.props.variant,'text')
+ assert.equal(view.attrs['aria-label'],`查看单据 ${inbound.document_no} 详情`)
  assert.equal(view.props.disabled,undefined)
  view.attrs.onClick()
  assert.equal(vnode.component.setupState.detailInboundId,3)
  assert.equal(vnode.component.setupState.detailInbound.id,3)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
  store.initialDetailId=3
- let html=await render()
+ html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
+ // 列表与详情使用同一个公共标签，防止详情退回无高亮文本。
+ assert.equal((html.match(/app-status-tag--pending/g) ?? []).length, 2)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
  const close=buttons.find(b=>text(b.content)==='关闭')
  assert.equal(close.props.disabled,false)
  close.attrs.onClick()
  assert.equal(vnode.component.setupState.detailInboundId,0)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 多行时按点击行的内部 ID 选中，避免展示首行或把单号作为业务 ID。
+ store.initialDetailId=0
+ store.otherInbounds=[structuredClone(inbound),{...structuredClone(inbound),id:4,document_no:'QTRK-20261007-000004'}]
+ await render()
+ buttons.find(b=>text(b.content)==='QTRK-20261007-000004').attrs.onClick()
+ assert.equal(vnode.component.setupState.detailInbound.id,4)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ store.initialDetailId=3
+ // 审批进度须在独立状态列保留；详情入口不受当前单据状态影响。
+ for(const [status,label,tone] of [['submitted','审批中','info'],['approved','已批准，待入库','ready'],['rejected','已驳回','danger'],['withdrawn','已撤回','neutral'],['executed','已执行','success']]) {
+  store.otherInbounds=[{...inbound,approval:{status}}]
+  html=await render()
+  assertStatus(label,tone)
+  assert.ok(buttons.some(b=>text(b.content)===inbound.document_no))
+ }
  // 页面刷新时跟随最新保存快照，避免详情固定显示旧状态；单据消失后自动不再展示。
  store.otherInbounds=[{...inbound,status:'posted',posted_at:'确认时间',posted_by_name:'确认人',lines:[{
   ...inbound.lines[0],physical_lots:[{id:1,code:'LOT-3',quantity:'2.125',supplier_lot:'SUP-1',manufactured_on:'2026-09-01',expires_on:'2027-09-01'}]
  }]}]
  html=await render()
+ assertStatus('已入库','success')
  for(const value of ['已入库','确认时间','确认人','LOT-3','SUP-1','2026-09-01','2027-09-01'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,status:'posted'}]
  assert.match(await render(),/普通入库，未登记实物批次/)
- store.otherInbounds=[{...inbound,status:'cancelled',cancelled_at:'取消时间'}]
- assert.match(await render(),/取消时间/)
- store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
+ store.otherInbounds=[{...inbound,status:'cancelled',approval:{status:'approved'},cancelled_at:'取消时间'}]
  html=await render()
+ assert.match(html,/取消时间/)
+ assertStatus('已取消','neutral')
+ store.otherInbounds=[{...inbound,status:'posted',approval:{status:'executed'},reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
+ html=await render()
+ assertStatus('已冲销','reversed')
  for(const value of ['已冲销','重复录入','冲销时间','冲销人'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,lines:[]}]
  assert.match(await render(),/此单据暂无物料明细/)
@@ -104,4 +160,88 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(vnode.component.setupState.detailInbound,null)
  assert.doesNotMatch(await render(),/data-modal=/)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 详情操作复用真实按钮和入口，验证目标 ID、最新快照及失败后草稿隔离。
+ assert.deepEqual(store.calls, [])
+ store.busy=false
+ store.connectionLost=false
+ store.permissions=['other_inbound.post','other_inbound.cancel','other_inbound.reverse']
+ store.initialDetailId=3
+ const approved={...structuredClone(inbound),approval:{status:'approved'}}
+ const flush=()=>new Promise(resolve=>setImmediate(resolve))
+ const detailButton=label=>buttons.filter(button=>text(button.content)===label).at(-1)
+ store.otherInbounds=[approved]
+ html=await render()
+ assert.equal(buttons.filter(button=>text(button.content)==='确认入库').length,2)
+ assert.ok(html.indexOf('单据操作',html.indexOf('data-modal='))>html.indexOf('物料明细',html.indexOf('data-modal=')))
+ detailButton('确认入库').attrs.onClick()
+ await flush()
+ assert.deepEqual(store.calls.at(-1),['posted',3])
+ assert.equal(vnode.component.setupState.detailInbound.status,'posted')
+ assert.equal(vnode.component.setupState.detailInboundId,3)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+
+ // 失败不关闭详情，处理期间、离线和过期按钮都不能触发第二次写入。
+ store.otherInbounds=[approved]
+ store.fail=true
+ await render()
+ const post=detailButton('确认入库')
+ post.attrs.onClick(); post.attrs.onClick()
+ await flush()
+ assert.equal(store.calls.filter(call=>call[0]==='posted').length,2)
+ assert.equal(vnode.component.setupState.detailInbound.status,'draft')
+ assert.equal(vnode.component.setupState.detailInboundId,3)
+ assert.equal(store.error,'操作失败')
+ const count=store.calls.length
+ for(const flag of ['busy','connectionLost']) {
+  store[flag]=true;post.attrs.onClick();await flush();store[flag]=false
+  assert.equal(store.calls.length,count)
+ }
+ store.otherInbounds=[{...approved,status:'cancelled'}]
+ post.attrs.onClick();await flush()
+ assert.equal(store.calls.length,count)
+ store.otherInbounds=[approved]
+ store.permissions=[]
+ post.attrs.onClick();await flush()
+ assert.equal(store.calls.length,count)
+
+ store.fail=false
+ store.permissions=['other_inbound.post','other_inbound.cancel','other_inbound.reverse']
+ await render()
+ detailButton('登记实物批次（可选）').attrs.onClick();await flush()
+ assert.equal(vnode.component.setupState.activeInboundId,3)
+ assert.equal(vnode.component.setupState.lotDrafts[0].inbound_line_id,7)
+ assert.equal(store.calls.length,count)
+ detailButton('审批记录 / 送审').attrs.onClick();await flush()
+ assert.deepEqual(store.calls.at(-1),['approval',{document_type:'WarehouseInbound',document_id:3,intent:'execute'}])
+ store.otherInbounds=[structuredClone(inbound)]
+ await render()
+ detailButton('取消').attrs.onClick();await flush()
+ assert.equal(vnode.component.setupState.detailInbound.status,'cancelled')
+ store.otherInbounds=[{...inbound,status:'posted',reversal_approval:{status:'approved'}}]
+ await render()
+ detailButton('执行冲销').attrs.onClick();await flush()
+ assert.deepEqual(store.calls.slice(-3),[
+  ['approval',{document_type:'WarehouseInbound',document_id:3,intent:'reverse'}],['closeApproval'],['reverse',3]
+ ])
+ assert.equal(store.otherInboundReversalReasons[3],'已批准原因')
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+
+ // 列表与详情都能重开，点击仅打开新建表单，不修改原单或调用取消/冲销。
+ store.permissions=['other_inbound.create']
+ store.otherInbounds=[{...inbound,status:'cancelled'}]
+ await render()
+ assert.equal(buttons.filter(button=>text(button.content)==='重开为新单').length,2)
+ const reopen=detailButton('重开为新单')
+ reopen.attrs.onClick();await flush()
+ assert.deepEqual(store.calls.at(-1),['reopen',3])
+ assert.equal(vnode.component.setupState.reopenSourceId,3)
+ assert.equal(vnode.component.setupState.showForm,true)
+ assert.equal(vnode.component.setupState.detailInboundId,0)
+ assert.equal(store.otherInbounds[0].status,'cancelled')
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ const before=store.calls.length
+ store.otherInbounds=[inbound]
+ reopen.attrs.onClick();await flush()
+ assert.equal(store.calls.length,before)
+
 })

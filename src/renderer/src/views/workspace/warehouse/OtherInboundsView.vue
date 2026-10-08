@@ -5,10 +5,11 @@ import { documentSearch, documentLabel } from '../../../../../shared/document-nu
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
+import AppStatusTag, { type AppStatusTone } from '../../../components/app/AppStatusTag.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -23,17 +24,63 @@ import { submitCreateDialog } from '../../../utils/create-dialog'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import type {InboundLotLineInput} from '../../../../../shared/receipt-lot-api'
 import type {OtherInbound} from '../../../../../shared/erp-api'
+import OtherInboundActions from './OtherInboundActions.vue'
+import { otherInboundActions, type OtherInboundAction } from './other-inbound-actions'
+import { shortLocalTime } from '../../../utils/formatters'
+import type { WorkspaceTableColumn } from '../../../utils/table-columns'
 import { useOtherInboundMaterialDetails } from './other-inbound-material-details'
 
 const store = usePiniaAppStore()
-const { error, notice, busy, connectionLost, materials, warehouses, otherInbounds, otherInboundForm,
+const { error, notice, busy, connectionLost, materials, warehouses, otherInbounds, otherInboundForm, otherInboundReopenForms,
   otherInboundReversalReasons } = storeToRefs(store)
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
-const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => otherInboundForm.value.lines)
+const pendingActionId = ref(0)
+const reopenSourceId = ref(0)
+// 编辑器复用同一套字段，普通新建与不同原单的重开草稿各自独立。
+const editorForm = computed(() => reopenSourceId.value
+  ? otherInboundReopenForms.value[reopenSourceId.value] ?? otherInboundForm.value : otherInboundForm.value)
+// 会话清理或保存成功移除草稿后关闭编辑器，防止回落到普通草稿继续编辑。
+watch(() => reopenSourceId.value && !otherInboundReopenForms.value[reopenSourceId.value], missing => {
+  if (missing) { showForm.value = false; reopenSourceId.value = 0 }
+}, { flush: 'sync' })
+const reopenSource = computed(() => otherInbounds.value.find(item => item.id === reopenSourceId.value))
+function startCreate(): void {
+  reopenSourceId.value = 0
+  showForm.value = true
+}
+const inboundPermissions = computed(() => ({
+  create: can('other_inbound.create'), post: can('other_inbound.post'), cancel: can('other_inbound.cancel'), reverse: can('other_inbound.reverse')
+}))
+// 点击时重新按 ID 找当前快照；列表和详情走同一入口，刷新后不执行旧状态的动作。
+async function handleInboundAction(identifier: number, action: OtherInboundAction): Promise<void> {
+  if (busy.value || connectionLost.value || pendingActionId.value) return
+  const inbound = otherInbounds.value.find(item => item.id === identifier)
+  if (!inbound || !otherInboundActions(inbound, inboundPermissions.value).some(item => item.key === action)) return
+  pendingActionId.value = identifier
+  try {
+    if (action === 'approval' || action === 'reversalApproval') {
+      await store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: identifier,
+        intent: action === 'approval' ? 'execute' : 'reverse' })
+    } else if (action === 'post') await postOtherInbound(identifier)
+    else if (action === 'cancel') await cancelOtherInbound(identifier)
+    else if (action === 'lots') startLotPost(inbound)
+    else if (action === 'reopen') {
+      if (!store.prepareOtherInboundReopen(identifier)) return
+      reopenSourceId.value = identifier
+      detailInboundId.value = 0
+      showForm.value = true
+    }
+    else await reverseApproved(identifier)
+  } finally {
+    // 保存失败仍保留详情与原草稿，允许用户读取原因后重试。
+    pendingActionId.value = 0
+  }
+}
+const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => editorForm.value.lines)
 // 表格行直接引用 Pinia 草稿，资料刷新及删行后仍按该行的真实对象修改数量。
-const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
+const materialRows = computed(() => editorForm.value.lines.map((line, index) => ({
   line, index, material: materials.value.find(item => item.id === line.material_id)
 })))
 const materialColumns = [
@@ -43,22 +90,22 @@ const materialColumns = [
   { key: 'quantity', title: '数量', width: '130' },
   { key: 'actions', title: '操作', width: '80' }
 ]
-const materialIssue = computed(() => documentMaterialIssue(otherInboundForm.value.lines, materials.value))
-const addDisabled = computed(() => otherInboundForm.value.lines.length >= documentMaterialLimit
-  || !materials.value.some(item => !otherInboundForm.value.lines.some(line => line.material_id === item.id)))
-const pendingFocus = ref<(typeof otherInboundForm.value.lines)[number] | null>(null)
+const materialIssue = computed(() => documentMaterialIssue(editorForm.value.lines, materials.value))
+const addDisabled = computed(() => editorForm.value.lines.length >= documentMaterialLimit
+  || !materials.value.some(item => !editorForm.value.lines.some(line => line.material_id === item.id)))
+const pendingFocus = ref<(typeof editorForm.value.lines)[number] | null>(null)
 function materialOptions(index: number) {
   return materials.value.map(item => ({label: `${item.sku} · ${item.name}`, value: item.id,
-    disabled: documentMaterialDisabled(otherInboundForm.value.lines, index, item.id)}))
+    disabled: documentMaterialDisabled(editorForm.value.lines, index, item.id)}))
 }
 function addMaterialRow(): void {
   if (busy.value || connectionLost.value || addDisabled.value) return
-  otherInboundForm.value.lines = appendDocumentMaterialRow(otherInboundForm.value.lines)
-  pendingFocus.value = otherInboundForm.value.lines.at(-1) ?? null
+  editorForm.value.lines = appendDocumentMaterialRow(editorForm.value.lines)
+  pendingFocus.value = editorForm.value.lines.at(-1) ?? null
   // 新增时把资料展示切换到新行，之前的行自动保留简短摘要。
   if (pendingFocus.value) showLine(pendingFocus.value)
 }
-function focusNewRow(line: (typeof otherInboundForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
+function focusNewRow(line: (typeof editorForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
   // vxe 可能延迟挂载新行，等选择器的真实引用出现后再聚焦，不依赖固定延时。
   if (instance && pendingFocus.value === line && 'focus' in instance && typeof instance.focus === 'function') {
     const focus = instance.focus as () => void
@@ -90,15 +137,30 @@ function inboundStatus(inbound: OtherInbound): string {
     rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }[inbound.approval?.status ?? 'draft']) : inbound.status === 'cancelled' ? '已取消'
     : inbound.reversal_id ? '已冲销' : '已入库'
 }
-const columns = [
-  { key: 'document', title: '单据' }, { key: 'source', title: '仓库与来源' },
-  { key: 'lines', title: '物料明细' }, { key: 'actions', title: '操作' }
+function inboundStatusTone(inbound: OtherInbound): AppStatusTone {
+  // 先判断仓库终态，避免已取消或已冲销的单据仍沿用旧审批记录的成功颜色。
+  if (inbound.status === 'cancelled') return 'neutral'
+  if (inbound.status === 'posted') return inbound.reversal_id ? 'reversed' : 'success'
+  return ({ draft: 'pending', submitted: 'info', approved: 'ready', rejected: 'danger',
+    withdrawn: 'neutral', executed: 'success' } as const)[inbound.approval?.status ?? 'draft']
+}
+const columns: readonly WorkspaceTableColumn[] = [
+  // 单号与审计信息分列，列宽保证长单号和时间完整展示，窄窗口沿用公共表格横向滚动。
+  { key: 'document', title: '单据号', width: '230' },
+  { key: 'status', title: '状态', width: '160' },
+  { key: 'operator', title: '处理人', width: '110' },
+  { key: 'source', title: '仓库与来源', width: '220' },
+  { key: 'lines', title: '物料明细', width: '310' },
+  // 时间紧邻操作并固定在右侧，横向查看物料时仍能对照创建时间。
+  { key: 'time', title: '时间', width: '150', fixed: 'right' },
+  { key: 'actions', title: '操作', width: '240' }
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
   // 原生表单校验之外再检查物料和数量，防止空明细或已失效物料提交到服务端。
   if (connectionLost.value || !can('other_inbound.create') || materialIssue.value) return
-  await submitCreateDialog(createOtherInbound, { busy, error, notice }, showForm)
+  await submitCreateDialog(reopenSourceId.value
+    ? () => store.createReopenedOtherInbound(reopenSourceId.value) : createOtherInbound, { busy, error, notice }, showForm)
 }
 function startLotPost(inbound: OtherInbound): void {
   // 批次登记是批准后的可选实物证据，不承担业务审批。
@@ -158,13 +220,13 @@ async function reverseApproved(identifier: number): Promise<void> {
       :data="filtered"
       title="其他入库"
       :columns="columns"
-      :min-table-width="900"
+      :min-table-width="1450"
     >
       <template #actions>
         <AppButton
           v-if="can('other_inbound.create')"
           :disabled="busy || connectionLost"
-          @click="showForm = true"
+          @click="startCreate"
           variant="primary"
           type="button"
           >新建其他入库</AppButton
@@ -177,7 +239,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         <WorkspaceDocumentDialog
           v-if="can('other_inbound.create')"
           v-model:show="showForm"
-          title="非采购来源入库"
+          :title="reopenSourceId ? `重开为新单 · ${reopenSource ? documentLabel(reopenSource) : '原单'}` : '非采购来源入库'"
           :data="materialRows"
           :columns="materialColumns"
           :busy="busy"
@@ -185,19 +247,19 @@ async function reverseApproved(identifier: number): Promise<void> {
           :submit-disabled="!!materialIssue"
           :add-disabled="addDisabled"
           :min-table-width="960"
-          hint="创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。"
+          :hint="reopenSourceId ? '保存后生成新单号并重新送审；原单保留已取消状态，原审批和批次记录不带入。' : '创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。'"
           @submit="submitCreate"
           @add-material="addMaterialRow"
         >
           <template #basicInfo>
-            <label>仓库<WorkspaceSelect v-model="otherInboundForm.warehouse_id" required
+            <label>仓库<WorkspaceSelect v-model="editorForm.warehouse_id" required
               :disabled="busy || connectionLost"
               :options="warehouses.map(item => ({ label: item.name, value: item.id }))" /></label>
-            <label>用途<WorkspaceSelect v-model="otherInboundForm.reason" required
+            <label>用途<WorkspaceSelect v-model="editorForm.reason" required
               :disabled="busy || connectionLost"
               :options="[{ label: '期初补录', value: 'opening' }, { label: '赠品', value: 'gift' }, { label: '其他', value: 'other' }]" /></label>
-            <label>参考号<AppInput v-model.trim="otherInboundForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
-            <label>入库说明<AppInput v-model.trim="otherInboundForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
+            <label>参考号<AppInput v-model.trim="editorForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
+            <label>入库说明<AppInput v-model.trim="editorForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
           </template>
           <template #materialPicker>
             <p v-if="materialRows.length && materialIssue" role="alert" class="inbound-material-issue">{{ materialIssue }}</p>
@@ -218,17 +280,23 @@ async function reverseApproved(identifier: number): Promise<void> {
           </template>
           <template #cell-actions="{ row }">
             <AppButton type="button" variant="text" :disabled="busy || connectionLost"
-              :aria-label="`移除${row.material?.name ?? '物料'}`" @click="otherInboundForm.lines.splice(row.index, 1)">移除</AppButton>
+              :aria-label="`移除${row.material?.name ?? '物料'}`" @click="editorForm.lines.splice(row.index, 1)">移除</AppButton>
           </template>
         </WorkspaceDocumentDialog>
       </template>
-      <template #cell-document="{ row: item }"
-        ><strong>{{ documentLabel(item) }}</strong
-        ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
-        ><small>{{ inboundStatus(item) }}</small></template
-      >
+      <template #cell-document="{ row: item }">
+        <!-- 单号直接打开只读详情；使用公共文本按钮保留键盘操作，断线仍可查看已加载快照。 -->
+        <AppButton type="button" variant="text" :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="detailInboundId = item.id">{{ documentLabel(item) }}</AppButton>
+      </template>
+      <!-- 时间、处理人沿用原单据中的创建记录，避免改变历史字段含义。 -->
+      <template #cell-time="{ row: item }">{{ shortLocalTime(item.created_at) }}</template>
+      <template #cell-status="{ row: item }">
+        <AppStatusTag :label="inboundStatus(item)" :tone="inboundStatusTone(item)" />
+      </template>
+      <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
       <template #cell-source="{ row: item }"
-        >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small>{{ item.note }}</small
+        >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small class="inbound-note" :title="item.note">{{ item.note }}</small
         ><small v-if="item.reference">{{ item.reference }}</small></template
       >
       <template #cell-lines="{ row: item }"
@@ -240,55 +308,26 @@ async function reverseApproved(identifier: number): Promise<void> {
           <small v-else-if="item.status === 'posted'" class="inbound-lot-proof">普通入库，未登记实物批次。</small>
         </div></template
       >
-      <template #cell-actions="{ row: item }"
-        ><div class="form-actions">
-          <!-- 查看沿用页面查看权限，断线和无写权限时仍可读取已加载的单据。 -->
-          <AppButton type="button" variant="secondary" size="small"
-            @click="detailInboundId = item.id">查看详情</AppButton>
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'execute' })">审批记录 / 送审</AppButton>
-          <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
-            type="button" variant="primary" size="small" :disabled="busy || connectionLost"
-            @click="postOtherInbound(item.id)">确认入库</AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
-            :disabled="busy || connectionLost"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-            type="button"
-            >登记实物批次（可选）</AppButton
-          >
-          <AppButton
-            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('other_inbound.cancel')"
-            :disabled="busy || connectionLost"
-            @click="cancelOtherInbound(item.id)"
-            variant="secondary"
-            size="small"
-            type="button"
-            >取消</AppButton
-          >
-        </div>
-        <!-- 冲销使用独立审批，执行时采用已批准原因，原入库批准不可复用。 -->
-        <div v-if="item.status === 'posted' && !item.reversal_id" class="form-actions">
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
-          <AppButton v-if="item.reversal_approval?.status === 'approved' && can('other_inbound.reverse')"
-            type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="reverseApproved(item.id)">执行冲销</AppButton>
-        </div>
-        <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small></template
-      >
+      <template #cell-actions="{ row: item }">
+        <OtherInboundActions :inbound="item" :permissions="inboundPermissions"
+          :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(item.id, action)" />
+        <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small>
+      </template>
       <template #empty>{{ query ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
     </WorkspaceTable>
     <WorkspaceDocumentDialog v-if="detailInbound" :show="true" read-only
       :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
       :data="detailInbound.lines" :columns="detailColumns" :min-table-width="940"
-      hint="单据详情仅供查看；确认、取消和冲销请使用列表中的操作。"
+      hint="可在物料明细右侧处理当前单据；操作完成后自动更新状态。"
+      :busy="pendingActionId === detailInbound.id"
       @update:show="value => { if (!value) detailInboundId = 0 }">
+      <template #documentActions>
+        <OtherInboundActions :inbound="detailInbound" :permissions="inboundPermissions"
+          :disabled="busy || connectionLost || !!pendingActionId" @action="action => detailInbound && handleInboundAction(detailInbound.id, action)" />
+      </template>
       <template #basicInfo>
         <div class="inbound-detail-field"><span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong></div>
-        <div class="inbound-detail-field"><span>状态</span><strong>{{ inboundStatus(detailInbound) }}</strong></div>
+        <div class="inbound-detail-field"><span>状态</span><AppStatusTag :label="inboundStatus(detailInbound)" :tone="inboundStatusTone(detailInbound)" /></div>
         <div class="inbound-detail-field"><span>仓库</span><strong>{{ detailInbound.warehouse_name }}</strong></div>
         <div class="inbound-detail-field"><span>用途</span><strong>{{ reasonName[detailInbound.reason] }}</strong></div>
         <div class="inbound-detail-field"><span>参考号</span><strong>{{ detailInbound.reference || '—' }}</strong></div>
@@ -330,9 +369,11 @@ async function reverseApproved(identifier: number): Promise<void> {
 </template>
 
 <style scoped>
+/* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
+.inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
 .inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.inbound-detail-field span { color: var(--workspace-field-muted); font-size: 12px; }
+.inbound-detail-field > span:first-child { color: var(--workspace-field-muted); font-size: 12px; }
 .inbound-detail-field strong { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inbound-detail-lot + .inbound-detail-lot { margin-top: 12px; }
 .inbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}

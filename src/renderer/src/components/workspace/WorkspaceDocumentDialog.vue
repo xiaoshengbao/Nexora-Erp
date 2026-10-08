@@ -35,6 +35,8 @@ const emit = defineEmits<{
 }>()
 defineSlots<{
   basicInfo: () => unknown
+  // 只读字段与单据操作分离，业务页面可在明细标题右侧提供自己的状态操作。
+  documentActions?: () => unknown
   materialPicker?: () => unknown
   [name: `cell-${string}`]: (props: { row: TRow }) => unknown
 }>()
@@ -52,24 +54,26 @@ function submit(): void {
 </script>
 
 <template>
+  <!-- 单据编辑与详情统一加宽，宽屏多展示物料信息，窄屏仍在两侧各留 16px。 -->
   <NModal :show="show" @update:show="updateShow" preset="card" :title="title"
     class="workspace-document-dialog" :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
-    :style="{ width: 'min(1040px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
+    :style="{ width: 'min(1280px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <form class="document-form" @submit.prevent="submit">
       <div class="document-body">
         <!-- 详情插槽使用纯文本，不禁用整个字段集，保留表格滚动和分页等查看交互。 -->
         <fieldset :disabled="busy || disabled" class="document-fields">
-          <section class="document-basic" aria-label="基础信息">
+          <section class="document-basic" :class="{ 'document-basic--readonly': readOnly }" aria-label="基础信息">
             <h3>基础信息</h3>
             <div class="form-grid document-basic-grid"><slot name="basicInfo" /></div>
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr class="document-divider" />
-          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth"
+          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
-            <template v-if="!readOnly" #actions>
-              <AppButton v-if="showAdd" type="button" :disabled="busy || disabled || addDisabled"
+            <template v-if="!readOnly || $slots.documentActions" #actions>
+              <slot name="documentActions" />
+              <AppButton v-if="!readOnly && showAdd" type="button" :disabled="busy || disabled || addDisabled"
                 @click="addMaterial" variant="secondary">＋ {{ addLabel }}</AppButton>
             </template>
             <template v-if="$slots.materialPicker" #beforeTable><slot name="materialPicker" /></template>
@@ -94,23 +98,33 @@ function submit(): void {
 
 <style scoped>
 /* 只让内容区滚动，长明细和窄窗口下仍能直接访问保存、收起按钮。 */
-.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 168px); }
+.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 172px); }
 .document-body { min-height: 0; overflow-y: auto; }
 .document-basic-grid :deep(> .document-basic-extra) { grid-column: 1 / -1; }
 .document-fields { display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
 .document-basic h3, .document-lines h3 { margin: 0 0 18px; font-size: 15px; }
-.document-basic { padding: 4px 0 8px; }
-.document-divider { margin: 24px 0; border: 0; border-top: 1px solid var(--workspace-field-border); }
+/* 基础信息独立成柔和面板，详情使用三列提高密度，编辑表单保留原两列。 */
+.document-basic { padding: 20px; border: 1px solid var(--workspace-field-border);
+  border-radius: 14px; background: var(--app-modal-surface); }
+.document-basic--readonly .document-basic-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 24px; }
+.document-basic h3 { display: flex; align-items: center; gap: 9px; }
+.document-basic h3::before { content: ''; width: 3px; height: 14px; border-radius: 3px; background: var(--workspace-field-accent); }
+.document-divider { margin: 22px 0; border: 0; }
 .document-lines { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 /* 覆盖旧版暗色卡片背景，保持标题区与弹窗底色一致，表格仍使用自己的主题。 */
 :root[data-theme='dark'] .document-lines { background: transparent; box-shadow: none; }
 .document-lines h3 { margin: 0; }
-.document-count { margin-left: 8px; color: var(--workspace-field-muted); font-size: 12px; font-weight: 400; }
+.document-count { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 7px;
+  color: var(--workspace-field-accent); background: var(--app-accent-tint); font-size: 12px; font-weight: 500; }
 .document-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 18px;
   margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--workspace-field-border); }
 .document-footer p { margin: 0; font-size: 12px; line-height: 1.6; }
 .document-actions { display: flex; justify-content: flex-end; gap: 10px; margin-left: auto; }
+@media (max-width: 850px) {
+  .document-basic--readonly .document-basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 650px) {
+  .document-basic { padding: 16px; }
   .document-basic .form-grid { grid-template-columns: 1fr; }
   .document-footer { flex-direction: column; align-items: stretch; gap: 12px; }
   .document-actions { margin-left: 0; }
