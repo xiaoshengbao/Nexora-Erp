@@ -14,6 +14,7 @@ import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import { movementTypeLabel } from '../../utils/formatters'
 import { relatedDocumentLabel } from '../../../../shared/document-numbering'
 import { ledgerTime } from '../../utils/inventory-ledger-presentation'
+import { materialFlowApprovalExecutionHint } from '../../utils/material-flow-progress'
 
 const store = usePiniaAppStore()
 const { connectionLost, roles, stockMaterialMode, stockMaterialSnapshot, stockMaterialLoading, stockMaterialError,
@@ -21,6 +22,9 @@ const { connectionLost, roles, stockMaterialMode, stockMaterialSnapshot, stockMa
   ledgerDocumentTarget: documentTarget, ledgerDocumentRecord: document,
   ledgerDocumentLoading: documentLoading, ledgerDocumentError: documentError } = storeToRefs(store)
 const layout = computed(() => documentApprovalLayout(document.value))
+// 普通领料按权限直接签收，仅更正有独立审批；不能把无审批记录展示为待送审。
+const directReceipt = computed(() => document.value?.document_type === 'MaterialReceipt' && document.value.intent === 'execute')
+const executionHint = computed(() => materialFlowApprovalExecutionHint(document.value))
 const warehouseColumns = [{ key: 'warehouse_code', title: '仓库编号', width: '140' }, { key: 'warehouse_name', title: '仓库名称', width: '240' }, { key: 'quantity', title: '物料数量', width: '150', align: 'right' as const }, { key: 'actions', title: '操作', width: '130' }]
 const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: '440' }, { key: 'value', title: '数量 / 单位', width: '160' }]
 </script>
@@ -56,7 +60,7 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
     <template #beforeBasicInfo>
       <p v-if="documentLoading" role="status">正在读取单据详情…</p>
       <p v-if="documentError" role="alert" class="ledger-detail-error">{{ documentError }}</p>
-      <DocumentApprovalProgress v-if="document" :record="document" :roles="roles" :local-time="ledgerTime" />
+      <DocumentApprovalProgress v-if="document && !directReceipt" :record="document" :roles="roles" :local-time="ledgerTime" :execution-hint="executionHint" />
       <p v-if="document && !document.content_matches" class="ledger-scope">以下为原单送审内容，后续变更请结合原单记录核对。</p>
     </template>
     <template #basicInfo>
