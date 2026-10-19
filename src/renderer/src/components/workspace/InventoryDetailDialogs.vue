@@ -9,8 +9,7 @@ import DocumentApprovalProgress from './DocumentApprovalProgress.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import InventoryMaterialFacts from './InventoryMaterialFacts.vue'
 import InventoryMaterialLedger from './InventoryMaterialLedger.vue'
-import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue'
-import { materialParameterSource } from '../../utils/material-parameter-source'
+import WorkspaceMaterialName from './WorkspaceMaterialName.vue'
 import { isNegativeStock } from '../../../../shared/stock-overview'
 import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import { movementTypeLabel } from '../../utils/formatters'
@@ -42,7 +41,8 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
   <AppModal :show="!!materialTarget" origin-key="inventory-material" :ready="materialReady" :load-error="materialLoadError" @update:show="value => { if (!value) store.closeLedgerMaterial() }" preset="card"
     :title="`物料详情 · ${materialTarget?.sku ?? ''}`" :style="{ width: 'min(1280px, calc(100vw - 32px))' }">
     <div class="ledger-material-content">
-      <InventoryMaterialFacts compact />
+      <!-- 独立物料详情直接展示完整参数；仅单据名称列默认使用摘要。 -->
+      <InventoryMaterialFacts />
       <section v-if="stockMaterialMode" class="stock-distribution" aria-label="各仓库库存">
         <div class="stock-distribution-heading"><h3>各仓库库存</h3>
           <span v-if="stockMaterialSnapshot">全仓合计 <strong>{{ stockMaterialSnapshot.total_quantity }} {{ stockMaterialSnapshot.unit }}</strong></span>
@@ -76,11 +76,11 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
         <div class="document-detail-field"><span>单据类型</span><strong>{{ movementTypeLabel(documentTarget.source_type) }}</strong></div>
         <div class="document-detail-field"><span>单据编号</span><strong>{{ document.document_no || `#${document.document_id}` }}</strong></div>
         <div class="document-detail-field"><span>关联流水</span><strong>#{{ documentTarget.id }} · 明细 #{{ documentTarget.source_line_id }}</strong></div>
-        <div v-for="(item, index) in layout.basic" :key="index" class="document-detail-field"><span>{{ item.label }}</span><strong>{{ item.value }}</strong><WorkspaceMaterialParameters v-if="item.material_id" :material="materialParameterSource(item.material_id,item.material)" current-reference /></div>
+        <div v-for="(item, index) in layout.basic" :key="index" class="document-detail-field"><WorkspaceMaterialName v-if="item.material_id" :name="item.label" :secondary="item.value" :material-id="item.material_id" :material="item.material" /><template v-else><span>{{ item.label }}</span><strong>{{ item.value }}</strong></template></div>
         <div v-if="document.reversal_reason" class="document-detail-field"><span>冲销原因</span><strong>{{ document.reversal_reason }}</strong></div>
       </template>
     </template>
-    <template #cell-label="{ row }"><strong>{{ row.label }}</strong><WorkspaceMaterialParameters v-if="row.material_id" :material="materialParameterSource(row.material_id,row.material)" current-reference /></template>
+    <template #cell-label="{ row }"><WorkspaceMaterialName :name="row.label" :material-id="row.material_id" :material="row.material" /></template>
     <template #cell-value="{ row }">{{ row.value }}</template>
     <template #footer><div class="ledger-detail-actions">
       <AppButton v-if="documentError" :disabled="connectionLost || documentLoading" @click="store.loadLedgerDocument()">重新读取单据</AppButton>

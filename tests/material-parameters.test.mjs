@@ -7,7 +7,7 @@ import { createPinia } from 'pinia'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { createServer, normalizePath } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { hasMaterialDetails, materialParameterFacts } from '../src/renderer/src/utils/material-selection.ts'
+import { hasMaterialDetails, materialChoiceSummary, materialParameterFacts } from '../src/renderer/src/utils/material-selection.ts'
 
 const summary={id:1,sku:'PCB-1',name:'控制板',unit:'块'}
 const categories=[{code:'EL',name:'电子类',children:[{code:'EL-PC',name:'电路板'}]}]
@@ -20,8 +20,8 @@ const material={...summary,category_code:'EL-PC',specification:'FR-4',package:'�
   spec_summary:'板厚：0mm；含铅：否；阻抗：未知',extra_attributes:[{name:'表面工艺',value:'沉金',unit:''}]}
 
 // 编译并挂载真实只读展示及库存资料组件，仅替换按钮绘制；参数格式化仍走同一公共 helper。
-async function fixture(t,inventory=false,initial={}) {
-  const files=['components/workspace/WorkspaceMaterialParameters.vue','components/workspace/InventoryMaterialFacts.vue']
+async function fixture(t,inventory=false,initial={},nameView=false) {
+  const files=['components/workspace/WorkspaceMaterialParameters.vue','components/workspace/InventoryMaterialFacts.vue','components/workspace/WorkspaceMaterialInfo.vue','components/workspace/WorkspaceMaterialName.vue']
   const modules=files.map(file=>{
     const filename=resolve('src/renderer/src',file)
     return [normalizePath(filename)+'.client.ts',compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,
@@ -32,6 +32,8 @@ async function fixture(t,inventory=false,initial={}) {
     resolveId(id){
       if(sources.has(id))return id
       if(id.endsWith('/WorkspaceMaterialParameters.vue'))return modules[0][0]
+      if(id.endsWith('/WorkspaceMaterialInfo.vue'))return modules[2][0]
+      if(id.endsWith('/WorkspaceMaterialName.vue'))return modules[3][0]
       if(id.endsWith('/AppButton.vue'))return '\0parameter-button'
       if(id.endsWith('/store/app-store'))return '\0parameter-store'
     },load(id){
@@ -40,7 +42,7 @@ async function fixture(t,inventory=false,initial={}) {
       if(id==='\0parameter-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];export const usePiniaAppStore=defineStore('parameter-facts',()=>({...createAppState(),loadLedgerMaterial(){calls.push('retry')}}))`
     }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
   t.after(()=>server.close())
-  const {default:View}=await server.ssrLoadModule(modules[inventory?1:0][0])
+  const {default:View}=await server.ssrLoadModule(modules[nameView?3:inventory?1:0][0])
   const {usePiniaAppStore,calls}=await server.ssrLoadModule('\0parameter-store')
   const pinia=createPinia(),store=usePiniaAppStore(pinia)
   const props=reactive({material:structuredClone(material),categories,...initial})
@@ -59,7 +61,7 @@ async function fixture(t,inventory=false,initial={}) {
   const text=node=>[node.text,...node.children.map(text)].join(' ')
   return {props,store,calls,nodes:()=>descendants(root),text:()=>text(root),
     button:label=>descendants(root).find(node=>node.tag==='button'&&text(node).trim()===label),
-    press(node){assert.ok(node);node.props.onClick({stopPropagation(){}})}}
+    press(node){assert.ok(node);node.props.onClick({stopPropagation(){},preventDefault(){}})}}
 }
 
 test('参数事实复用状态格式，保留零值、否、历史及扩展属性并省略空字段与重复摘要',()=>{
@@ -80,39 +82,63 @@ test('摘要或扩展属性单独提供仍可辨认，明确空详情与旧简�
   assert.deepEqual(materialParameterFacts({...summary,extra_attributes:[{name:'工艺',value:'喷锡',unit:''}]}),[{key:'extra:0',label:'工艺',value:'喷锡'}])
 })
 
-test('紧凑组件首屏直接显示全部真实参数，不重复身份且当前档案标记由调用方决定',async t=>{
-  const f=await fixture(t)
-  for(const value of ['FR-4','双层裸板','示例品牌','PCB-A','DC 24V','±1%','RoHS','装配前检查','板厚','0mm','含铅','否',
-    '未知','不适用','待确认','旧板宽（历史）','60mm','表面工艺','沉金'])assert.ok(f.text().includes(value),value)
-  assert.doesNotMatch(f.text(),/未填写|PCB-1|控制板|当前档案参数/)
-  assert.equal(f.nodes().filter(node=>node.tag==='button').length,0,'参数不能只藏在查看按钮之后')
+test('名称列默认与选料器共用一行摘要，点击查看才出现资料卡和当前档案标记',async t=>{
+  const f=await fixture(t,false,{currentReference:true})
+  const summaryNode=f.nodes().find(node=>node.props.class==='workspace-material-summary__text')
+  assert.equal(summaryNode.text,materialChoiceSummary(material))
+  assert.doesNotMatch(f.text(),/装配前检查|表面工艺|沉金|当前档案参数|PCB-1|控制板/)
+  assert.equal(f.nodes().filter(node=>node.tag==='dl').length,0,'默认不渲染参数列表，避免撑高名称列')
+  const toggle=f.button('查看资料')
+  assert.equal(toggle.props['aria-expanded'],'false');assert.ok(toggle.props['aria-controls'])
+  f.press(toggle);await nextTick()
+  for(const value of ['当前档案参数','分类','电子类 / 电路板','规格型号','FR-4','封装','双层裸板','品牌','示例品牌','制造商料号','PCB-A','单位','块'])assert.ok(f.text().includes(value),value)
+  assert.doesNotMatch(f.text(),/装配前检查|表面工艺|沉金/)
+  assert.equal(f.button('收起资料').props['aria-expanded'],'true')
+  assert.ok(f.nodes().some(node=>node.props.id===toggle.props['aria-controls']))
   assert.deepEqual(f.calls,[])
-  f.props.currentReference=true;await nextTick()
-  assert.match(f.text(),/当前档案参数/)
-  assert.ok(f.nodes().some(node=>node.props['aria-label']==='当前档案参数'))
 })
 
-test('仅长备注可收起，展开不改档案，换料收起旧备注，完整模式无额外展开步骤',async t=>{
+test('技术参数与长备注二次展开，保留零值否和历史，收起及换料清除展开状态',async t=>{
   const notes='这是需要按需阅读的长备注。'.repeat(15),f=await fixture(t,false,{material:{...structuredClone(material),notes}})
   const before=JSON.stringify(f.props.material)
-  assert.match(f.text(),/板厚|表面工艺/);assert.equal(f.text().includes(notes),false)
-  const toggle=f.button('展开补充资料')
-  assert.equal(toggle.props['aria-expanded'],false);assert.ok(toggle.props['aria-controls'])
+  f.press(f.button('查看资料'));await nextTick()
+  assert.equal(f.text().includes(notes),false)
+  const toggle=f.button('展开详情')
+  assert.equal(toggle.props['aria-expanded'],false)
   f.press(toggle);await nextTick()
-  assert.ok(f.text().includes(notes));assert.equal(f.button('收起补充资料').props['aria-expanded'],true)
+  for(const value of [notes,'板厚','0mm','含铅','否','未知','不适用','待确认','旧板宽（历史）','60mm','表面工艺','沉金'])assert.ok(f.text().includes(value),value)
   assert.ok(f.nodes().some(node=>node.props.id===toggle.props['aria-controls']))
-  assert.equal(JSON.stringify(f.props.material),before);assert.deepEqual(f.calls,[])
+  assert.equal(f.button('收起详情').props['aria-expanded'],true)
+  f.press(f.button('收起详情'));await nextTick();assert.equal(f.text().includes(notes),false)
+  f.press(f.button('展开详情'));await nextTick()
+  f.press(f.button('收起资料'));await nextTick()
+  assert.equal(f.text().includes(notes),false);assert.ok(f.button('查看资料'))
+  f.press(f.button('查看资料'));await nextTick();assert.equal(f.text().includes(notes),false)
+  f.press(f.button('展开详情'));await nextTick()
+  // 同一物料的授权资料刷新保留阅读状态，换料必须回到摘要。
+  f.props.material={...f.props.material,brand:'新品牌'};await nextTick()
+  assert.ok(f.text().includes(notes));assert.match(f.text(),/新品牌/)
   f.props.material={...f.props.material,id:2};await nextTick()
-  assert.equal(f.text().includes(notes),false);assert.ok(f.button('展开补充资料'))
-  f.props.compact=false;await nextTick()
-  assert.ok(f.text().includes(notes));assert.equal(f.button('展开补充资料'),undefined)
-  // 只有备注的档案也必须有直接可读内容，不能整块退化成一个展开按钮。
-  f.props.compact=true;f.props.material={...summary,notes};await nextTick()
-  assert.ok(f.text().includes(notes));assert.equal(f.button('展开补充资料'),undefined)
+  assert.equal(f.text().includes(notes),false);assert.ok(f.button('查看资料'))
+  assert.equal(JSON.stringify({...f.props.material,id:1,brand:material.brand}),before);assert.deepEqual(f.calls,[])
+})
+
+test('完整物料详情直接显示所有参数，只有备注或扩展属性的资料也能按需读取',async t=>{
+  const f=await fixture(t,false,{compact:false})
+  for(const value of ['FR-4','装配前检查','板厚','0mm','含铅','否','表面工艺','沉金'])assert.ok(f.text().includes(value),value)
+  assert.equal(f.nodes().filter(node=>node.tag==='button').length,0)
+  f.props.compact=true;f.props.material={...summary,notes:'只有备注的档案'};await nextTick()
+  assert.doesNotMatch(f.text(),/只有备注的档案/)
+  f.press(f.button('查看资料'));await nextTick();f.press(f.button('展开详情'));await nextTick()
+  assert.match(f.text(),/只有备注的档案/)
+  f.props.material={...summary,id:2,extra_attributes:[{name:'工艺',value:'喷锡',unit:''}]};await nextTick()
+  f.press(f.button('查看资料'));await nextTick();f.press(f.button('展开详情'));await nextTick()
+  assert.match(f.text(),/工艺|喷锡/)
+  assert.deepEqual(f.calls,[])
 })
 
 test('旧服务和缺料显示资料不可用，空详情显示未填写，后续参数到达能响应更新并按文本展示',async t=>{
-  const f=await fixture(t,false,{material:undefined})
+  const f=await fixture(t,false,{material:undefined,compact:false})
   assert.match(f.text(),/详细资料暂不可用/)
   f.props.material={...summary};await nextTick();assert.match(f.text(),/详细资料暂不可用/)
   f.props.material={...summary,specification:'',extra_attributes:[]};await nextTick()
@@ -123,7 +149,7 @@ test('旧服务和缺料显示资料不可用，空详情显示未填写，后�
 })
 
 test('库存详情保留身份而将技术参数与扩展属性直接展示，加载及重试边界保持原行为',async t=>{
-  const f=await fixture(t,true)
+  const f=await fixture(t,true,{compact:false})
   for(const value of ['PCB-1','控制板','电子类 / 电路板','块','FR-4','板厚','0mm','含铅','否','表面工艺','沉金'])assert.ok(f.text().includes(value),value)
   assert.doesNotMatch(f.text(),/展开规格与更多资料|未填写/);assert.deepEqual(f.calls,[])
   f.store.ledgerMaterialLoading=true;await nextTick();assert.match(f.text(),/正在读取物料详情/)
@@ -132,4 +158,25 @@ test('库存详情保留身份而将技术参数与扩展属性直接展示，�
   assert.match(f.text(),/资料暂不可用/);assert.doesNotMatch(f.text(),/沉金/)
   f.press(f.button('重新读取物料'));assert.deepEqual(f.calls,['retry'])
   f.store.connectionLost=true;await nextTick();assert.equal(f.button('重新读取物料').props.disabled,true)
+})
+
+// 名称组件必须锁住原单身份，不能因资料刷新或同名资料而覆盖名称、串料。
+test('共享名称组件保留原单名称并核验真实物料 ID，换料收起且授权缓存可回退',async t=>{
+  const f=await fixture(t,false,{name:'原单名称 · OLD-PCB',materialId:1},true)
+  assert.match(f.text(),/原单名称 · OLD-PCB/);assert.doesNotMatch(f.text(),/控制板/)
+  f.press(f.button('查看资料'));await nextTick()
+  assert.match(f.text(),/FR-4/)
+  f.props.material={...f.props.material,id:99,specification:'错误物料参数'};await nextTick()
+  assert.match(f.text(),/原单名称 · OLD-PCB/);assert.doesNotMatch(f.text(),/错误物料参数/)
+  assert.match(f.text(),/详细资料暂不可用/)
+  f.props.cachedMaterials=new Map([[1,structuredClone(material)]]);await nextTick()
+  assert.match(f.text(),/FR-4/)
+  f.props.materialId=2;await nextTick()
+  assert.doesNotMatch(f.text(),/FR-4/);assert.match(f.text(),/详细资料暂不可用/)
+  f.props.material={...structuredClone(material),id:2};await nextTick()
+  assert.ok(f.button('查看资料'))
+  f.press(f.button('查看资料'));await nextTick();f.press(f.button('展开详情'));await nextTick()
+  assert.match(f.text(),/沉金/)
+  f.props.materialId=1;await nextTick();assert.ok(f.button('查看资料'))
+  assert.deepEqual(f.calls,[])
 })
