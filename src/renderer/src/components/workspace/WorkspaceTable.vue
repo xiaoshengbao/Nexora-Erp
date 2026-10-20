@@ -8,7 +8,7 @@ VxeUI.setLanguage('zh-CN')
 </script>
 
 <script setup lang="ts" generic="TRow extends object">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch, useSlots } from 'vue'
 import VxeColumn from 'vxe-table/es/column'
 import VxeTable from 'vxe-table/es/table'
 import 'vxe-table/es/table/style.css'
@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
   amountTotal?: string | null
   // 主列表可隐藏重复标题，保留页面顶部品牌标题及表格无障碍名称。
   showTitle?: boolean
+  // 单据明细的添加按钮属于分区标题；业务列表默认使用筛选操作栏。
+  actionsPlacement?: 'toolbar' | 'heading'
   description?: string
   columns?: readonly WorkspaceTableColumn[]
   data?: TRow[]
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<{
   materialId?: (row: TRow) => number
 }>(), {
   showTitle: true,
+  actionsPlacement: 'toolbar',
   virtualRows: undefined,
   description: '',
   columns: () => [],
@@ -68,6 +71,10 @@ const props = withDefaults(defineProps<{
   minTableWidth: 580,
   stretchColumns: true, materialSupply: false, materialSupplyActive: true
 })
+
+const slots = useSlots()
+// 插槽会随页面状态变化，每次渲染读取，避免缓存旧的筛选区可见性。
+const headingActions = () => props.actionsPlacement === 'heading' && !slots.filters && !slots.filterActions
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
 
@@ -250,19 +257,17 @@ defineSlots<{
 
 <template>
   <section class="card workspace-table">
-    <header v-if="showTitle || description || $slots.heading || ($slots.actions && !$slots.filters && !$slots.filterActions)" class="workspace-table-heading">
+    <header v-if="showTitle || description || $slots.heading || (headingActions() && $slots.actions)" class="workspace-table-heading">
       <div v-if="showTitle || description || $slots.heading">
         <slot name="heading">
           <h2 v-if="showTitle">{{ title }}</h2>
           <p v-if="description" class="muted">{{ description }}</p>
         </slot>
       </div>
-      <div v-if="$slots.actions && !$slots.filters && !$slots.filterActions" class="workspace-table-actions">
-        <slot name="actions" />
-      </div>
+      <div v-if="headingActions() && $slots.actions" class="workspace-table-actions"><slot name="actions" /></div>
     </header>
-    <!-- 条件与操作共用工具栏，避免单个新建或导出按钮独占一行。 -->
-    <div v-if="$slots.filters || $slots.filterActions" class="workspace-table-toolbar">
+    <!-- 有无筛选都使用同一操作栏，按钮位置不随页面条件数量改变。 -->
+    <div v-if="$slots.filters || $slots.filterActions || (!headingActions() && $slots.actions)" class="workspace-table-toolbar">
       <div v-if="$slots.filters" class="workspace-table-filters">
         <slot name="filters" />
       </div>
@@ -334,16 +339,16 @@ defineSlots<{
 
 <style scoped>
 .workspace-table-heading { display: flex; justify-content: space-between; align-items: start; gap: 18px; margin-bottom: 20px; }
+.workspace-table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-left: auto; max-width: 100%; }
 .workspace-table-heading h2 { margin: 0; }
 .workspace-table-heading .muted { margin: 0; line-height: 1.6; }
 .workspace-table-heading h2 + .muted { margin-top: 8px; }
-.workspace-table-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 /* 筛选条件按合理宽度换行；操作按钮始终成组靠右，并与输入框底边对齐。 */
 .workspace-table-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 0 0 16px; padding: 16px; border: 1px solid #e4ebee; border-radius: 11px; background: #f8fafb; }
 .workspace-table-filters { display: flex; flex: 1 1 560px; min-width: 0; align-items: end; gap: 12px; flex-wrap: wrap; }
 .workspace-table-filters :deep(label) { flex: 1 1 170px; min-width: 0; max-width: 240px; }
 .workspace-table-filters :deep(label:only-child) { max-width: 320px; }
-.workspace-table-toolbar-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; }
+.workspace-table-toolbar-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; max-width: 100%; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; }
 .workspace-table-toolbar :deep(button) { white-space: nowrap; }
 .workspace-table-filters :deep(input), .workspace-table-filters :deep(select) { min-width: 0; width: 100%; }
 :root[data-theme='dark'] .workspace-table-toolbar { border-color: #30445b; background: #192a40; }
@@ -386,8 +391,6 @@ defineSlots<{
 @media (max-width: 650px) {
   .workspace-table-heading { align-items: stretch; flex-direction: column; }
   .workspace-table-filters :deep(label), .workspace-table-filters :deep(label:only-child) { max-width: none; }
-  .workspace-table-toolbar-actions { flex-wrap: wrap; max-width: 100%; }
-  .workspace-table-actions { margin-left: 0; }
 }
 </style>
 
