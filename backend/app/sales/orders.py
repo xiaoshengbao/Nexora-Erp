@@ -6,6 +6,7 @@ from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal, ROUND_HALF_UP
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -36,6 +37,7 @@ from app.access.security import require
 from app.sales.customer_scope import (visible_customers, visible_customer_ids,
     require_visible_customer, require_visible_order, require_visible_shipment)
 from app.sales.customer_names import duplicate_candidates, visible_name_rows
+from app.sales.drafts import draft_metadata
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -177,6 +179,7 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 SalesOrder.customer_id,
                 SalesOrder.reference,
                 SalesOrder.status,
+                SalesOrder.closure_json,
                 SalesOrder.created_by,
                 SalesOrder.confirmed_by,
                 SalesOrder.cancelled_by,
@@ -227,11 +230,14 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 "shipped_quantity": str(shipped),
                 "returned_quantity": str(returned),
                 "net_delivered_quantity": str(shipped - returned),
-                "remaining_quantity": str(quantity - shipped),
+                "remaining_quantity": "0" if row["status"] == "closed" else str(quantity - shipped),
                 "line_total": str(line_total),
             }
         )
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
+    result = dict(row)
+    result['closure'] = json.loads(result.pop('closure_json')) if row['closure_json'] else None
+    return {**result, **draft_metadata(db, 'SalesOrder', order_id, row['status']),
+            'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
 
 
 def shipment_data(db: Session, shipment_id: int) -> dict:
@@ -317,7 +323,8 @@ def shipment_data(db: Session, shipment_id: int) -> dict:
                 ),
             }
         )
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id)),
+    return {**dict(row), **draft_metadata(db, 'Shipment', shipment_id, row['status']),
+            'approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id, 'reverse')), "lines": result_lines}
 
 
@@ -351,6 +358,9 @@ def checked_order_lines(db: Session, order_id: int, lines: list[tuple[int, Decim
 
 
 def update_order_shipment_status(db: Session, order_id: int) -> None:
+    # 后续退货或冲销仍更正实绩，但不能重新打开已经终止的交付承诺。
+    if db.get(SalesOrder, order_id).status == "closed":
+        return
     lines = (
         db.execute(
             select(SalesOrderLine.id, SalesOrderLine.quantity)
@@ -455,7 +465,7 @@ def list_sales_orders(user: dict = Depends(require("sales.view"))) -> list[dict]
         return [sales_order_data(db, order_id) for order_id in ids]
 
 
-def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id: int) -> dict:
+def validate_sales_order_input(db: Session, payload: SalesOrderInput) -> None:
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张销售订单不能重复选择同一物料")
     if (
@@ -477,6 +487,10 @@ def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id
             raise HTTPException(422, "物料不存在")
     for line in payload.lines:
         require_product_use(db, line.material_id, 'can_sell')
+
+
+def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id: int) -> dict:
+    validate_sales_order_input(db, payload)
     cursor = add_model(
         db,
         SalesOrder(

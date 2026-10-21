@@ -1451,12 +1451,29 @@ class PurchaseOrderLine(Base):
     line_total: Mapped[str | None] = mapped_column(Text)
 
 
+class SalesDraftChange(Base):
+    """销售草稿的追加式修订记录，同时作为并发修改的版本依据。"""
+    __tablename__ = 'sales_draft_changes'
+    __table_args__ = (UniqueConstraint('document_type', 'document_id', 'version'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class SalesReturnLine(Base):
     __tablename__ = 'sales_return_lines'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sales_return_id: Mapped[int] = mapped_column(Integer, nullable=False)
     shipment_line_id: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    # 仅新确认退货固定应收冲减额；空值代表沿用历史逐行舍入口径。
+    settlement_amount: Mapped[str | None] = mapped_column(Text)
 
 class AfterSalesCase(Base):
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
@@ -1603,6 +1620,8 @@ class CustomerOwnerChange(Base):
 
 
 class SalesOrder(Base):
+    # 余量终止只记录一次固定证据，不改写原合同数量、金额或出库历史。
+    closure_json: Mapped[str | None] = mapped_column(Text)
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
     document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'sales_orders'

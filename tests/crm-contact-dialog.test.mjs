@@ -43,11 +43,11 @@ async function fixture(t) {
       if(/\/(CustomerRelationsView|CrmEditor)\.vue$/.test(id))return code.replace("'naive-ui'","'virtual:contact-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:contact-modal'")
     },resolveId(id,importer){
       if(id==='virtual:contact-modal')return '\0contact-modal'
-      if(!importer?.includes('/views/workspace/sales/'))return
+      if(!importer?.includes('/src/renderer/'))return
       if(id.endsWith('/store/app-store'))return '\0contact-store'
       if(id.endsWith('/AppButton.vue'))return '\0contact-button'
       if(id.endsWith('/AppInput.vue'))return '\0contact-input'
-      if(id.endsWith('/WorkspaceSelect.vue'))return '\0contact-select'
+      if(id.endsWith('/WorkspaceSelect.vue') || id.endsWith('/WorkspaceMaterialSelect.vue'))return '\0contact-select'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0contact-table'
       if(/\/(CrmEvidence|ContactImportDialog|OpportunityImportDialog|CrmDate|DocumentApprovalDialog)\.vue$/.test(id))return '\0contact-empty'
     },load(id){return {'\0contact-store':storeSource,'\0contact-modal':modalSource,'\0contact-button':buttonSource,
@@ -78,6 +78,8 @@ test('新建联系人在列表上方弹出，继承客户筛选，关闭保留�
   })
   assert.match(html,/data-modal="新建联系人"/)
   assert.match(html,/data-table="联系人"/)
+  // 普通 template 会让浏览器把列表当作惰性模板，SSR 字符串有内容也不可见。
+  assert.doesNotMatch(html,/<template[\s>]/)
   assert.match(html,/王女士/)
   assert.match(html,/value="未保存姓名"/)
   assert.doesNotMatch(html,/联系人状态/)
@@ -148,4 +150,36 @@ test('弹窗表单校验阻止缺失客户和姓名，失败保留草稿，成�
   store.crmEdit.contact.reason='电话更正';store.saveResult=true
   await setup.save()
   assert.equal(saved,1)
+})
+
+// 四类编辑器共用弹窗后，逐种核对列表仍可见且编辑内容在弹窗内。
+test('跟进商机和报价沿用公共弹窗，背景列表不进入惰性模板',async t=>{
+  const {allowed,View,render}=await fixture(t)
+  for(const [kind,permission,label] of [['activity','crm_activity.manage','客户跟进'],
+    ['opportunity','crm_opportunity.manage','销售商机'],['quote','crm_quote.create','销售报价']]) {
+    allowed.add(permission)
+    const {html}=await render(View,{},page=>page.newRecord(kind))
+    assert.match(html,new RegExp(`data-modal="新建${label}"`))
+    assert.match(html,new RegExp(`data-table="${label}"`))
+    assert.doesNotMatch(html,/<template[\s>]/)
+    assert.doesNotMatch(html,/返回列表|class="crm-editor card"/)
+  }
+})
+
+// 视觉概览使用完整页签快照，切换筛选只能改变列表，不能清除原有表单。
+test('CRM 分类统计、关键词和客户筛选组合，切换页签重置状态但保留草稿',async t=>{
+  const {store,allowed,View,render}=await fixture(t)
+  store.crmOverview.contacts.push({id:2,name:'旧联系人',customer_id:4,customer_name:'客户甲',phone:'200',email:'old@example.invalid',is_active:0,created_by_name:'销售员'})
+  store.crmForms.contact.name='正在填写的联系人'
+  const {setup}=await render(View,{},page=>page.selectMode('contact'))
+  assert.equal(setup.counts.value.find(row=>row.key==='').count,2)
+  setup.summary.value='inactive';setup.query.value='old@example.invalid';setup.customer.value=4
+  assert.deepEqual(setup.records.value.map(row=>row.id),[2])
+  assert.equal(setup.counts.value.find(row=>row.key==='').count,2)
+  setup.customer.value=9;assert.equal(setup.records.value.length,0)
+  setup.selectMode('quote');assert.equal(setup.summary.value,'');assert.equal(setup.query.value,'')
+  assert.equal(store.crmForms.contact.name,'正在填写的联系人')
+  allowed.add('crm_activity.manage');setup.summary.value='attention';setup.query.value='旧报价'
+  setup.newRecord('activity')
+  assert.equal(setup.mode.value,'activity');assert.equal(setup.summary.value,'');assert.equal(setup.query.value,'')
 })

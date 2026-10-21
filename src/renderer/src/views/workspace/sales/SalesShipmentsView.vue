@@ -1,4 +1,13 @@
 <script setup lang="ts">
+import { useSalesDraftEditor } from '../../../composables/use-sales-draft-editor'
+import { canReviseSalesDraft, newSalesFilters, matchesSalesFilters, shipmentDraftIssue } from '../../../utils/sales-documents'
+import type { SalesDraftType } from '../../../../../shared/sales-draft-api'
+import SalesDocumentList from './SalesDocumentList.vue'
+import SalesDocumentDetail from './SalesDocumentDetail.vue'
+import {defineAsyncComponent} from 'vue'
+// 修订历史按需加载，日常列表不提前初始化弹窗和历史读取。
+const SalesDraftHistory = defineAsyncComponent(()=>import('./SalesDraftHistory.vue'))
+
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
@@ -21,18 +30,15 @@ import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 import WorkspaceMaterialSelect from "../../../components/workspace/WorkspaceMaterialSelect.vue";
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
 import { documentRows } from "../../../utils/document-rows";
-import type { WorkspaceTableColumn } from "../../../utils/table-columns";
 import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
-import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from "../../../components/workspace/WorkspaceLotDialog.vue";
 import WorkspaceLotLineEditor from "../../../components/workspace/WorkspaceLotLineEditor.vue";
 import {
-  recordColumns,
   matchesRecordQuery,
 } from "../../../utils/workspace-records";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
@@ -44,7 +50,7 @@ import type {
   ShipmentLotLineInput,
   ShipmentLotOptions,
 } from "../../../../../shared/shipment-lot-api";
-import type { Shipment } from "../../../../../shared/erp-api";
+import type { Stock, Shipment } from "../../../../../shared/erp-api";
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
 const store = usePiniaAppStore();
@@ -54,6 +60,7 @@ const {
   busy,
   connectionLost,
   materials,
+  customers,
   warehouses,
   salesOrders,
   shipments,
@@ -63,13 +70,66 @@ const {
 const {
   can,
   localTime,
-  chooseShipmentOrder,
   createShipment,
   loadAvailableShipmentLots,
   postShipment,
   cancelShipment,
   reverseShipment,
 } = store;
+
+// 编号与查看先进入业务详情；审批保持独立入口，避免审批步骤遮住物料与金额。
+const selectedId = ref<number | null>(null);
+const businessDetail = computed(() => shipments.value.find(row => row.id === selectedId.value) ?? null);
+function openBusinessDetail(row: Shipment): void {
+  if (busy.value || connectionLost.value || !can('sales.view')) return;
+  selectedId.value = row.id;
+}
+watch(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}:${connectionLost.value}`, () => { selectedId.value = null; });
+// 修订表单使用副本，原新建草稿继续保留在 Pinia 中。
+const {open:createOpen, form:workingForm, target:editTarget, reason:revisionReason,
+  isolated:isolatedForm, beginEdit, beginCreate} = useSalesDraftEditor(shipmentForm);
+const historyTarget = ref<{type:SalesDraftType; id:number} | null>(null);
+const filters = ref(newSalesFilters());
+function editRecord(row: Shipment): void {
+  if (beginEdit(row, {sales_order_id:row.sales_order_id, warehouse_id:row.warehouse_id, reference:row.reference, lines:row.lines.map(line=>({material_id:line.material_id,quantity:line.quantity}))})) { selectedId.value = null; store.closeDocumentApproval(); }
+}
+const selectedOrder = computed(()=>salesOrders.value.find(row=>row.id===workingForm.value.sales_order_id));
+function selectShipmentOrder(): void {
+  workingForm.value.lines = selectedOrder.value?.lines.filter(line=>Number(line.remaining_quantity)>0)
+    .map(line=>({material_id:line.material_id,quantity:line.remaining_quantity})) ?? [];
+}
+
+// 库存快照只作填写提示，最终扣减仍由确认出库事务复核。
+const stockRows = ref<Stock[] | null>(null), stockLoading = ref(false), stockError = ref('');
+let stockRead = 0;
+watch(()=>[createOpen.value,workingForm.value.warehouse_id,connectionLost.value,store.user?.id,
+  store.user?.permissions.join('|')] as const, async ([open,warehouseId,lost])=>{
+  const owner = ++stockRead; stockRows.value=null; stockError.value=''; stockLoading.value=false;
+  if(!open || !warehouseId || lost || !can('inventory.view')) return;
+  stockLoading.value=true;
+  try {const rows=await store.loadShipmentStock(warehouseId); if(owner===stockRead)stockRows.value=rows;}
+  catch(cause){if(owner===stockRead)stockError.value=displayError(cause);}
+  finally{if(owner===stockRead)stockLoading.value=false;}
+});
+const shipmentIssue = computed(()=>shipmentDraftIssue(selectedOrder.value,workingForm.value.lines));
+const orderMaterials = computed(()=>materials.value.filter(material=>selectedOrder.value?.lines.some(line=>line.material_id===material.id)));
+function remainingFor(materialId:number): string {return selectedOrder.value?.lines.find(line=>line.material_id===materialId)?.remaining_quantity ?? '0';}
+function stockFor(materialId:number): string | null {return stockRows.value===null?null:stockRows.value.find(row=>row.id===materialId)?.quantity ?? '0';}
+function materialOptions(materialId:number) {
+  return [{label:'选择订单物料',value:0,disabled:true},...orderMaterials.value.map(row=>({value:row.id,label:`${row.sku} · ${row.name}`,
+    disabled: row.id!==materialId && (Number(remainingFor(row.id))<=0 || workingForm.value.lines.some(line=>line.material_id===row.id))}))];
+}
+function createReturnFromShipment(row:Shipment):void {
+  selectedId.value = null; store.closeDocumentApproval();store.salesNavigation={action:'createReturn',sourceId:row.id};store.navigateToRoute('salesReturns');
+}
+watch(()=>[store.salesNavigation,store.activeTab] as const, ([request,route])=>{
+  if(route!=='shipments' || request?.action!=='createShipment')return;
+  store.salesNavigation=null;
+  const source=salesOrders.value.find(row=>row.id===request.sourceId);
+  if(!source || !['confirmed','partially_shipped'].includes(source.status)){error.value='订单已不处于可出库状态，请刷新后重试。';return;}
+  beginCreate({sales_order_id:source.id,warehouse_id:shipmentForm.value.warehouse_id,reference:'',
+    lines:source.lines.filter(line=>Number(line.remaining_quantity)>0).map(line=>({material_id:line.material_id,quantity:line.remaining_quantity}))});
+}, {immediate:true});
 
 // 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
 const detailItem = computed(() =>
@@ -78,14 +138,10 @@ const detailItem = computed(() =>
 const detailIntent = computed(
   () => store.documentApprovalTarget?.intent ?? "execute",
 );
-// 操作列只保留统一查看入口，业务操作按钮全部移入详情页脚。
-const columns: readonly WorkspaceTableColumn[] = [
-  ...recordColumns.filter((column) => column.key !== "actions"),
-  { key: "actions", title: "查看", width: "72", align: "center" },
-];
+
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
-const createOpen = ref(false);
+
 const activeShipmentId = ref(0);
 const lotOptions = ref<ShipmentLotOptions | null>(null);
 const lotDrafts = ref<ShipmentLotLineInput[]>([]);
@@ -206,13 +262,19 @@ async function confirmLotPost(): Promise<void> {
     closeLotPost();
 }
 async function submitCreate(): Promise<void> {
-  await submitCreateDialog(createShipment, { busy, error, notice }, createOpen);
+  if (editTarget.value) {
+    const current = editTarget.value;
+    if (await store.reviseSalesDraft('reviseShipment', {...workingForm.value, shipmentId:current.id,
+      expected_version:current.version,revision_reason:revisionReason.value})) createOpen.value = false;
+    return;
+  }
+  await submitCreateDialog(()=>createShipment(isolatedForm.value ?? undefined), {busy,error,notice}, createOpen);
 }
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref("");
 const filteredRecords = computed(() =>
   shipments.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
+    matchesSalesFilters(item, salesOrders.value.find(order=>order.id===item.sales_order_id)?.customer_id, filters.value) && matchesRecordQuery(recordQuery.value, [
       documentSearch(item),
       item.id,
       item.customer_name,
@@ -224,11 +286,13 @@ const filteredRecords = computed(() =>
   ),
 );
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const shipmentFormRows = computed(() => documentRows(shipmentForm.value.lines));
+const shipmentFormRows = computed(() => documentRows(workingForm.value.lines));
 const shipmentFormColumns = [
   { key: "material", title: "物料 / 资料", width: "470" },
   { key: "unit", title: "单位", width: "70" },
   { key: "quantity", title: "出库数量", width: "150" },
+  {key:"remaining",title:"订单剩余",width:"130"},
+  {key:"stock",title:"所选仓库存",width:"170"},
   { key: "actions", title: "操作", width: "90" },
 ];
 // 审批进度与执行状态分开显示，上游批准不会代替本单批准。
@@ -257,16 +321,104 @@ async function reverseApproved(identifier: number): Promise<void> {
   await reverseShipment(identifier);
 }
 // 资料展示绑定原草稿行引用，删除中间行不会展开到另一项物料。
-const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => shipmentForm.value.lines)
+const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => workingForm.value.lines)
 </script>
 
 <template>
   <section class="stack">
+    <SalesDocumentDetail :materials="materials" :record="businessDetail" kind="shipment" title="销售出库" :busy="busy" :disabled="connectionLost" :local-time="localTime" @close="selectedId=null">
+      <template #actions>
+        <AppButton v-if="businessDetail" size="small" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('document-approval',$event)"
+          @click="store.openDocumentApproval({document_type:'Shipment',document_id:businessDetail.id,intent:'execute'})">单据审批</AppButton>
+
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
+        <template v-if="businessDetail">
+          <AppButton size="small" v-if="can('sales_return.create') && businessDetail.status==='posted' && !businessDetail.reversal_id && businessDetail.lines.some(line=>Number(line.returnable_quantity)>0)" :disabled="busy || connectionLost" @click="createReturnFromShipment(businessDetail)">创建退货单</AppButton>
+          <AppButton size="small" v-if="can('shipment.create') && canReviseSalesDraft(businessDetail)" :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesShipmentsView:form', $event)" @click="editRecord(businessDetail)">修订草稿</AppButton>
+          <AppButton size="small" v-if="(businessDetail.draft_version ?? 0) > 0" :disabled="busy || connectionLost"
+            @click="historyTarget={type:'Shipment',id:businessDetail.id}">修订记录</AppButton>
+          <span v-if="businessDetail.status==='draft' && businessDetail.draft_edit_block_reason" class="muted">{{ businessDetail.draft_edit_block_reason }}</span>
+          <AppButton size="small"
+            tone="success"
+            v-if="
+              businessDetail.status === 'draft' &&
+              businessDetail.approval?.status === 'approved' &&
+              can('shipment.post')
+            "
+            type="button"
+            variant="primary"
+            :disabled="busy || connectionLost"
+            @click="postShipment(businessDetail.id)"
+            >确认出库</AppButton
+          >
+          <AppButton size="small"
+            tone="info"
+            v-if="
+              businessDetail.status === 'draft' &&
+              businessDetail.approval?.status === 'approved' &&
+              can('shipment.post')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesShipmentsView:lot', $event)" @click="startLotPost(businessDetail)"
+            >指定实物批次（可选）</AppButton
+          >
+          <AppButton size="small"
+            tone="warning"
+            v-if="
+              businessDetail.status === 'draft' &&
+              !['submitted', 'approved'].includes(
+                businessDetail.approval?.status ?? '',
+              ) &&
+              can('shipment.cancel')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click="cancelShipment(businessDetail.id)"
+            >取消</AppButton
+          >
+          <!-- 冲销完成后仍可查批准人员和固定原因，查询入口沿用本单查看权限。 -->
+          <AppButton size="small"
+            tone="error"
+            v-if="
+              businessDetail.status === 'posted' &&
+              (businessDetail.reversal_id || can('shipment.reverse'))
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
+              store.openDocumentApproval({
+                document_type: 'Shipment',
+                document_id: businessDetail.id,
+                intent: 'reverse',
+              })
+            "
+            >{{
+              businessDetail.reversal_id ? "冲销审批记录" : "冲销审批"
+            }}</AppButton
+          >
+
+
+        </template>
+
+      </template>
+    </SalesDocumentDetail>
+
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
+          <AppButton v-if="can('sales_return.create') && detailItem.status==='posted' && !detailItem.reversal_id && detailItem.lines.some(line=>Number(line.returnable_quantity)>0)" :disabled="busy || connectionLost" @click="createReturnFromShipment(detailItem)">创建退货单</AppButton>
+          <AppButton v-if="can('shipment.create') && canReviseSalesDraft(detailItem)" :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesShipmentsView:form', $event)" @click="editRecord(detailItem)">修订草稿</AppButton>
+          <AppButton v-if="(detailItem.draft_version ?? 0) > 0" :disabled="busy || connectionLost"
+            @click="historyTarget={type:'Shipment',id:detailItem.id}">修订记录</AppButton>
+          <span v-if="detailItem.status==='draft' && detailItem.draft_edit_block_reason" class="muted">{{ detailItem.draft_edit_block_reason }}</span>
           <AppButton
             tone="success"
             v-if="
@@ -365,35 +517,36 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
         </template>
       </template>
     </DocumentApprovalDialog>
+    <SalesDraftHistory v-if="historyTarget" v-model="historyTarget" />
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
     <WorkspaceDocumentDialog origin-key="SalesShipmentsView:form" @invalidated="createOpen = false"
       v-if="can('shipment.create')"
       v-model:show="createOpen"
-      title="新建销售出库"
+      :title="editTarget ? '修订销售出库' : '新建销售出库'"
       :data="shipmentFormRows"
       :columns="shipmentFormColumns"
       :busy="busy"
       :disabled="connectionLost"
       :submit-disabled="
-        busy ||
+        busy || !!shipmentIssue ||
         !materials.length ||
         !salesOrders.some((entry) =>
           ['confirmed', 'partially_shipped'].includes(entry.status),
         )
       "
-      submit-label="保存草稿"
+      :submit-label="editTarget ? '保存修订' : '保存草稿'"
       :min-table-width="1000"
-      :add-disabled="shipmentForm.lines.length >= 100"
-      @add-material="shipmentForm.lines.push({ material_id: 0, quantity: '1' })"
+      :add-disabled="!selectedOrder || workingForm.lines.length >= selectedOrder.lines.filter(line=>Number(line.remaining_quantity)>0).length"
+      @add-material="workingForm.lines.push({ material_id: 0, quantity: '1' })"
       @submit="submitCreate"
     >
       <template #basicInfo
         ><label
           >销售订单<WorkspaceSelect
             :disabled="busy || connectionLost"
-            v-model="shipmentForm.sales_order_id"
+            v-model="workingForm.sales_order_id"
             required
-            @change="chooseShipmentOrder"
+            @change="selectShipmentOrder"
             :options="[
               { label: '选择待出库订单'.trim(), value: 0, disabled: true },
               ...salesOrders
@@ -401,14 +554,14 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
                   ['confirmed', 'partially_shipped'].includes(entry.status),
                 )
                 .map((item) => ({
-                  label: (' #' + item.id + ' · ' + item.customer_name).trim(),
+                  label: documentLabel(item) + ' · ' + item.customer_name,
                   value: item.id,
                 })),
             ]" /></label
         ><label
           >出库仓库<WorkspaceSelect
             :disabled="busy || connectionLost"
-            v-model="shipmentForm.warehouse_id"
+            v-model="workingForm.warehouse_id"
             required
             :options="[
               ...warehouses.map((item) => ({
@@ -419,12 +572,15 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
         ><label
           >参考单号（可选）<AppInput
             :disabled="busy || connectionLost"
-            v-model.trim="shipmentForm.reference"
+            v-model.trim="workingForm.reference"
             maxlength="100"
         /></label>
+        <label v-if="editTarget">修订原因<AppInput v-model.trim="revisionReason" required maxlength="200" :disabled="busy || connectionLost" /></label>
         <div class="document-basic-extra">
+          <p v-if="shipmentIssue" role="status">{{ shipmentIssue }}</p>
+          <p v-if="stockError" class="muted">{{ stockError }} 可切换仓库重新读取。</p>
           <p class="muted">
-            确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。
+            可先保存缺货草稿；确认出库时会重新核对订单剩余量和仓库库存。
           </p>
         </div>
       </template>
@@ -433,20 +589,14 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
             <WorkspaceMaterialSelect
                 :aria-label="`第 ${index + 1} 行物料`"
             :disabled="busy || connectionLost"
-            :materials="materials"
+            :materials="orderMaterials"
                 :categories="store.materialCategories"
                 :compact="activeLine !== line"
                 @update:compact="(value) => setCompact(line, value)"
                 @change="showLine(line)"
             v-model="line.material_id"
             required
-            :options="[
-              { label: '选择物料'.trim(), value: 0, disabled: true },
-              ...materials.map((item) => ({
-                label: (item.sku + ' · ' + item.name).trim(),
-                value: item.id,
-              })),
-            ]" /></template>
+:options="materialOptions(line.material_id)" /></template>
       <template #cell-quantity="{ row: { line, index } }"
         ><!-- 数量标题只在表头显示，数值边界和草稿绑定保持不变。 -->
             <AppInput
@@ -455,15 +605,21 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
             v-model.trim="line.quantity"
             type="number"
             min="0.001"
-            max="1000000"
+            :max="remainingFor(line.material_id)"
             step="0.001"
             required /></template>
+      <template #cell-remaining="{row:{line}}">{{ remainingFor(line.material_id) }}</template>
+      <template #cell-stock="{row:{line}}">
+        <span v-if="!can('inventory.view')">无查看权限</span><span v-else-if="stockLoading">读取中…</span>
+        <span v-else-if="stockFor(line.material_id)===null">{{ stockError ? '读取失败' : '待选择仓库' }}</span>
+        <span v-else>{{ stockFor(line.material_id) }}<span v-if="Number(line.quantity)>Number(stockFor(line.material_id))"> · 库存不足</span></span>
+      </template>
       <template #cell-actions="{ row: { line, index } }"
         ><!-- 移除沿用主线完整点击区域，保留原有禁用与删行规则。 -->
         <AppButton size="small"
           type="button"
-          :disabled="busy || connectionLost || shipmentForm.lines.length === 1"
-          @click="shipmentForm.lines.splice(index, 1)"
+          :disabled="busy || connectionLost || workingForm.lines.length === 1"
+          @click="workingForm.lines.splice(index, 1)"
           variant="secondary"
         >
           移除
@@ -473,14 +629,9 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
         materials.find((item) => item.id === line.material_id)?.unit ?? "—"
       }}</template>
     </WorkspaceDocumentDialog>
-    <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
-      :show-title="false"
-      title="销售出库"
-      :data="filteredRecords"
-      :columns="columns"
-      :min-table-width="1100"
-    >
+    <!-- 列表复用生产计划的概览、查询、状态与分页，完整履约明细集中在详情。 -->
+    <SalesDocumentList kind="shipment" title="销售出库" :records="shipments" :filtered="filteredRecords" :customers="customers"
+      v-model:query="recordQuery" v-model:filters="filters" :disabled="busy || connectionLost" :local-time="localTime" @view="openBusinessDetail">
       <template #actions>
         <AppButton
           v-if="can('shipment.create')"
@@ -492,116 +643,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sh
           新建出库单
         </AppButton>
       </template>
-      <template #filters>
-        <label>
-          搜索销售出库
-          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
-        </label>
-      </template>
-
-      <template #cell-document="{ row: item }">
-        <div>
-          <!-- 单号直接打开只读详情，与操作列「查看」并存两个入口。 -->
-          <strong
-            ><AppButton
-              type="button"
-              variant="text"
-              :disabled="busy || connectionLost"
-              :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
-                store.openDocumentApproval({
-                  document_type: 'Shipment',
-                  document_id: item.id,
-                  intent: 'execute',
-                })
-              "
-              >{{ documentLabel(item) }}</AppButton
-            >
-            · {{ item.customer_name }} · {{ item.warehouse_name }}</strong
-          >
-          <p class="muted">
-            {{ localTime(item.created_at) }} · 销售订单
-            {{ relatedDocumentLabel(item, "sales_order") }} · 创建人
-            {{ item.created_by_name }}
-            <span v-if="item.reference">· {{ item.reference }}</span>
-            <span v-if="item.reversal_id">
-              · 冲销 #{{ item.reversal_id }}（{{ item.reversal_reason }} ·
-              {{ item.reversed_by_name }}）
-            </span>
-          </p>
-        </div>
-      </template>
-      <template #cell-status="{ row: item }">
-        <span class="pill" :class="item.status">
-          {{
-            item.reversal_id
-              ? "已冲销"
-              : item.status === "posted"
-                ? "已出库"
-                : item.status === "cancelled"
-                  ? "已取消"
-                  : approvalLabels[item.approval?.status ?? "draft"]
-          }}
-        </span>
-      </template>
-      <template #cell-details="{ row: item }">
-        <div class="workspace-record-lines">
-          <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} × {{ line.quantity }} {{ line.unit }} ·
-            已退 {{ line.returned_quantity }} · 可退
-            {{ line.returnable_quantity }}
-            <small
-              v-if="item.status === 'posted' && line.physical_lots?.length"
-              class="shipment-lot-proof"
-            >
-              实物批次：{{
-                line.physical_lots
-                  .map(
-                    (lot) =>
-                      `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`,
-                  )
-                  .join("、")
-              }}
-            </small>
-            <small
-              v-else-if="item.status === 'posted'"
-              class="shipment-lot-proof"
-              >普通确认未指定实物批次，数量在批次核对页显示为差额。</small
-            >
-          </span>
-        </div>
-      </template>
-      <template #cell-actions="{ row: item }">
-        <!-- 行内只保留查看入口，业务操作统一移入详情页脚。 -->
-        <AppButton
-          type="button"
-          variant="secondary"
-          size="small"
-          :disabled="busy || connectionLost"
-          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
-            store.openDocumentApproval({
-              document_type: 'Shipment',
-              document_id: item.id,
-              intent: 'execute',
-            })
-          "
-          >查看</AppButton
-        >
-      </template>
-      <template #empty>
-        <strong>{{
-          recordQuery ? "没有匹配的记录" : "暂无销售出库记录"
-        }}</strong>
-        <span>
-          {{
-            recordQuery
-              ? "可调整单号、名称或物料关键词后重新搜索。"
-              : "业务记录生成后，可在这里查看明细与处理状态。"
-          }}
-        </span>
-      </template>
-    </WorkspaceTable>
+    </SalesDocumentList>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
     <WorkspaceLotDialog origin-key="SalesShipmentsView:lot" @invalidated="closeLotPost()"
       v-if="can('shipment.post')"
