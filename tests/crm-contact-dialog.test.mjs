@@ -15,7 +15,7 @@ export const usePiniaAppStore = defineStore('crm-contact-dialog-test',()=>({
   crmOverview:ref({contacts:[{id:1,name:'王女士',customer_id:4,customer_name:'客户甲',phone:'100',email:'',is_active:true,created_by_name:'销售员'}],activities:[],opportunities:[],quotes:[]}),
   crmForecast:ref(null),crmOptions:ref({customers:[{id:4,name:'客户甲'}],owners:[],materials:[]}),
   crmDetail:ref(null),crmError:ref(''),crmLoading:ref(false),crmForms:ref(null),crmEdit:ref({}),
-  crmOwnerChanges:ref([]),busy:ref(false),user:ref({id:1,permissions:['crm.view','crm_contact.manage']}),connectionLost:ref(false),error:ref(''),
+  server:ref(null),crmOwnerChanges:ref([]),busy:ref(false),user:ref({id:1,permissions:['crm.view','crm_contact.manage']}),connectionLost:ref(false),error:ref(''),
   saveResult:ref(false),can:code=>allowed.has(code),loadCrm:async()=>{},clearCrmDetail(){},
   startNewCrm(){},editCrm:async()=>true,
   saveCrm:async function(kind){calls.push(kind);return this.saveResult},navigateToRoute(){}
@@ -158,7 +158,7 @@ test('跟进商机和报价沿用公共弹窗，背景列表不进入惰性模�
   for(const [kind,permission,label] of [['activity','crm_activity.manage','客户跟进'],
     ['opportunity','crm_opportunity.manage','销售商机'],['quote','crm_quote.create','销售报价']]) {
     allowed.add(permission)
-    const {html}=await render(View,{},page=>page.newRecord(kind))
+    const {html}=await render(View,{},page=>{page.selectMode(kind);page.newRecord(kind)})
     assert.match(html,new RegExp(`data-modal="新建${label}"`))
     assert.match(html,new RegExp(`data-table="${label}"`))
     assert.doesNotMatch(html,/<template[\s>]/)
@@ -182,4 +182,39 @@ test('CRM 分类统计、关键词和客户筛选组合，切换页签重置状�
   allowed.add('crm_activity.manage');setup.summary.value='attention';setup.query.value='旧报价'
   setup.newRecord('activity')
   assert.equal(setup.mode.value,'activity');assert.equal(setup.summary.value,'');assert.equal(setup.query.value,'')
+})
+
+// 客户页打开不同资料时，详情动作使用实体类型，不能误用外层跟进页签。
+test('客户、跟进、报价三个入口，客户内新建和修订不跳到独立联系人列表',async t=>{
+  const {allowed,View,render,store}=await fixture(t)
+  allowed.add('crm_activity.manage');allowed.add('crm_quote.create')
+  const {html,setup}=await render(View)
+  assert.match(html,/客户关系分类/)
+  assert.match(html,/data-table="客户"/)
+  assert.doesNotMatch(html,/data-table="联系人"/)
+  setup.newCustomerRecord('contact',4)
+  assert.equal(setup.showingCustomers.value,true);assert.equal(setup.editor.value,'contact')
+  assert.equal(store.crmForms.contact.customer_id,4)
+  assert.equal(setup.canEdit(store.crmOverview.contacts[0]),true)
+  setup.closeEditor();setup.newCustomerRecord('quote',4)
+  assert.equal(store.crmForms.quote.customer_id,4);assert.equal(store.crmForms.quote.opportunity_id,null)
+  assert.equal(setup.showingCustomers.value,true)
+  setup.selectSection('activity');assert.equal(setup.showingCustomers.value,false);assert.equal(setup.mode.value,'activity')
+  setup.selectSection('quote');assert.equal(setup.mode.value,'quote')
+  setup.selectSection('customer');assert.equal(setup.showingCustomers.value,true)
+})
+
+// 逾期待办仍包含在待跟进中，客户入口与跟进入口的数量不能互相矛盾。
+test('待跟进筛选同时包含正常和逾期待办，已完成不混入',async t=>{
+  const {store,View,render}=await fixture(t)
+  store.crmOverview.activities=[
+    {id:1,customer_id:4,subject:'逾期跟进',due_date:'2029-01-01',status:'planned',overdue:true},
+    {id:2,customer_id:4,subject:'正常跟进',due_date:'2030-01-01',status:'planned',overdue:false},
+    {id:3,customer_id:4,subject:'完成跟进',due_date:'2029-01-01',status:'completed',overdue:false},
+  ]
+  const {setup}=await render(View,{},page=>page.selectSection('activity'))
+  assert.equal(setup.counts.value.find(row=>row.key==='active').count,2)
+  assert.equal(setup.counts.value.find(row=>row.key==='attention').count,1)
+  setup.summary.value='active';assert.deepEqual(setup.records.value.map(row=>row.id),[1,2])
+  setup.summary.value='attention';assert.deepEqual(setup.records.value.map(row=>row.id),[1])
 })
