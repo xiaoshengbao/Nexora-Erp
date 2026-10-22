@@ -3459,6 +3459,6 @@ def migrate() -> None:
                 ('document_approval_cases', 'routing_json', 'TEXT'),
             ):
                 columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
-                if name not in columns:
+                if columns and name not in columns:
                     db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
             db.execute('PRAGMA user_version = 112')
