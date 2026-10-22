@@ -11,6 +11,10 @@ from sqlalchemy import func, select
 
 from test_document_approval import context
 from test_purchase_document_approval import purchase, path
+from test_business_orm import erp
+from test_payment_document_approval import funds, new as new_payment, execute as execute_payment, balance as payment_balance
+from test_order_settlement_document_approval import offsets, new as new_offset, execute as execute_offset, balance as offset_balance
+from approval_test_helpers import approve_document
 from app.core.approval_routing import AMOUNT_BASES, resolve, snapshot_amount, validate_branches
 from app.core.database import connection, migrate
 from app.core.document_approval import find_case
@@ -40,6 +44,27 @@ DEFAULT = [{'name': '默认批准', 'role': None, 'action': 'approve'}]
 ])
 def test_amount_uses_fixed_business_basis(kind, content, expected):
     assert snapshot_amount(kind, content) == Decimal(expected)
+
+
+@pytest.mark.parametrize('kind', ['PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer',
+    'SubledgerSettlement', 'SubledgerOrderSettlement', 'ControlBalanceTransfer'])
+def test_signed_money_routes_by_magnitude_without_rewriting_content(kind):
+    content = {'amount': '-25.00'}
+    steps, evidence = resolve(kind, content, 'execute', DEFAULT, [branch()])
+    assert steps == branch()['steps'] and evidence['amount'] == '25.00'
+    assert evidence['basis'] == '本单金额绝对值' and evidence['branch']['name'] == '大额流程'
+    assert content == {'amount': '-25.00'}
+
+
+@pytest.mark.parametrize('kind,content', [
+    ('PurchaseOrder', {'lines': [{'quantity': '-1', 'unit_price': '25'}]}),
+    ('Journal', {'lines': [{'debit': '-25'}]}),
+    ('PaymentRecord', {'amount': '-1000000000000000001'}),
+])
+def test_signed_money_exception_does_not_allow_invalid_quantity_debit_or_magnitude(kind, content):
+    with pytest.raises(HTTPException) as error:
+        snapshot_amount(kind, content)
+    assert error.value.status_code == 409
 
 
 @pytest.mark.parametrize('bad', [
@@ -82,6 +107,42 @@ def configure(client, auth, *, version=1, branches=None, kind='PurchaseOrder', s
 def act(client, auth, order, action, version):
     return client.post(path('PurchaseOrder', order['id']) + '/' + action, headers=auth,
         json={'version': version, 'intent': 'execute', 'reason': '核对本次依据'})
+
+
+@pytest.mark.parametrize('fixture,kind,base,create,execute,balance,amount', [
+    ('funds', 'PaymentRecord', '/api/v1/finance/payment-records', new_payment,
+        execute_payment, payment_balance, '15.00'),
+    ('offsets', 'OrderSettlementTransfer', '/api/v1/finance/order-settlements', new_offset,
+        execute_offset, offset_balance, '6.00'),
+])
+def test_real_negative_counterdocument_requires_full_amount_branch_before_restoring_balance(
+        request, fixture, kind, base, create, execute, balance, amount):
+    data = request.getfixturevalue(fixture)
+    client, _ = data
+    current_balance = lambda: balance(client if fixture == 'funds' else data)
+    before = current_balance()
+    original = create(data)
+    approve_document(client, None, kind, original['id'], reason='核对原始单据')
+    execute(client, original)
+    after = current_balance()
+    assert after != before
+    assert configure(client, {}, kind=kind, branches=[branch('1')]).status_code == 200
+    response = client.post(f"{base}/{original['id']}/reverse", json={'reason': '更正原始经济事项'})
+    assert response.status_code == 201, response.text
+    counter = response.json()
+    assert counter['amount'] == '-' + amount
+    endpoint = path(kind, counter['id'])
+    sent = client.post(endpoint + '/submit', json={'version': 0, 'intent': 'execute', 'reason': '独立核对反向单据'})
+    assert sent.status_code == 200, sent.text
+    assert sent.json()['routing']['amount'] == amount and len(sent.json()['steps']) == 2
+    first = client.post(endpoint + '/approve', json={'version': 1, 'reason': '复核反向金额'})
+    assert first.status_code == 200 and first.json()['status'] == 'submitted'
+    blocked = client.post(f"{base}/{counter['id']}/post", json={'version': counter['version'], 'reason': '尚未批准'})
+    assert blocked.status_code == 409 and current_balance() == after
+    final = client.post(endpoint + '/approve', json={'version': 2, 'reason': '批准反向金额'})
+    assert final.status_code == 200 and final.json()['status'] == 'approved'
+    posted = execute(client, counter)
+    assert posted['amount'] == counter['amount'] and current_balance() == before
 
 
 def test_real_order_routes_at_boundary_and_freezes_until_execution(purchase):

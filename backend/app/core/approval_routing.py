@@ -14,7 +14,7 @@ AMOUNT_BASES = {
     'CrmQuote': '报价逐行金额合计',
     'Journal': '凭证借方合计',
     'ProductionCostSettlement': '结算计划总成本',
-    **{name: '本单金额' for name in ('PaymentRecord', 'SubledgerPayment',
+    **{name: '本单金额绝对值' for name in ('PaymentRecord', 'SubledgerPayment',
         'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement',
         'ControlBalanceTransfer')},
 }
@@ -59,13 +59,13 @@ def validate_branches(db, document_type: str, branches, validate_steps) -> list[
     return checked
 
 
-def number(value) -> Decimal:
+def number(value, *, signed=False) -> Decimal:
     # 正文损坏或尚未核价时拒绝送审，不能退回默认分支或把未知金额当作零。
     try:
         if not isinstance(value, str):
             raise ValueError()
         result = Decimal(value)
-        if not result.is_finite() or not 0 <= result <= LIMIT:
+        if not result.is_finite() or not (-LIMIT if signed else 0) <= result <= LIMIT:
             raise ValueError()
         return result
     except (InvalidOperation, ValueError):
@@ -88,7 +88,8 @@ def snapshot_amount(document_type: str, content: Mapping) -> Decimal:
         elif document_type == 'ProductionCostSettlement':
             result = number(content['plan']['header']['total_amount'])
         elif document_type in AMOUNT_BASES:
-            result = number(content['amount'])
+            # 退款及独立反向单据保留原符号，审批额度比较本次经济金额的绝对值。
+            result = number(content['amount'], signed=True).copy_abs()
         else:
             raise ValueError()
         if result > LIMIT:
